@@ -152,37 +152,48 @@ final class ScreenshotService {
     }
 
     private func preferredDisplayIndex() -> Int? {
-        guard let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
-              let windowRect = frontmostWindowRect(for: frontmostPID) else {
-            return nil
-        }
-
         let screenIndexByDisplayID = activeDisplayIndicesByDisplayID()
-        let screenMatches = NSScreen.screens.compactMap { screen -> (Int, CGFloat)? in
-            guard let displayID = displayID(for: screen),
-                  let displayIndex = screenIndexByDisplayID[displayID] else {
-                return nil
+        if let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+           let windowRect = frontmostWindowRect(for: frontmostPID) {
+            let screenMatches = NSScreen.screens.compactMap { screen -> (Int, CGFloat)? in
+                guard let displayID = displayID(for: screen),
+                      let displayIndex = screenIndexByDisplayID[displayID] else {
+                    return nil
+                }
+
+                let overlap = screen.frame.intersection(windowRect)
+                let area = overlap.isNull ? 0 : overlap.width * overlap.height
+                return area > 0 ? (displayIndex, area) : nil
             }
 
-            let overlap = screen.frame.intersection(windowRect)
-            let area = overlap.isNull ? 0 : overlap.width * overlap.height
-            return area > 0 ? (displayIndex, area) : nil
+            if let bestMatch = screenMatches.max(by: { $0.1 < $1.1 }) {
+                return bestMatch.0
+            }
+
+            let windowCenter = CGPoint(x: windowRect.midX, y: windowRect.midY)
+            for screen in NSScreen.screens {
+                guard screen.frame.contains(windowCenter),
+                      let displayID = displayID(for: screen),
+                      let displayIndex = screenIndexByDisplayID[displayID] else {
+                    continue
+                }
+                return displayIndex
+            }
         }
 
-        if let bestMatch = screenMatches.max(by: { $0.1 < $1.1 }) {
-            return bestMatch.0
-        }
+        return mouseDisplayIndex(screenIndexByDisplayID: screenIndexByDisplayID)
+    }
 
-        let windowCenter = CGPoint(x: windowRect.midX, y: windowRect.midY)
+    private func mouseDisplayIndex(screenIndexByDisplayID: [CGDirectDisplayID: Int]) -> Int? {
+        let mouseLocation = NSEvent.mouseLocation
         for screen in NSScreen.screens {
-            guard screen.frame.contains(windowCenter),
+            guard screen.frame.contains(mouseLocation),
                   let displayID = displayID(for: screen),
                   let displayIndex = screenIndexByDisplayID[displayID] else {
                 continue
             }
             return displayIndex
         }
-
         return nil
     }
 
