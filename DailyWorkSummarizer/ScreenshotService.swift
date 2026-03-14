@@ -154,7 +154,7 @@ final class ScreenshotService {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = .current
-        formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
+        formatter.dateFormat = "yyyyMMdd-HHmm"
         let intervalComponent = intervalMinutes.map { "-i\($0)" } ?? ""
         return formatter.string(from: date) + intervalComponent + suffix + ".\(AppDefaults.screenshotFileExtension)"
     }

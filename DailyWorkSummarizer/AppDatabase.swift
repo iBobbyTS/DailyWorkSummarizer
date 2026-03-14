@@ -558,12 +558,11 @@ final class AppDatabase: @unchecked Sendable {
     }
 
     private func parseScreenshotDate(from baseName: String) -> Date? {
-        let timestamp = String(baseName.prefix(19))
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = .current
-        formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
-        return formatter.date(from: timestamp)
+        formatter.dateFormat = "yyyyMMdd-HHmm"
+        return formatter.date(from: String(baseName.prefix(13)))
     }
 
     private func parseScreenshotIntervalMinutes(from baseName: String) -> Int? {
