@@ -24,6 +24,8 @@ final class ReportsViewModel: ObservableObject {
     }
 
     @Published var selectedVisualization: ReportVisualization = .barChart
+    @Published var includeWorkdaysInWeeklyHeatmap = true
+    @Published var includeWeekendsInWeeklyHeatmap = true
     @Published private(set) var pageItems: [ReportRange] = []
     @Published private(set) var chartItems: [CategoryDuration] = []
     @Published private(set) var heatmapItems: [HeatmapEvent] = []
@@ -373,6 +375,18 @@ struct ReportsView: View {
             }
             .pickerStyle(.segmented)
 
+            if viewModel.selectedVisualization == .heatmap, viewModel.selectedKind == .week {
+                HStack(spacing: 16) {
+                    Spacer()
+
+                    Toggle("工作日", isOn: $viewModel.includeWorkdaysInWeeklyHeatmap)
+                        .toggleStyle(.checkbox)
+
+                    Toggle("周末", isOn: $viewModel.includeWeekendsInWeeklyHeatmap)
+                        .toggleStyle(.checkbox)
+                }
+            }
+
             if viewModel.chartItems.isEmpty {
                 Spacer()
                 ContentUnavailableView(
@@ -402,10 +416,13 @@ struct ReportsView: View {
                         .frame(height: 360)
                     } else if let selectedRange = viewModel.selectedRange {
                         HeatmapTimelineView(
+                            kind: viewModel.selectedKind,
                             range: selectedRange,
                             categories: viewModel.heatmapCategories,
                             items: viewModel.heatmapItems,
-                            categoryColors: categoryColors
+                            categoryColors: categoryColors,
+                            includeWorkdays: viewModel.includeWorkdaysInWeeklyHeatmap,
+                            includeWeekends: viewModel.includeWeekendsInWeeklyHeatmap
                         )
                         .frame(height: 360)
                     }
@@ -443,6 +460,43 @@ struct ReportsView: View {
 }
 
 private struct HeatmapTimelineView: View {
+    let kind: ReportKind
+    let range: ReportRange
+    let categories: [String]
+    let items: [HeatmapEvent]
+    let categoryColors: [String: Color]
+    let includeWorkdays: Bool
+    let includeWeekends: Bool
+
+    var body: some View {
+        switch kind {
+        case .day:
+            DailyHeatmapView(
+                range: range,
+                categories: categories,
+                items: items,
+                categoryColors: categoryColors
+            )
+        case .week:
+            WeeklyHeatmapView(
+                categories: categories,
+                items: items,
+                categoryColors: categoryColors,
+                includeWorkdays: includeWorkdays,
+                includeWeekends: includeWeekends
+            )
+        case .month, .year:
+            ContinuousHeatmapView(
+                range: range,
+                categories: categories,
+                items: items,
+                categoryColors: categoryColors
+            )
+        }
+    }
+}
+
+private struct ContinuousHeatmapView: View {
     let range: ReportRange
     let categories: [String]
     let items: [HeatmapEvent]
@@ -531,7 +585,7 @@ private struct HeatmapTimelineView: View {
         )
     }
 
-    private var timelineWidth: CGFloat {
+    fileprivate var timelineWidth: CGFloat {
         let totalHours = max(range.interval.duration / 3600.0, 1)
         let pointsPerHour: CGFloat
 
@@ -549,7 +603,7 @@ private struct HeatmapTimelineView: View {
         return max(720, CGFloat(totalHours) * pointsPerHour)
     }
 
-    private var timelineTicks: [Date] {
+    fileprivate var timelineTicks: [Date] {
         let tickCount = 7
         let totalDuration = range.interval.duration
         guard totalDuration > 0 else {
@@ -565,19 +619,19 @@ private struct HeatmapTimelineView: View {
         }
     }
 
-    private func position(for date: Date, in width: CGFloat) -> CGFloat {
+    fileprivate func position(for date: Date, in width: CGFloat) -> CGFloat {
         let totalDuration = max(range.interval.duration, 1)
         let offset = date.timeIntervalSince(range.interval.start)
         let progress = min(max(offset / totalDuration, 0), 1)
         return CGFloat(progress) * width
     }
 
-    private func eventWidth(for item: HeatmapEvent, in width: CGFloat) -> CGFloat {
+    fileprivate func eventWidth(for item: HeatmapEvent, in width: CGFloat) -> CGFloat {
         let totalDuration = max(range.interval.duration, 1)
         return CGFloat(item.end.timeIntervalSince(item.start) / totalDuration) * width
     }
 
-    private static func tickFormatter(for interval: DateInterval) -> DateFormatter {
+    fileprivate static func tickFormatter(for interval: DateInterval) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.timeZone = .current
@@ -597,6 +651,312 @@ private struct HeatmapTimelineView: View {
 
         return formatter
     }
+}
+
+private struct DailyHeatmapView: View {
+    let range: ReportRange
+    let categories: [String]
+    let items: [HeatmapEvent]
+    let categoryColors: [String: Color]
+
+    private let labelWidth: CGFloat = 96
+    private let rowHeight: CGFloat = 26
+    private let rowSpacing: CGFloat = 10
+    private let axisLabelWidth: CGFloat = 44
+
+    var body: some View {
+        GeometryReader { geometry in
+            let canvasWidth = max(geometry.size.width - labelWidth - 12, 540)
+            let rowStride = rowHeight + rowSpacing
+            let canvasHeight = max(CGFloat(categories.count) * rowStride - rowSpacing, rowHeight)
+            let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
+            let tickDates = timelineTicks(canvasWidth: canvasWidth)
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .bottom, spacing: 12) {
+                    Color.clear
+                        .frame(width: labelWidth, height: 1)
+
+                    ZStack(alignment: .topLeading) {
+                        Rectangle()
+                            .fill(Color.secondary.opacity(0.18))
+                            .frame(height: 1)
+                            .offset(y: 20)
+
+                        ForEach(Array(tickDates.enumerated()), id: \.offset) { index, tick in
+                            let xPosition = position(for: tick, in: canvasWidth)
+                            VStack(alignment: index == tickDates.count - 1 ? .trailing : .leading, spacing: 4) {
+                                Text(Self.tickFormatter.string(from: tick))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Rectangle()
+                                    .fill(Color.secondary.opacity(0.25))
+                                    .frame(width: 1, height: 8)
+                            }
+                            .offset(x: min(max(0, xPosition - axisLabelWidth / 2), max(0, canvasWidth - axisLabelWidth)))
+                        }
+                    }
+                    .frame(width: canvasWidth, height: 30)
+                }
+
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: rowSpacing) {
+                        ForEach(categories, id: \.self) { category in
+                            Text(category)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: labelWidth, height: rowHeight, alignment: .leading)
+                        }
+                    }
+
+                    ZStack(alignment: .topLeading) {
+                        ForEach(Array(categories.enumerated()), id: \.element) { index, _ in
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(index.isMultiple(of: 2) ? Color.gray.opacity(0.08) : Color.clear)
+                                .frame(width: canvasWidth, height: rowHeight)
+                                .offset(y: CGFloat(index) * rowStride)
+                        }
+
+                        ForEach(items) { item in
+                            if let rowIndex = rowIndexMap[item.category] {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill((categoryColors[item.category] ?? .accentColor).opacity(0.78))
+                                    .frame(
+                                        width: max(eventWidth(for: item, in: canvasWidth), 1),
+                                        height: rowHeight - 4
+                                    )
+                                    .offset(
+                                        x: position(for: item.start, in: canvasWidth),
+                                        y: CGFloat(rowIndex) * rowStride + 2
+                                    )
+                            }
+                        }
+                    }
+                    .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.gray.opacity(0.06))
+        )
+    }
+
+    private func position(for date: Date, in width: CGFloat) -> CGFloat {
+        let totalDuration = max(range.interval.duration, 1)
+        let progress = min(max(date.timeIntervalSince(range.interval.start) / totalDuration, 0), 1)
+        return CGFloat(progress) * width
+    }
+
+    private func eventWidth(for item: HeatmapEvent, in width: CGFloat) -> CGFloat {
+        let totalDuration = max(range.interval.duration, 1)
+        return CGFloat(item.end.timeIntervalSince(item.start) / totalDuration) * width
+    }
+
+    private func timelineTicks(canvasWidth: CGFloat) -> [Date] {
+        let hourStep = adaptiveHourStep(canvasWidth: canvasWidth)
+        let totalHours = 24
+
+        return stride(from: 0, through: totalHours, by: hourStep).compactMap { hour in
+            Calendar.reportCalendar.date(byAdding: .hour, value: hour, to: range.interval.start)
+        }
+    }
+
+    private func adaptiveHourStep(canvasWidth: CGFloat) -> Int {
+        let maxLabelCount = max(Int(canvasWidth / axisLabelWidth), 2)
+        for hourStep in [1, 2, 3, 4, 6, 8, 12] {
+            if (24 / hourStep) + 1 <= maxLabelCount {
+                return hourStep
+            }
+        }
+        return 12
+    }
+
+    fileprivate static let tickFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.timeZone = .current
+        formatter.dateFormat = "H:mm"
+        return formatter
+    }()
+}
+
+private struct WeeklyHeatmapView: View {
+    let categories: [String]
+    let items: [HeatmapEvent]
+    let categoryColors: [String: Color]
+    let includeWorkdays: Bool
+    let includeWeekends: Bool
+
+    private let labelWidth: CGFloat = 96
+    private let rowHeight: CGFloat = 26
+    private let rowSpacing: CGFloat = 10
+    private let axisLabelWidth: CGFloat = 44
+
+    var body: some View {
+        GeometryReader { geometry in
+            let canvasWidth = max(geometry.size.width - labelWidth - 12, 540)
+            let rowStride = rowHeight + rowSpacing
+            let canvasHeight = max(CGFloat(categories.count) * rowStride - rowSpacing, rowHeight)
+            let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
+            let tickDates = timelineTicks(canvasWidth: canvasWidth)
+            let fragments = weeklyFragments()
+            let opacity = fragmentOpacity
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .bottom, spacing: 12) {
+                    Color.clear
+                        .frame(width: labelWidth, height: 1)
+
+                    ZStack(alignment: .topLeading) {
+                        Rectangle()
+                            .fill(Color.secondary.opacity(0.18))
+                            .frame(height: 1)
+                            .offset(y: 20)
+
+                        ForEach(Array(tickDates.enumerated()), id: \.offset) { index, tick in
+                            let xPosition = position(for: tick, in: canvasWidth)
+                            VStack(alignment: index == tickDates.count - 1 ? .trailing : .leading, spacing: 4) {
+                                Text(DailyHeatmapView.tickFormatter.string(from: tick))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Rectangle()
+                                    .fill(Color.secondary.opacity(0.25))
+                                    .frame(width: 1, height: 8)
+                            }
+                            .offset(x: min(max(0, xPosition - axisLabelWidth / 2), max(0, canvasWidth - axisLabelWidth)))
+                        }
+                    }
+                    .frame(width: canvasWidth, height: 30)
+                }
+
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: rowSpacing) {
+                        ForEach(categories, id: \.self) { category in
+                            Text(category)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: labelWidth, height: rowHeight, alignment: .leading)
+                        }
+                    }
+
+                    ZStack(alignment: .topLeading) {
+                        ForEach(Array(categories.enumerated()), id: \.element) { index, _ in
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(index.isMultiple(of: 2) ? Color.gray.opacity(0.08) : Color.clear)
+                                .frame(width: canvasWidth, height: rowHeight)
+                                .offset(y: CGFloat(index) * rowStride)
+                        }
+
+                        ForEach(fragments) { fragment in
+                            if let rowIndex = rowIndexMap[fragment.category] {
+                                RoundedRectangle(cornerRadius: 7)
+                                    .fill((categoryColors[fragment.category] ?? .accentColor).opacity(opacity))
+                                    .frame(
+                                        width: max(position(for: fragment.endSeconds, in: canvasWidth) - position(for: fragment.startSeconds, in: canvasWidth), 1),
+                                        height: rowHeight - 4
+                                    )
+                                    .offset(
+                                        x: position(for: fragment.startSeconds, in: canvasWidth),
+                                        y: CGFloat(rowIndex) * rowStride + 2
+                                    )
+                            }
+                        }
+                    }
+                    .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.gray.opacity(0.06))
+        )
+    }
+
+    private var fragmentOpacity: Double {
+        switch (includeWorkdays, includeWeekends) {
+        case (true, false):
+            return 1.0 / 5.0
+        case (false, true):
+            return 1.0 / 2.0
+        case (true, true):
+            return 1.0 / 7.0
+        case (false, false):
+            return 0
+        }
+    }
+
+    private func weeklyFragments() -> [WeeklyHeatmapFragment] {
+        guard includeWorkdays || includeWeekends else {
+            return []
+        }
+
+        var fragments: [WeeklyHeatmapFragment] = []
+        let calendar = Calendar.reportCalendar
+
+        for item in items {
+            var segmentStart = item.start
+            while segmentStart < item.end {
+                let dayStart = calendar.startOfDay(for: segmentStart)
+                let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? item.end
+                let segmentEnd = min(item.end, dayEnd)
+                let isWeekend = calendar.isDateInWeekend(segmentStart)
+                let shouldInclude = isWeekend ? includeWeekends : includeWorkdays
+
+                if shouldInclude {
+                    fragments.append(
+                        WeeklyHeatmapFragment(
+                            id: "\(item.id)-\(segmentStart.timeIntervalSince1970)",
+                            category: item.category,
+                            startSeconds: segmentStart.timeIntervalSince(dayStart),
+                            endSeconds: segmentEnd.timeIntervalSince(dayStart)
+                        )
+                    )
+                }
+
+                segmentStart = segmentEnd
+            }
+        }
+
+        return fragments
+    }
+
+    private func timelineTicks(canvasWidth: CGFloat) -> [Date] {
+        let hourStep = adaptiveHourStep(canvasWidth: canvasWidth)
+        let base = Calendar.reportCalendar.startOfDay(for: Date())
+
+        return stride(from: 0, through: 24, by: hourStep).compactMap { hour in
+            Calendar.reportCalendar.date(byAdding: .hour, value: hour, to: base)
+        }
+    }
+
+    private func adaptiveHourStep(canvasWidth: CGFloat) -> Int {
+        let maxLabelCount = max(Int(canvasWidth / axisLabelWidth), 2)
+        for hourStep in [1, 2, 3, 4, 6, 8, 12] {
+            if (24 / hourStep) + 1 <= maxLabelCount {
+                return hourStep
+            }
+        }
+        return 12
+    }
+
+    private func position(for seconds: TimeInterval, in width: CGFloat) -> CGFloat {
+        CGFloat(min(max(seconds / 86_400.0, 0), 1)) * width
+    }
+
+    private func position(for date: Date, in width: CGFloat) -> CGFloat {
+        let dayStart = Calendar.reportCalendar.startOfDay(for: date)
+        return position(for: date.timeIntervalSince(dayStart), in: width)
+    }
+}
+
+private struct WeeklyHeatmapFragment: Identifiable {
+    let id: String
+    let category: String
+    let startSeconds: TimeInterval
+    let endSeconds: TimeInterval
 }
 
 private extension DateFormatter {
