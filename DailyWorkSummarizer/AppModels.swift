@@ -206,12 +206,14 @@ struct ScreenshotFileRecord: Identifiable {
 
 struct AnalysisRuntimeState {
     let isRunning: Bool
+    let isStopping: Bool
     let startedAt: Date?
     let completedCount: Int
     let totalCount: Int
 
     static let idle = AnalysisRuntimeState(
         isRunning: false,
+        isStopping: false,
         startedAt: nil,
         completedCount: 0,
         totalCount: 0

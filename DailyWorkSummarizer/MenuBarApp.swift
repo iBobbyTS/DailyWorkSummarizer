@@ -256,9 +256,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         if analysisState.isRunning {
             let startedAt = analysisState.startedAt ?? pendingScreenshots.first?.capturedAt ?? Date()
-            statusSummaryItem.title = "正在分析从 \(Self.statusDateFormatter.string(from: startedAt)) 开始的截屏（\(analysisState.completedCount)/\(analysisState.totalCount)）"
-            analyzeNowItem.title = "暂停分析"
-            analyzeNowItem.isEnabled = true
+            if analysisState.isStopping {
+                statusSummaryItem.title = "正在暂停从 \(Self.statusDateFormatter.string(from: startedAt)) 开始的截屏分析（\(analysisState.completedCount)/\(analysisState.totalCount)）"
+                analyzeNowItem.title = "正在暂停"
+                analyzeNowItem.isEnabled = false
+            } else {
+                statusSummaryItem.title = "正在分析从 \(Self.statusDateFormatter.string(from: startedAt)) 开始的截屏（\(analysisState.completedCount)/\(analysisState.totalCount)）"
+                analyzeNowItem.title = "暂停分析"
+                analyzeNowItem.isEnabled = true
+            }
             return
         }
 

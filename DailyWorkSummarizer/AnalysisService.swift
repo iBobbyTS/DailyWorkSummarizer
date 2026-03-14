@@ -1,6 +1,10 @@
 import AppKit
 import Foundation
 
+private final class URLSessionDataTaskBox: @unchecked Sendable {
+    var task: URLSessionDataTask?
+}
+
 enum AnalysisServiceError: LocalizedError {
     case invalidConfiguration(String)
     case invalidResponse(String)
@@ -36,6 +40,8 @@ final class AnalysisService {
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var runningTask: Task<Void, Never>?
+    private var activeRequestTask: URLSessionDataTask?
+    private var activeRunSettings: AppSettingsSnapshot?
     private var lastLMStudioResponseID: String?
     private var runtimeState: AnalysisRuntimeState = .idle {
         didSet {
@@ -79,7 +85,20 @@ final class AnalysisService {
     }
 
     func cancelCurrentRun() {
+        guard runtimeState.isRunning, !runtimeState.isStopping else { return }
+        updateRuntimeState(
+            startedAt: runtimeState.startedAt,
+            completedCount: runtimeState.completedCount,
+            totalCount: runtimeState.totalCount,
+            isStopping: true
+        )
         runningTask?.cancel()
+        activeRequestTask?.cancel()
+        if let activeRunSettings {
+            Task { [weak self] in
+                await self?.stopModelIfNeeded(for: activeRunSettings)
+            }
+        }
     }
 
     var currentState: AnalysisRuntimeState {
@@ -142,6 +161,7 @@ final class AnalysisService {
 
     private func runAnalysis(scheduledFor: Date) async {
         let snapshot = settingsStore.snapshot
+        activeRunSettings = snapshot
         let prompt = buildPrompt(with: snapshot.validCategoryRules)
         let categoriesJSON = encodeCategories(snapshot.validCategoryRules)
         let pendingCaptures = (try? database.listScreenshotFiles(defaultDurationMinutes: snapshot.screenshotIntervalMinutes)) ?? []
@@ -161,13 +181,15 @@ final class AnalysisService {
             return
         }
 
-        runtimeState = AnalysisRuntimeState(
-            isRunning: true,
+        updateRuntimeState(
             startedAt: pendingCaptures.first?.capturedAt,
             completedCount: 0,
-            totalCount: pendingCaptures.count
+            totalCount: pendingCaptures.count,
+            isStopping: false
         )
         defer {
+            activeRunSettings = nil
+            activeRequestTask = nil
             runtimeState = .idle
         }
 
@@ -239,8 +261,7 @@ final class AnalysisService {
                 )
                 failureCount += 1
                 completedCount += 1
-                runtimeState = AnalysisRuntimeState(
-                    isRunning: true,
+                updateRuntimeState(
                     startedAt: pendingCaptures.first?.capturedAt,
                     completedCount: completedCount,
                     totalCount: pendingCaptures.count
@@ -296,8 +317,7 @@ final class AnalysisService {
             }
 
             completedCount += 1
-            runtimeState = AnalysisRuntimeState(
-                isRunning: true,
+            updateRuntimeState(
                 startedAt: pendingCaptures.first?.capturedAt,
                 completedCount: completedCount,
                 totalCount: pendingCaptures.count
@@ -313,6 +333,7 @@ final class AnalysisService {
                 averageItemDurationSeconds: measuredItemCount > 0 ? measuredDurationTotal / Double(measuredItemCount) : nil,
                 errorMessage: "用户手动暂停分析"
             )
+            await stopModelIfNeeded(for: snapshot)
             return
         }
 
@@ -333,6 +354,7 @@ final class AnalysisService {
             averageItemDurationSeconds: measuredItemCount > 0 ? measuredDurationTotal / Double(measuredItemCount) : nil,
             errorMessage: failureCount > 0 ? "部分截图分析失败，请检查网络、模型接口或返回格式" : nil
         )
+        await stopModelIfNeeded(for: snapshot)
     }
 
     private func buildPrompt(with rules: [CategoryRule]) -> String {
@@ -348,8 +370,8 @@ final class AnalysisService {
         \(list)
 
         返回要求：
-        1. 优先返回严格 JSON：{"category":"类别名"}
-        2. 如果你无法返回 JSON，也只能返回一个类别名，不能附加解释
+        1. 只能返回一个类别名
+        2. 不要返回 JSON、Markdown、解释、思考过程或其他多余文本
         3. 返回的类别名必须与候选类别完全一致
         """
     }
@@ -415,7 +437,7 @@ final class AnalysisService {
             )
         }
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await performDataRequest(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AnalysisServiceError.invalidResponse("模型接口没有返回有效的 HTTP 响应")
         }
@@ -622,7 +644,7 @@ final class AnalysisService {
     private func extractCategory(from rawText: String, validRules: [CategoryRule], finishReason: String?) -> String? {
         let categories = validRules.map { $0.name }
 
-        if let matched = extractCategoryFromFinalJSON(in: rawText, categories: categories) {
+        if let matched = extractCategoryFromPlainText(in: rawText, categories: categories) {
             return matched
         }
 
@@ -634,33 +656,24 @@ final class AnalysisService {
         return nil
     }
 
-    private func extractCategoryFromFinalJSON(in rawText: String, categories: [String]) -> String? {
-        let patterns = [
-            "```(?:json)?\\s*(\\{[\\s\\S]*?\"category\"\\s*:[\\s\\S]*?\\})\\s*```",
-            "(\\{[\\s\\S]*?\"category\"\\s*:[\\s\\S]*?\\})",
+    private func extractCategoryFromPlainText(in rawText: String, categories: [String]) -> String? {
+        let normalized = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let candidates = [
+            normalized,
+            unwrapCodeFence(from: normalized),
+            normalized
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .last(where: { !$0.isEmpty }) ?? "",
+            unwrapCodeFence(from: normalized)
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .last(where: { !$0.isEmpty }) ?? "",
         ]
 
-        for pattern in patterns {
-            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-                continue
-            }
-
-            let range = NSRange(rawText.startIndex..<rawText.endIndex, in: rawText)
-            let matches = regex.matches(in: rawText, options: [], range: range)
-            for match in matches.reversed() {
-                guard match.numberOfRanges > 1,
-                      let captureRange = Range(match.range(at: 1), in: rawText) else {
-                    continue
-                }
-
-                let candidate = String(rawText[captureRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-                guard let data = candidate.data(using: .utf8),
-                      let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let category = jsonObject["category"] as? String,
-                      let matched = matchCategory(category, categories: categories) else {
-                    continue
-                }
-
+        for candidate in candidates {
+            if let matched = matchCategory(candidate, categories: categories) {
                 return matched
             }
         }
@@ -720,7 +733,152 @@ final class AnalysisService {
     }
 
     private func matchCategory(_ value: String, categories: [String]) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines.union(.init(charactersIn: "\"'")))
+        let trimmed = value.trimmingCharacters(
+            in: .whitespacesAndNewlines.union(.init(charactersIn: "\"'`"))
+        )
         return categories.first { $0 == trimmed }
+    }
+
+    private func unwrapCodeFence(from text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("```"), trimmed.hasSuffix("```") else {
+            return trimmed
+        }
+
+        var lines = trimmed.components(separatedBy: .newlines)
+        if !lines.isEmpty {
+            lines.removeFirst()
+        }
+        if !lines.isEmpty {
+            lines.removeLast()
+        }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func updateRuntimeState(
+        startedAt: Date?,
+        completedCount: Int,
+        totalCount: Int,
+        isStopping: Bool? = nil
+    ) {
+        runtimeState = AnalysisRuntimeState(
+            isRunning: true,
+            isStopping: isStopping ?? runtimeState.isStopping,
+            startedAt: startedAt,
+            completedCount: completedCount,
+            totalCount: totalCount
+        )
+    }
+
+    private func performDataRequest(for request: URLRequest) async throws -> (Data, URLResponse) {
+        let taskBox = URLSessionDataTaskBox()
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let completion: @Sendable (Data?, URLResponse?, Error?) -> Void = { [weak self, taskBox] data, response, error in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        if self.activeRequestTask === taskBox.task {
+                            self.activeRequestTask = nil
+                        }
+                    }
+
+                    if let error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+
+                    guard let data, let response else {
+                        continuation.resume(throwing: AnalysisServiceError.invalidResponse("模型接口没有返回数据"))
+                        return
+                    }
+
+                    continuation.resume(returning: (data, response))
+                }
+
+                let dataTask = session.dataTask(with: request, completionHandler: completion)
+                taskBox.task = dataTask
+                activeRequestTask = dataTask
+                dataTask.resume()
+            }
+        } onCancel: {
+            Task { @MainActor [taskBox] in
+                taskBox.task?.cancel()
+            }
+        }
+    }
+
+    private func stopModelIfNeeded(for settings: AppSettingsSnapshot) async {
+        activeRequestTask?.cancel()
+        activeRequestTask = nil
+        lastLMStudioResponseID = nil
+
+        guard settings.provider == .lmStudio,
+              let modelsURL = lmStudioModelsURL(from: settings.apiBaseURL) else {
+            return
+        }
+
+        do {
+            let listRequest = makeJSONRequest(url: modelsURL, method: "GET", apiKey: settings.apiKey)
+            let (data, response) = try await performDataRequest(for: listRequest)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode) else {
+                return
+            }
+
+            guard let instanceID = extractLMStudioInstanceID(from: data, modelName: settings.modelName) else {
+                return
+            }
+
+            let unloadURL = modelsURL.appendingPathComponent("unload")
+            var unloadRequest = makeJSONRequest(url: unloadURL, method: "POST", apiKey: settings.apiKey)
+            unloadRequest.httpBody = try JSONSerialization.data(withJSONObject: ["instance_id": instanceID])
+            _ = try await performDataRequest(for: unloadRequest)
+        } catch {
+            return
+        }
+    }
+
+    private func makeJSONRequest(url: URL, method: String, apiKey: String) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("close", forHTTPHeaderField: "Connection")
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+        return request
+    }
+
+    private func lmStudioModelsURL(from baseURLString: String) -> URL? {
+        guard let chatURL = ModelProvider.lmStudio.requestURL(from: baseURLString) else {
+            return nil
+        }
+        return chatURL.deletingLastPathComponent().appendingPathComponent("models")
+    }
+
+    private func extractLMStudioInstanceID(from data: Data, modelName: String) -> String? {
+        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = payload["models"] as? [[String: Any]] else {
+            return nil
+        }
+
+        for model in models {
+            let key = model["key"] as? String
+            let selectedVariant = model["selected_variant"] as? String
+            guard key == modelName || selectedVariant == modelName else {
+                continue
+            }
+
+            let loadedInstances = model["loaded_instances"] as? [[String: Any]] ?? []
+            if let instanceID = loadedInstances.compactMap({
+                ($0["identifier"] as? String) ?? ($0["id"] as? String)
+            }).first {
+                return instanceID
+            }
+        }
+
+        return nil
     }
 }

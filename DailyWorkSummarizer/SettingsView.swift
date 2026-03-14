@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var isCapturingPreview = false
     @State private var modelTestResult: String?
     @State private var modelTestError: String?
+    @State private var modelTestCountdownText: String?
     @State private var isTestingModel = false
 
     private var analysisTimeBinding: Binding<Date> {
@@ -167,6 +168,8 @@ struct SettingsView: View {
 
             Spacer()
         }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 12)
     }
 
     private var modelTab: some View {
@@ -319,6 +322,11 @@ struct SettingsView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(isTestingModel)
 
+                    if let modelTestCountdownText {
+                        Text(modelTestCountdownText)
+                            .foregroundStyle(.secondary)
+                    }
+
                     if let modelTestResult {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("测试分类结果")
@@ -335,6 +343,8 @@ struct SettingsView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 12)
         }
     }
 
@@ -384,6 +394,7 @@ struct SettingsView: View {
     private func testModel() {
         modelTestResult = nil
         modelTestError = nil
+        modelTestCountdownText = nil
         isTestingModel = true
 
         Task { @MainActor in
@@ -392,10 +403,20 @@ struct SettingsView: View {
                 if let temporaryFileURL {
                     try? FileManager.default.removeItem(at: temporaryFileURL)
                 }
+                modelTestCountdownText = nil
                 isTestingModel = false
             }
 
             do {
+                for remainingSeconds in stride(from: 3, through: 1, by: -1) {
+                    if remainingSeconds == 1 {
+                        modelTestCountdownText = "正在分析，可能需要等待模型加载"
+                    } else {
+                        modelTestCountdownText = "倒计时：\(remainingSeconds)秒"
+                    }
+                    try await Task.sleep(for: .seconds(1))
+                }
+
                 temporaryFileURL = try screenshotService.captureTemporaryMainDisplay()
                 guard let temporaryFileURL else {
                     throw NSError(
