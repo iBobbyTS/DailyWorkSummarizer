@@ -226,6 +226,30 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
+    func recordAbsenceEvent(capturedAt: Date, durationMinutes: Int) throws {
+        try queue.sync {
+            let statement = try prepareStatement("""
+                INSERT INTO absence_events (
+                    captured_at,
+                    duration_minutes,
+                    created_at
+                )
+                VALUES (?, ?, ?);
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            let now = Date().timeIntervalSince1970
+            sqlite3_bind_double(statement, 1, capturedAt.timeIntervalSince1970)
+            sqlite3_bind_int64(statement, 2, Int64(durationMinutes))
+            sqlite3_bind_double(statement, 3, now)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
+            }
+            postChangeNotification()
+        }
+    }
+
     func insertAnalysisResult(
         runID: Int64,
         capturedAt: Date,
@@ -269,10 +293,26 @@ final class AppDatabase: @unchecked Sendable {
     func fetchReportSourceItems() throws -> [ReportSourceItem] {
         try queue.sync {
             let statement = try prepareStatement("""
-                SELECT id, captured_at, category_name, duration_minutes_snapshot
-                FROM analysis_results
-                WHERE status = 'succeeded'
-                  AND category_name IS NOT NULL
+                SELECT id, captured_at, category_name, duration_minutes
+                FROM (
+                    SELECT
+                        id,
+                        captured_at,
+                        category_name,
+                        duration_minutes_snapshot AS duration_minutes
+                    FROM analysis_results
+                    WHERE status = 'succeeded'
+                      AND category_name IS NOT NULL
+
+                    UNION ALL
+
+                    SELECT
+                        -id AS id,
+                        captured_at,
+                        '\(AppDefaults.absenceCategoryName)' AS category_name,
+                        duration_minutes
+                    FROM absence_events
+                )
                 ORDER BY captured_at DESC, id DESC;
             """)
             defer { sqlite3_finalize(statement) }
@@ -339,8 +379,18 @@ final class AppDatabase: @unchecked Sendable {
             );
         """)
 
+        try execute("""
+            CREATE TABLE IF NOT EXISTS absence_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                captured_at DOUBLE NOT NULL,
+                duration_minutes INTEGER NOT NULL,
+                created_at DOUBLE NOT NULL
+            );
+        """)
+
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_captured_at ON analysis_results (captured_at DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_category_name ON analysis_results (category_name, captured_at DESC);")
+        try execute("CREATE INDEX IF NOT EXISTS idx_absence_events_captured_at ON absence_events (captured_at DESC);")
         try migrateAnalysisRunsIfNeeded()
         try migrateAnalysisResultsIfNeeded()
         try dropCaptureEventsTableIfNeeded()

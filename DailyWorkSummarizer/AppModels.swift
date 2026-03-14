@@ -8,6 +8,7 @@ enum AppDefaults {
     static let maxPageSize = 31
     static let screenshotFileExtension = "jpg"
     static let apiKeyAccount = "model-api-key"
+    static let absenceCategoryName = "离开"
     static let defaultCategoryRules: [CategoryRule] = [
         CategoryRule(name: "专注工作", description: "正在编码、写文档、阅读技术资料或完成明确的工作任务"),
         CategoryRule(name: "会议沟通", description: "正在开会、聊天、回消息或处理协作沟通类事项"),
@@ -277,6 +278,12 @@ extension Date {
     func yearStart(calendar: Calendar = .reportCalendar) -> Date {
         let components = calendar.dateComponents([.year], from: self)
         return calendar.date(from: components) ?? calendar.startOfDay(for: self)
+    }
+}
+
+extension ReportSourceItem {
+    var endAt: Date {
+        capturedAt.addingTimeInterval(TimeInterval(durationMinutes * 60))
     }
 }
 

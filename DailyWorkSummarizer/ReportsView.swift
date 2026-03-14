@@ -96,8 +96,8 @@ final class ReportsViewModel: ObservableObject {
             return
         }
 
-        let filteredItems = sourceItems.filter { selectedRange.interval.contains($0.capturedAt) }
-        let grouped = Dictionary(grouping: filteredItems) {
+        let filledItems = filledItems(for: selectedRange)
+        let grouped = Dictionary(grouping: filledItems) {
             $0.categoryName
         }
 
@@ -115,7 +115,7 @@ final class ReportsViewModel: ObservableObject {
         }
 
         heatmapCategories = chartItems.map(\.category)
-        heatmapItems = filteredItems
+        heatmapItems = filledItems
             .compactMap { item in
                 let start = max(item.capturedAt, selectedRange.interval.start)
                 let end = min(
@@ -141,6 +141,89 @@ final class ReportsViewModel: ObservableObject {
                 }
                 return lhs.start < rhs.start
             }
+    }
+
+    private func filledItems(for range: ReportRange) -> [ReportSourceItem] {
+        let explicitItems = sourceItems
+            .compactMap { clippedItem($0, to: range.interval) }
+            .sorted { lhs, rhs in
+                if lhs.capturedAt == rhs.capturedAt {
+                    return lhs.id < rhs.id
+                }
+                return lhs.capturedAt < rhs.capturedAt
+            }
+
+        guard !explicitItems.isEmpty else {
+            return []
+        }
+
+        var result: [ReportSourceItem] = []
+        var cursor = range.interval.start
+        var syntheticID: Int64 = -1_000_000_000
+
+        for item in explicitItems {
+            if item.capturedAt > cursor,
+               let gapItem = syntheticAbsenceItem(
+                    id: syntheticID,
+                    start: cursor,
+                    end: item.capturedAt
+               ) {
+                result.append(gapItem)
+                syntheticID -= 1
+            }
+
+            let clippedStart = max(item.capturedAt, cursor)
+            let clippedEnd = min(item.endAt, range.interval.end)
+            if let normalizedItem = normalizedItem(item, start: clippedStart, end: clippedEnd) {
+                result.append(normalizedItem)
+                cursor = max(cursor, clippedEnd)
+            }
+        }
+
+        if cursor < range.interval.end,
+           let trailingGap = syntheticAbsenceItem(
+                id: syntheticID,
+                start: cursor,
+                end: range.interval.end
+           ) {
+            result.append(trailingGap)
+        }
+
+        return result
+    }
+
+    private func clippedItem(_ item: ReportSourceItem, to interval: DateInterval) -> ReportSourceItem? {
+        let start = max(item.capturedAt, interval.start)
+        let end = min(item.endAt, interval.end)
+        return normalizedItem(item, start: start, end: end)
+    }
+
+    private func normalizedItem(_ item: ReportSourceItem, start: Date, end: Date) -> ReportSourceItem? {
+        guard end > start else {
+            return nil
+        }
+
+        let durationMinutes = max(Int((end.timeIntervalSince(start) / 60.0).rounded()), 1)
+        return ReportSourceItem(
+            id: item.id,
+            capturedAt: start,
+            categoryName: item.categoryName,
+            durationMinutes: durationMinutes
+        )
+    }
+
+    private func syntheticAbsenceItem(id: Int64, start: Date, end: Date) -> ReportSourceItem? {
+        guard end > start else {
+            return nil
+        }
+
+        let durationMinutes = max(Int((end.timeIntervalSince(start) / 60.0).rounded()), 1)
+        return ReportSourceItem(
+            id: id,
+            capturedAt: start,
+            categoryName: AppDefaults.absenceCategoryName,
+            durationMinutes: durationMinutes
+        )
     }
 
     private func buildRanges(for kind: ReportKind, from items: [ReportSourceItem]) -> [ReportRange] {

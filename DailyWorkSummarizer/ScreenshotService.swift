@@ -11,13 +11,15 @@ final class ScreenshotService {
 
     private let database: AppDatabase
     private let settingsStore: SettingsStore
+    private let userDefaults: UserDefaults
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private(set) var nextCaptureDate: Date?
 
-    init(database: AppDatabase, settingsStore: SettingsStore) {
+    init(database: AppDatabase, settingsStore: SettingsStore, userDefaults: UserDefaults = .standard) {
         self.database = database
         self.settingsStore = settingsStore
+        self.userDefaults = userDefaults
     }
 
     deinit {
@@ -117,6 +119,18 @@ final class ScreenshotService {
     }
 
     private func performCapture(scheduledAt: Date, settings: AppSettingsSnapshot) {
+        let currentMouseLocation = mouseLocation()
+        if let currentMouseLocation,
+           let lastMouseLocation = lastMouseLocation(),
+           currentMouseLocation == lastMouseLocation {
+            try? database.recordAbsenceEvent(
+                capturedAt: scheduledAt,
+                durationMinutes: settings.screenshotIntervalMinutes
+            )
+            saveLastMouseLocation(currentMouseLocation)
+            return
+        }
+
         guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
             return
         }
@@ -127,6 +141,9 @@ final class ScreenshotService {
                 fileName(for: scheduledAt, intervalMinutes: settings.screenshotIntervalMinutes)
             )
             try capturePreferredSingleDisplayJPEG(to: fileURL)
+            if let currentMouseLocation {
+                saveLastMouseLocation(currentMouseLocation)
+            }
             NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
         } catch {
             return
@@ -262,5 +279,35 @@ final class ScreenshotService {
                 ]
             )
         }
+    }
+
+    private func mouseLocation() -> CGPoint? {
+        if let eventLocation = CGEvent(source: nil)?.location {
+            return eventLocation
+        }
+        return nil
+    }
+
+    private func lastMouseLocation() -> CGPoint? {
+        guard userDefaults.bool(forKey: Keys.hasLastMouseLocation) else {
+            return nil
+        }
+
+        return CGPoint(
+            x: userDefaults.double(forKey: Keys.lastMouseX),
+            y: userDefaults.double(forKey: Keys.lastMouseY)
+        )
+    }
+
+    private func saveLastMouseLocation(_ location: CGPoint) {
+        userDefaults.set(true, forKey: Keys.hasLastMouseLocation)
+        userDefaults.set(location.x, forKey: Keys.lastMouseX)
+        userDefaults.set(location.y, forKey: Keys.lastMouseY)
+    }
+
+    private enum Keys {
+        static let hasLastMouseLocation = "screenshot.lastMouseLocation.exists"
+        static let lastMouseX = "screenshot.lastMouseLocation.x"
+        static let lastMouseY = "screenshot.lastMouseLocation.y"
     }
 }
