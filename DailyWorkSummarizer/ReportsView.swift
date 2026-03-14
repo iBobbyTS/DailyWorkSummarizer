@@ -247,7 +247,7 @@ struct ReportsView: View {
                                 Text(range.label)
                                     .font(.headline)
                                     .foregroundStyle(.primary)
-                                Text("累计 \(range.totalHours.hourText)")
+                                Text("累计 \(range.totalHours.durationText(style: viewModel.selectedKind.durationDisplayStyle))")
                                     .foregroundStyle(.secondary)
                             }
                             .padding(12)
@@ -308,7 +308,7 @@ struct ReportsView: View {
                             )
                             .foregroundStyle(Self.palette[index % Self.palette.count])
                             .annotation(position: .top) {
-                                Text(item.hours.hourText)
+                                Text(item.hours.durationText(style: viewModel.selectedKind.durationDisplayStyle))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -339,7 +339,7 @@ struct ReportsView: View {
                                 .frame(width: 12, height: 12)
                             Text(item.category)
                             Spacer()
-                            Text(item.hours.hourText)
+                            Text(item.hours.durationText(style: viewModel.selectedKind.durationDisplayStyle))
                                 .foregroundStyle(.secondary)
                         }
                     }

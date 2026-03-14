@@ -107,6 +107,17 @@ enum ReportKind: String, CaseIterable, Identifiable {
             return "年报"
         }
     }
+
+    var durationDisplayStyle: DurationDisplayStyle {
+        switch self {
+        case .day:
+            return .minute
+        case .week, .month:
+            return .hourAndMinute
+        case .year:
+            return .dayAndHour
+        }
+    }
 }
 
 enum ReportVisualization: String, CaseIterable, Identifiable {
@@ -123,6 +134,12 @@ enum ReportVisualization: String, CaseIterable, Identifiable {
             return "热力图"
         }
     }
+}
+
+enum DurationDisplayStyle {
+    case minute
+    case hourAndMinute
+    case dayAndHour
 }
 
 struct CategoryRule: Identifiable, Codable, Hashable {
@@ -264,12 +281,42 @@ extension Date {
 }
 
 extension Double {
-    var hourText: String {
-        let formatter = NumberFormatter()
-        formatter.maximumFractionDigits = 1
-        formatter.minimumFractionDigits = 0
-        let value = formatter.string(from: NSNumber(value: self)) ?? "\(self)"
-        return "\(value) 小时"
+    func durationText(style: DurationDisplayStyle) -> String {
+        let totalMinutes = max(Int((self * 60).rounded()), 0)
+
+        switch style {
+        case .minute:
+            return "\(totalMinutes) 分钟"
+        case .hourAndMinute:
+            let hours = totalMinutes / 60
+            let minutes = totalMinutes % 60
+            if hours > 0, minutes > 0 {
+                return "\(hours) 小时 \(minutes) 分"
+            }
+            if hours > 0 {
+                return "\(hours) 小时"
+            }
+            return "\(minutes) 分钟"
+        case .dayAndHour:
+            let totalHours = totalMinutes / 60
+            let days = totalHours / 24
+            let hours = totalHours % 24
+            if days > 0, hours > 0 {
+                return "\(days) 天 \(hours) 小时"
+            }
+            if days > 0 {
+                return "\(days) 天"
+            }
+
+            let minutes = totalMinutes % 60
+            if totalHours > 0, minutes > 0 {
+                return "\(totalHours) 小时 \(minutes) 分"
+            }
+            if totalHours > 0 {
+                return "\(totalHours) 小时"
+            }
+            return "\(minutes) 分钟"
+        }
     }
 }
 
