@@ -220,7 +220,15 @@ final class ReportsViewModel: ObservableObject {
                 label = DateFormatter.reportYear.string(from: startDate)
             }
 
-            let totalHours = Double(records.reduce(0) { $0 + $1.durationMinutes }) / 60.0
+            let durationRecords: [ReportSourceItem]
+            switch kind {
+            case .day:
+                durationRecords = records.filter { $0.categoryName != AppDefaults.absenceCategoryName }
+            case .week, .month, .year:
+                durationRecords = records
+            }
+
+            let totalHours = Double(durationRecords.reduce(0) { $0 + $1.durationMinutes }) / 60.0
             return ReportRange(
                 id: "\(kind.rawValue)-\(Int(startDate.timeIntervalSince1970))",
                 label: label,
