@@ -27,6 +27,13 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var automaticAnalysisEnabled: Bool {
+        didSet {
+            userDefaults.set(automaticAnalysisEnabled, forKey: Keys.automaticAnalysisEnabled)
+            notifySettingsChanged()
+        }
+    }
+
     @Published var provider: ModelProvider {
         didSet {
             userDefaults.set(provider.rawValue, forKey: Keys.provider)
@@ -55,13 +62,6 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    @Published var inheritPreviousResponse: Bool {
-        didSet {
-            userDefaults.set(inheritPreviousResponse, forKey: Keys.inheritPreviousResponse)
-            notifySettingsChanged()
-        }
-    }
-
     @Published var lmStudioContextLength: Int {
         didSet {
             let clamped = max(4096, min(65536, lmStudioContextLength))
@@ -70,6 +70,13 @@ final class SettingsStore: ObservableObject {
                 return
             }
             userDefaults.set(lmStudioContextLength, forKey: Keys.lmStudioContextLength)
+            notifySettingsChanged()
+        }
+    }
+
+    @Published var forceThinking: Bool {
+        didSet {
+            userDefaults.set(forceThinking, forKey: Keys.forceThinking)
             notifySettingsChanged()
         }
     }
@@ -91,22 +98,24 @@ final class SettingsStore: ObservableObject {
 
         let savedInterval = userDefaults.object(forKey: Keys.screenshotIntervalMinutes) as? Int ?? AppDefaults.screenshotIntervalMinutes
         let savedAnalysisTime = userDefaults.object(forKey: Keys.analysisTimeMinutes) as? Int ?? AppDefaults.analysisTimeMinutes
+        let savedAutomaticAnalysisEnabled = userDefaults.object(forKey: Keys.automaticAnalysisEnabled) as? Bool ?? AppDefaults.automaticAnalysisEnabled
         let savedProvider = ModelProvider(rawValue: userDefaults.string(forKey: Keys.provider) ?? "") ?? .openAI
         let savedBaseURL = userDefaults.string(forKey: Keys.apiBaseURL) ?? ""
         let savedModelName = userDefaults.string(forKey: Keys.modelName) ?? ""
         let savedAPIKey = keychain.string(for: AppDefaults.apiKeyAccount)
-        let savedInheritPreviousResponse = userDefaults.object(forKey: Keys.inheritPreviousResponse) as? Bool ?? false
         let savedLMStudioContextLength = userDefaults.object(forKey: Keys.lmStudioContextLength) as? Int ?? AppDefaults.lmStudioContextLength
+        let savedForceThinking = userDefaults.object(forKey: Keys.forceThinking) as? Bool ?? AppDefaults.forceThinking
         let savedRules = (try? database.fetchCategoryRules()) ?? []
 
         screenshotIntervalMinutes = max(1, min(60, savedInterval))
         analysisTimeMinutes = max(0, min(23 * 60 + 59, savedAnalysisTime))
+        automaticAnalysisEnabled = savedAutomaticAnalysisEnabled
         provider = savedProvider
         apiBaseURL = savedBaseURL
         modelName = savedModelName
         apiKey = savedAPIKey
-        inheritPreviousResponse = savedInheritPreviousResponse
         lmStudioContextLength = max(4096, min(65536, savedLMStudioContextLength))
+        forceThinking = savedForceThinking
         categoryRules = savedRules.isEmpty ? AppDefaults.defaultCategoryRules : savedRules
 
         if savedRules.isEmpty {
@@ -118,12 +127,13 @@ final class SettingsStore: ObservableObject {
         AppSettingsSnapshot(
             screenshotIntervalMinutes: screenshotIntervalMinutes,
             analysisTimeMinutes: analysisTimeMinutes,
+            automaticAnalysisEnabled: automaticAnalysisEnabled,
             provider: provider,
             apiBaseURL: apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
             modelName: modelName.trimmingCharacters(in: .whitespacesAndNewlines),
             apiKey: apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
-            inheritPreviousResponse: inheritPreviousResponse,
             lmStudioContextLength: lmStudioContextLength,
+            forceThinking: forceThinking,
             categoryRules: categoryRules
         )
     }
@@ -165,10 +175,11 @@ final class SettingsStore: ObservableObject {
     private enum Keys {
         static let screenshotIntervalMinutes = "settings.screenshotIntervalMinutes"
         static let analysisTimeMinutes = "settings.analysisTimeMinutes"
+        static let automaticAnalysisEnabled = "settings.automaticAnalysisEnabled"
         static let provider = "settings.provider"
         static let apiBaseURL = "settings.apiBaseURL"
         static let modelName = "settings.modelName"
-        static let inheritPreviousResponse = "settings.inheritPreviousResponse"
         static let lmStudioContextLength = "settings.lmStudioContextLength"
+        static let forceThinking = "settings.forceThinking"
     }
 }

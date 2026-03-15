@@ -4,7 +4,9 @@ import SwiftUI
 enum AppDefaults {
     static let screenshotIntervalMinutes = 5
     static let analysisTimeMinutes = 18 * 60 + 30
+    static let automaticAnalysisEnabled = true
     static let lmStudioContextLength = 6000
+    static let forceThinking = false
     static let maxPageSize = 31
     static let screenshotFileExtension = "jpg"
     static let apiKeyAccount = "model-api-key"
@@ -158,12 +160,13 @@ struct CategoryRule: Identifiable, Codable, Hashable {
 struct AppSettingsSnapshot {
     let screenshotIntervalMinutes: Int
     let analysisTimeMinutes: Int
+    let automaticAnalysisEnabled: Bool
     let provider: ModelProvider
     let apiBaseURL: String
     let modelName: String
     let apiKey: String
-    let inheritPreviousResponse: Bool
     let lmStudioContextLength: Int
+    let forceThinking: Bool
     let categoryRules: [CategoryRule]
 
     var captureScope: CaptureScope {
@@ -218,6 +221,18 @@ struct AnalysisRuntimeState {
         completedCount: 0,
         totalCount: 0
     )
+}
+
+struct AnalysisErrorEntry: Identifiable, Hashable {
+    let id: UUID
+    let createdAt: Date
+    let message: String
+
+    init(id: UUID = UUID(), createdAt: Date = Date(), message: String) {
+        self.id = id
+        self.createdAt = createdAt
+        self.message = message
+    }
 }
 
 struct ReportRange: Identifiable, Hashable {
@@ -334,4 +349,5 @@ extension Notification.Name {
     static let appDatabaseDidChange = Notification.Name("DailyWorkSummarizer.AppDatabaseDidChange")
     static let screenshotFilesDidChange = Notification.Name("DailyWorkSummarizer.ScreenshotFilesDidChange")
     static let analysisStatusDidChange = Notification.Name("DailyWorkSummarizer.AnalysisStatusDidChange")
+    static let analysisErrorsDidChange = Notification.Name("DailyWorkSummarizer.AnalysisErrorsDidChange")
 }

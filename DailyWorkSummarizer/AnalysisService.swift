@@ -9,6 +9,7 @@ enum AnalysisServiceError: LocalizedError {
     case invalidConfiguration(String)
     case invalidResponse(String)
     case httpError(statusCode: Int, body: String)
+    case lengthTruncated(String)
 
     var errorDescription: String? {
         switch self {
@@ -18,6 +19,8 @@ enum AnalysisServiceError: LocalizedError {
             return message
         case .httpError(let statusCode, let body):
             return "接口返回错误 (\(statusCode))：\(body)"
+        case .lengthTruncated(let message):
+            return message
         }
     }
 }
@@ -31,27 +34,32 @@ final class AnalysisService {
 
     private struct LMStudioResponsePayload {
         let content: String
-        let responseID: String?
     }
 
     private let database: AppDatabase
     private let settingsStore: SettingsStore
+    private let errorStore: AnalysisErrorStore
     private let session: URLSession
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var runningTask: Task<Void, Never>?
     private var activeRequestTask: URLSessionDataTask?
     private var activeRunSettings: AppSettingsSnapshot?
-    private var lastLMStudioResponseID: String?
     private var runtimeState: AnalysisRuntimeState = .idle {
         didSet {
             NotificationCenter.default.post(name: .analysisStatusDidChange, object: nil)
         }
     }
 
-    init(database: AppDatabase, settingsStore: SettingsStore, session: URLSession? = nil) {
+    init(
+        database: AppDatabase,
+        settingsStore: SettingsStore,
+        errorStore: AnalysisErrorStore,
+        session: URLSession? = nil
+    ) {
         self.database = database
         self.settingsStore = settingsStore
+        self.errorStore = errorStore
         self.session = session ?? Self.makeIsolatedSession()
     }
 
@@ -105,6 +113,14 @@ final class AnalysisService {
         runtimeState
     }
 
+    func currentPrompt() -> String {
+        let snapshot = settingsStore.snapshot
+        return buildPrompt(
+            with: snapshot.validCategoryRules,
+            forceThinking: snapshot.provider == .lmStudio && snapshot.forceThinking
+        )
+    }
+
     func testCurrentSettings(with imageFileURL: URL) async throws -> AnalysisResponse {
         let snapshot = settingsStore.snapshot
 
@@ -120,8 +136,18 @@ final class AnalysisService {
             throw AnalysisServiceError.invalidConfiguration("请先配置模型名称")
         }
 
-        let prompt = buildPrompt(with: snapshot.validCategoryRules)
-        return try await analyzeImage(at: imageFileURL, settings: snapshot, prompt: prompt)
+        let prompt = buildPrompt(
+            with: snapshot.validCategoryRules,
+            forceThinking: snapshot.provider == .lmStudio && snapshot.forceThinking
+        )
+        do {
+            return try await analyzeImage(at: imageFileURL, settings: snapshot, prompt: prompt)
+        } catch {
+            if Self.shouldRecordRuntimeError(error) {
+                errorStore.add(error.localizedDescription)
+            }
+            throw error
+        }
     }
 
     private static func makeIsolatedSession() -> URLSession {
@@ -136,6 +162,9 @@ final class AnalysisService {
 
     private func scheduleNextRun() {
         timer?.invalidate()
+        guard settingsStore.snapshot.automaticAnalysisEnabled else {
+            return
+        }
         let nextDate = settingsStore.snapshot.nextAnalysisDate(after: Date())
         timer = Timer(fire: nextDate, interval: 0, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -162,7 +191,10 @@ final class AnalysisService {
     private func runAnalysis(scheduledFor: Date) async {
         let snapshot = settingsStore.snapshot
         activeRunSettings = snapshot
-        let prompt = buildPrompt(with: snapshot.validCategoryRules)
+        let prompt = buildPrompt(
+            with: snapshot.validCategoryRules,
+            forceThinking: snapshot.provider == .lmStudio && snapshot.forceThinking
+        )
         let categoriesJSON = encodeCategories(snapshot.validCategoryRules)
         let pendingCaptures = (try? database.listScreenshotFiles(defaultDurationMinutes: snapshot.screenshotIntervalMinutes)) ?? []
 
@@ -234,7 +266,9 @@ final class AnalysisService {
         var successCount = 0
         var failureCount = 0
         var completedCount = 0
+        var consecutiveFailureCount = 0
         var wasCancelled = false
+        var wasPausedAfterFailures = false
         var measuredDurationTotal: TimeInterval = 0
         var measuredItemCount = 0
 
@@ -260,12 +294,17 @@ final class AnalysisService {
                     durationMinutesSnapshot: durationMinutes
                 )
                 failureCount += 1
+                consecutiveFailureCount += 1
                 completedCount += 1
                 updateRuntimeState(
                     startedAt: pendingCaptures.first?.capturedAt,
                     completedCount: completedCount,
                     totalCount: pendingCaptures.count
                 )
+                if Self.shouldPauseAfterConsecutiveFailures(consecutiveFailureCount) {
+                    wasPausedAfterFailures = true
+                    break
+                }
                 continue
             }
 
@@ -290,6 +329,7 @@ final class AnalysisService {
                 )
 
                 successCount += 1
+                consecutiveFailureCount = 0
                 try? FileManager.default.removeItem(at: fileURL)
                 NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
             } catch {
@@ -299,6 +339,9 @@ final class AnalysisService {
                 }
 
                 let message = error.localizedDescription
+                if Self.shouldRecordRuntimeError(error) {
+                    errorStore.add(message)
+                }
                 try? database.insertAnalysisResult(
                     runID: runID,
                     capturedAt: capturedAt,
@@ -309,6 +352,7 @@ final class AnalysisService {
                     durationMinutesSnapshot: durationMinutes
                 )
                 failureCount += 1
+                consecutiveFailureCount += 1
             }
 
             if let itemStartTime {
@@ -322,6 +366,11 @@ final class AnalysisService {
                 completedCount: completedCount,
                 totalCount: pendingCaptures.count
             )
+
+            if Self.shouldPauseAfterConsecutiveFailures(consecutiveFailureCount) {
+                wasPausedAfterFailures = true
+                break
+            }
         }
 
         if wasCancelled {
@@ -332,6 +381,21 @@ final class AnalysisService {
                 failureCount: failureCount,
                 averageItemDurationSeconds: measuredItemCount > 0 ? measuredDurationTotal / Double(measuredItemCount) : nil,
                 errorMessage: "用户手动暂停分析"
+            )
+            await stopModelIfNeeded(for: snapshot)
+            return
+        }
+
+        if wasPausedAfterFailures {
+            let message = "连续 5 张截图处理失败，已暂停当前分析"
+            let finalStatus = successCount > 0 ? "partial_failed" : "failed"
+            try? database.finishAnalysisRun(
+                id: runID,
+                status: finalStatus,
+                successCount: successCount,
+                failureCount: failureCount,
+                averageItemDurationSeconds: measuredItemCount > 0 ? measuredDurationTotal / Double(measuredItemCount) : nil,
+                errorMessage: message
             )
             await stopModelIfNeeded(for: snapshot)
             return
@@ -357,22 +421,37 @@ final class AnalysisService {
         await stopModelIfNeeded(for: snapshot)
     }
 
-    private func buildPrompt(with rules: [CategoryRule]) -> String {
-        let list = rules.enumerated().map { index, rule in
-            "\(index + 1). \(rule.name)：\(rule.description)"
+    private func buildPrompt(with rules: [CategoryRule], forceThinking: Bool) -> String {
+        let list = rules.map { rule in
+            "\(rule.name)：\(rule.description)"
         }.joined(separator: "\n")
+
+        let thinkingInstruction = forceThinking
+            ? "\n请把思考过程写在 \"<think></think>\" 里。\n"
+            : ""
+        let outputRequirements = forceThinking
+            ? """
+            返回要求：
+            1. </think> 后面的正式回复里只能返回一个类别名
+            2. 正式回复里不要返回 JSON、Markdown、解释或其他多余文本
+            3. 返回的类别名必须与候选类别完全一致
+            """
+            : """
+            返回要求：
+            1. 只能返回一个类别名
+            2. 不要返回 JSON、Markdown、解释、思考过程或其他多余文本
+            3. 返回的类别名必须与候选类别完全一致
+            """
 
         return """
         你是一个工作桌面截图分类助手。
-        请严格从下面的候选类别中选择唯一一个最匹配的类别。
+        请进行思考后，严格从下面的候选类别中选择唯一一个最匹配的类别。
+        不要过度思考，只关注截图主要部分。
 
         候选类别：
         \(list)
-
-        返回要求：
-        1. 只能返回一个类别名
-        2. 不要返回 JSON、Markdown、解释、思考过程或其他多余文本
-        3. 返回的类别名必须与候选类别完全一致
+        \(thinkingInstruction)
+        \(outputRequirements)
         """
     }
 
@@ -387,7 +466,42 @@ final class AnalysisService {
         at fileURL: URL,
         settings: AppSettingsSnapshot,
         prompt: String,
-        allowLengthRetry: Bool = true
+        allowLengthRetry: Bool = true,
+        maxAttempts: Int = 3
+    ) async throws -> AnalysisResponse {
+        var lastError: Error?
+
+        for attempt in 1...maxAttempts {
+            do {
+                return try await analyzeImageAttempt(
+                    at: fileURL,
+                    settings: settings,
+                    prompt: prompt,
+                    allowLengthRetry: allowLengthRetry
+                )
+            } catch {
+                if error is CancellationError || Task.isCancelled {
+                    throw error
+                }
+
+                lastError = error
+
+                guard Self.shouldRetryAnalysis(after: error, attempt: attempt, maxAttempts: maxAttempts) else {
+                    throw error
+                }
+
+                try? await Task.sleep(for: .milliseconds(300 * attempt))
+            }
+        }
+
+        throw lastError ?? AnalysisServiceError.invalidResponse("模型返回无法解析为有效类别")
+    }
+
+    private func analyzeImageAttempt(
+        at fileURL: URL,
+        settings: AppSettingsSnapshot,
+        prompt: String,
+        allowLengthRetry: Bool
     ) async throws -> AnalysisResponse {
         let imageData = try Data(contentsOf: fileURL)
         guard let endpoint = settings.provider.requestURL(from: settings.apiBaseURL) else {
@@ -421,9 +535,6 @@ final class AnalysisService {
                 prompt: prompt
             )
         case .lmStudio:
-            if !settings.inheritPreviousResponse {
-                lastLMStudioResponseID = nil
-            }
             if !settings.apiKey.isEmpty {
                 request.setValue("Bearer \(settings.apiKey)", forHTTPHeaderField: "Authorization")
             }
@@ -431,8 +542,6 @@ final class AnalysisService {
                 imageData: imageData,
                 modelName: settings.modelName,
                 prompt: prompt,
-                inheritPreviousResponse: settings.inheritPreviousResponse,
-                previousResponseID: lastLMStudioResponseID,
                 contextLength: settings.lmStudioContextLength
             )
         }
@@ -461,7 +570,6 @@ final class AnalysisService {
             let payload = try parseLMStudioResponse(from: data)
             text = payload.content
             finishReason = nil
-            lastLMStudioResponseID = settings.inheritPreviousResponse ? payload.responseID : nil
         }
 
         guard let category = extractCategory(
@@ -471,7 +579,7 @@ final class AnalysisService {
         ) else {
             if finishReason == "length", allowLengthRetry {
                 let retryPrompt = prompt + "\n\n补充要求：不要过度思考"
-                return try await analyzeImage(
+                return try await analyzeImageAttempt(
                     at: fileURL,
                     settings: settings,
                     prompt: retryPrompt,
@@ -479,7 +587,7 @@ final class AnalysisService {
                 )
             }
             if finishReason == "length" {
-                throw AnalysisServiceError.invalidResponse("模型输出因长度截断，未能生成完整分类结果：\(text)")
+                throw AnalysisServiceError.lengthTruncated("模型输出因长度截断，未能生成完整分类结果：\(text)")
             }
             throw AnalysisServiceError.invalidResponse("模型返回无法解析为有效类别：\(text)")
         }
@@ -542,12 +650,10 @@ final class AnalysisService {
         imageData: Data,
         modelName: String,
         prompt: String,
-        inheritPreviousResponse: Bool,
-        previousResponseID: String?,
         contextLength: Int
     ) throws -> Data {
         let imageBase64 = imageData.base64EncodedString()
-        var body: [String: Any] = [
+        let body: [String: Any] = [
             "model": modelName,
             "input": [
                 [
@@ -559,13 +665,9 @@ final class AnalysisService {
                     "data_url": "data:image/jpeg;base64,\(imageBase64)"
                 ],
             ],
-            "store": inheritPreviousResponse,
+            "store": false,
             "context_length": contextLength,
         ]
-
-        if inheritPreviousResponse, let previousResponseID, !previousResponseID.isEmpty {
-            body["previous_response_id"] = previousResponseID
-        }
 
         return try JSONSerialization.data(withJSONObject: body)
     }
@@ -637,14 +739,14 @@ final class AnalysisService {
             throw AnalysisServiceError.invalidResponse("LM Studio API 没有返回可读文本")
         }
 
-        let responseID = payload["response_id"] as? String
-        return LMStudioResponsePayload(content: text, responseID: responseID)
+        return LMStudioResponsePayload(content: text)
     }
 
     private func extractCategory(from rawText: String, validRules: [CategoryRule], finishReason: String?) -> String? {
         let categories = validRules.map { $0.name }
 
-        if let matched = extractCategoryFromPlainText(in: rawText, categories: categories) {
+        let formalReply = extractFormalReply(from: rawText)
+        if let matched = extractCategoryFromPlainText(in: formalReply, categories: categories) {
             return matched
         }
 
@@ -714,6 +816,20 @@ final class AnalysisService {
         }
 
         return String(rawText[contentStart...])
+    }
+
+    private func extractFormalReply(from rawText: String) -> String {
+        guard let startRange = rawText.range(of: "<think>") else {
+            return rawText
+        }
+
+        let contentStart = startRange.upperBound
+        guard let endRange = rawText.range(of: "</think>", range: contentStart..<rawText.endIndex) else {
+            return ""
+        }
+
+        return String(rawText[endRange.upperBound...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func occurrenceCount(of needle: String, in haystack: String) -> Int {
@@ -811,7 +927,6 @@ final class AnalysisService {
     private func stopModelIfNeeded(for settings: AppSettingsSnapshot) async {
         activeRequestTask?.cancel()
         activeRequestTask = nil
-        lastLMStudioResponseID = nil
 
         guard settings.provider == .lmStudio,
               let modelsURL = lmStudioModelsURL(from: settings.apiBaseURL) else {
@@ -849,6 +964,49 @@ final class AnalysisService {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         }
         return request
+    }
+
+    nonisolated static func shouldPauseAfterConsecutiveFailures(_ failureCount: Int, threshold: Int = 5) -> Bool {
+        failureCount >= threshold
+    }
+
+    nonisolated static func shouldRecordRuntimeError(_ error: Error) -> Bool {
+        switch error {
+        case is CancellationError:
+            return false
+        case AnalysisServiceError.invalidConfiguration:
+            return false
+        case AnalysisServiceError.invalidResponse,
+             AnalysisServiceError.httpError,
+             AnalysisServiceError.lengthTruncated,
+             is URLError:
+            return true
+        default:
+            return false
+        }
+    }
+
+    nonisolated static func shouldRetryAnalysis(after error: Error, attempt: Int, maxAttempts: Int = 3) -> Bool {
+        guard attempt < maxAttempts else {
+            return false
+        }
+
+        switch error {
+        case is CancellationError:
+            return false
+        case AnalysisServiceError.invalidConfiguration:
+            return false
+        case AnalysisServiceError.lengthTruncated:
+            return false
+        case AnalysisServiceError.invalidResponse:
+            return true
+        case AnalysisServiceError.httpError(let statusCode, _):
+            return statusCode >= 500
+        case is URLError:
+            return true
+        default:
+            return false
+        }
     }
 
     private func lmStudioModelsURL(from baseURLString: String) -> URL? {
