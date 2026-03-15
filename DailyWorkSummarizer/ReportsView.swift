@@ -24,8 +24,16 @@ final class ReportsViewModel: ObservableObject {
     }
 
     @Published var selectedVisualization: ReportVisualization = .barChart
-    @Published var includeWorkdaysInWeeklyHeatmap = true
-    @Published var includeWeekendsInWeeklyHeatmap = true
+    @Published var includeWorkdays = true {
+        didSet {
+            updateChartItems()
+        }
+    }
+    @Published var includeWeekends = true {
+        didSet {
+            updateChartItems()
+        }
+    }
     @Published private(set) var pageItems: [ReportRange] = []
     @Published private(set) var chartItems: [CategoryDuration] = []
     @Published private(set) var heatmapItems: [HeatmapEvent] = []
@@ -34,11 +42,13 @@ final class ReportsViewModel: ObservableObject {
     @Published private(set) var allRanges: [ReportRange] = []
 
     private let database: AppDatabase
+    private let settingsStore: SettingsStore
     private var sourceItems: [ReportSourceItem] = []
     private var databaseObserver: AnyCancellable?
 
-    init(database: AppDatabase) {
+    init(database: AppDatabase, settingsStore: SettingsStore) {
         self.database = database
+        self.settingsStore = settingsStore
         reload()
         databaseObserver = NotificationCenter.default.publisher(for: .appDatabaseDidChange)
             .receive(on: RunLoop.main)
@@ -136,7 +146,7 @@ final class ReportsViewModel: ObservableObject {
                 }
 
                 return HeatmapEvent(
-                    id: item.id,
+                    id: "\(item.id)-\(Int(start.timeIntervalSince1970))-\(item.durationMinutes)",
                     category: item.categoryName,
                     start: start,
                     end: end,
@@ -154,6 +164,7 @@ final class ReportsViewModel: ObservableObject {
     private func displayedItems(for range: ReportRange) -> [ReportSourceItem] {
         sourceItems
             .compactMap { clippedItem($0, to: range.interval) }
+            .flatMap { splitItemByDayAndFilter($0, for: selectedKind) }
             .sorted { lhs, rhs in
                 if lhs.capturedAt == rhs.capturedAt {
                     return lhs.id < rhs.id
@@ -166,6 +177,37 @@ final class ReportsViewModel: ObservableObject {
         let start = max(item.capturedAt, interval.start)
         let end = min(item.endAt, interval.end)
         return normalizedItem(item, start: start, end: end)
+    }
+
+    private func splitItemByDayAndFilter(_ item: ReportSourceItem, for kind: ReportKind) -> [ReportSourceItem] {
+        guard kind != .day else {
+            return [item]
+        }
+
+        guard includeWorkdays || includeWeekends else {
+            return []
+        }
+
+        var segments: [ReportSourceItem] = []
+        var segmentStart = item.capturedAt
+        let itemEnd = item.endAt
+        let calendar = Calendar.reportCalendar
+
+        while segmentStart < itemEnd {
+            let dayStart = calendar.startOfDay(for: segmentStart)
+            let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? itemEnd
+            let segmentEnd = min(itemEnd, dayEnd)
+            let isWeekend = calendar.isDateInWeekend(segmentStart)
+            let shouldInclude = isWeekend ? includeWeekends : includeWorkdays
+
+            if shouldInclude, let normalized = normalizedItem(item, start: segmentStart, end: segmentEnd) {
+                segments.append(normalized)
+            }
+
+            segmentStart = segmentEnd
+        }
+
+        return segments
     }
 
     private func normalizedItem(_ item: ReportSourceItem, start: Date, end: Date) -> ReportSourceItem? {
@@ -182,7 +224,7 @@ final class ReportsViewModel: ObservableObject {
         )
     }
     private func buildRanges(for kind: ReportKind, from items: [ReportSourceItem]) -> [ReportRange] {
-        let calendar = Calendar.reportCalendar
+        let calendar = Calendar.reportCalendar(firstWeekday: settingsStore.reportWeekStart.calendarFirstWeekday)
         let grouped: [Date: [ReportSourceItem]]
 
         switch kind {
@@ -247,12 +289,14 @@ struct ReportsView: View {
     @ObservedObject var viewModel: ReportsViewModel
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             leftPanel
-                .frame(minWidth: 320, maxWidth: 360)
+                .frame(width: 340)
+
+            Divider()
 
             rightPanel
-                .frame(minWidth: 580)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 960, minHeight: 640)
     }
@@ -315,7 +359,9 @@ struct ReportsView: View {
                     }
                 }
             }
+            .frame(maxHeight: .infinity, alignment: .top)
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .padding(20)
     }
 
@@ -324,38 +370,31 @@ struct ReportsView: View {
             (item.category, Self.palette[index % Self.palette.count])
         })
 
-        return VStack(alignment: .leading, spacing: 20) {
+        return VStack(alignment: .leading, spacing: 16) {
             if let selectedRange = viewModel.selectedRange {
                 Text(selectedRange.label)
                     .font(.title2.weight(.semibold))
-                Text(
-                    viewModel.selectedVisualization == .barChart
-                    ? "按分类统计截图对应的累计小时数。“离开”表示已明确记录的离开，无数据不会计入图表。"
-                    : "按时间连续展示各分类的截图时段。有颜色的“离开”表示已明确记录的离开，空白表示无数据。"
-                )
-                    .foregroundStyle(.secondary)
             } else {
                 Text("查看报告")
                     .font(.title2.weight(.semibold))
-                Text("左侧选择一个时间范围后，这里会展示该范围内的柱状图或热力图。无数据不会显示为“离开”。")
-                    .foregroundStyle(.secondary)
             }
 
-            Picker("图表类型", selection: $viewModel.selectedVisualization) {
-                ForEach(ReportVisualization.allCases) { visualization in
-                    Text(visualization.title).tag(visualization)
+            HStack(alignment: .center, spacing: 16) {
+                Picker("图表类型", selection: $viewModel.selectedVisualization) {
+                    ForEach(ReportVisualization.allCases) { visualization in
+                        Text(visualization.title).tag(visualization)
+                    }
                 }
-            }
-            .pickerStyle(.segmented)
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 260)
 
-            if viewModel.selectedVisualization == .heatmap, viewModel.selectedKind == .week {
-                HStack(spacing: 16) {
-                    Spacer()
+                if viewModel.selectedKind != .day {
+                    Spacer(minLength: 0)
 
-                    Toggle("工作日", isOn: $viewModel.includeWorkdaysInWeeklyHeatmap)
+                    Toggle("工作日", isOn: $viewModel.includeWorkdays)
                         .toggleStyle(.checkbox)
 
-                    Toggle("周末", isOn: $viewModel.includeWeekendsInWeeklyHeatmap)
+                    Toggle("周末", isOn: $viewModel.includeWeekends)
                         .toggleStyle(.checkbox)
                 }
             }
@@ -365,10 +404,20 @@ struct ReportsView: View {
                 ContentUnavailableView(
                     "暂无报告数据",
                     systemImage: viewModel.selectedVisualization == .barChart ? "chart.bar.xaxis" : "square.grid.3x2",
-                    description: Text("当前时间范围没有任何记录；无数据不会显示为“离开”。")
+                    description: Text("当前时间范围没有符合筛选条件的记录。")
                 )
+                .frame(maxWidth: .infinity)
                 Spacer()
             } else {
+                WrappingFlowLayout(horizontalSpacing: 10, verticalSpacing: 10) {
+                    ForEach(Array(viewModel.chartItems.enumerated()), id: \.element.category) { index, item in
+                        legendItem(
+                            color: Self.palette[index % Self.palette.count],
+                            item: item
+                        )
+                    }
+                }
+
                 Group {
                     if viewModel.selectedVisualization == .barChart {
                         Chart(Array(viewModel.chartItems.enumerated()), id: \.element.category) { index, item in
@@ -386,7 +435,6 @@ struct ReportsView: View {
                         .chartXAxisLabel("分类")
                         .chartYAxisLabel("累计小时")
                         .chartLegend(.hidden)
-                        .frame(height: 360)
                     } else if let selectedRange = viewModel.selectedRange {
                         HeatmapTimelineView(
                             kind: viewModel.selectedKind,
@@ -394,32 +442,35 @@ struct ReportsView: View {
                             categories: viewModel.heatmapCategories,
                             items: viewModel.heatmapItems,
                             categoryColors: categoryColors,
-                            includeWorkdays: viewModel.includeWorkdaysInWeeklyHeatmap,
-                            includeWeekends: viewModel.includeWeekendsInWeeklyHeatmap
+                            includeWorkdays: viewModel.includeWorkdays,
+                            includeWeekends: viewModel.includeWeekends
                         )
-                        .frame(height: 360)
                     }
                 }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("图例")
-                        .font(.headline)
-
-                    ForEach(Array(viewModel.chartItems.enumerated()), id: \.element.category) { index, item in
-                        HStack {
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(Self.palette[index % Self.palette.count])
-                                .frame(width: 12, height: 12)
-                            Text(item.category)
-                            Spacer()
-                            Text(item.hours.durationText(for: viewModel.selectedKind))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(24)
+    }
+
+    private func legendItem(color: Color, item: CategoryDuration) -> some View {
+        HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(color)
+                .frame(width: 12, height: 12)
+            Text(item.category)
+                .font(.subheadline)
+            Text(item.hours.durationText(for: viewModel.selectedKind))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.gray.opacity(0.08))
+        )
     }
 
     private static let palette: [Color] = [
@@ -430,6 +481,71 @@ struct ReportsView: View {
         Color(red: 0.82, green: 0.68, blue: 0.18),
         Color(red: 0.18, green: 0.63, blue: 0.68),
     ]
+}
+
+private struct WrappingFlowLayout: Layout {
+    let horizontalSpacing: CGFloat
+    let verticalSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .greatestFiniteMagnitude
+        let rows = arrangedRows(for: subviews, maxWidth: maxWidth)
+        let width = rows.map { row in
+            row.reduce(CGFloat.zero) { partialResult, item in
+                partialResult + item.size.width
+            } + CGFloat(max(0, row.count - 1)) * horizontalSpacing
+        }.max() ?? 0
+        let height = rows.enumerated().reduce(CGFloat.zero) { partialResult, element in
+            let rowHeight = element.1.map(\.size.height).max() ?? 0
+            return partialResult + rowHeight + (element.offset == rows.count - 1 ? 0 : verticalSpacing)
+        }
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = arrangedRows(for: subviews, maxWidth: bounds.width)
+        var y = bounds.minY
+
+        for row in rows {
+            var x = bounds.minX
+            let rowHeight = row.map(\.size.height).max() ?? 0
+            for item in row {
+                item.subview.place(
+                    at: CGPoint(x: x, y: y),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(item.size)
+                )
+                x += item.size.width + horizontalSpacing
+            }
+            y += rowHeight + verticalSpacing
+        }
+    }
+
+    private func arrangedRows(for subviews: Subviews, maxWidth: CGFloat) -> [[RowItem]] {
+        var rows: [[RowItem]] = [[]]
+        var currentWidth: CGFloat = 0
+        let availableWidth = max(maxWidth, 1)
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let proposedWidth = rows[rows.count - 1].isEmpty ? size.width : currentWidth + horizontalSpacing + size.width
+
+            if proposedWidth > availableWidth, !rows[rows.count - 1].isEmpty {
+                rows.append([RowItem(subview: subview, size: size)])
+                currentWidth = size.width
+            } else {
+                rows[rows.count - 1].append(RowItem(subview: subview, size: size))
+                currentWidth = rows[rows.count - 1].isEmpty ? size.width : proposedWidth
+            }
+        }
+
+        return rows.filter { !$0.isEmpty }
+    }
+
+    private struct RowItem {
+        let subview: LayoutSubview
+        let size: CGSize
+    }
 }
 
 private struct HeatmapTimelineView: View {
@@ -478,15 +594,16 @@ private struct ContinuousHeatmapView: View {
     private let labelWidth: CGFloat = 96
     private let rowHeight: CGFloat = 26
     private let rowSpacing: CGFloat = 10
+    private let axisLabelWidth: CGFloat = 72
 
     var body: some View {
-        let canvasWidth = timelineWidth
-        let rowStride = rowHeight + rowSpacing
-        let canvasHeight = max(CGFloat(categories.count) * rowStride - rowSpacing, rowHeight)
-        let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
-        let tickDates = timelineTicks
+        GeometryReader { geometry in
+            let canvasWidth = max(geometry.size.width - labelWidth - 24, 320)
+            let rowStride = rowHeight + rowSpacing
+            let canvasHeight = max(CGFloat(categories.count) * rowStride - rowSpacing, rowHeight)
+            let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
+            let tickDates = timelineTicks(canvasWidth: canvasWidth)
 
-        return ScrollView([.horizontal, .vertical]) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .bottom, spacing: 12) {
                     Color.clear
@@ -508,7 +625,7 @@ private struct ContinuousHeatmapView: View {
                                     .fill(Color.secondary.opacity(0.25))
                                     .frame(width: 1, height: 8)
                             }
-                            .offset(x: min(max(0, xPosition - 18), max(0, canvasWidth - 36)))
+                            .offset(x: min(max(0, xPosition - axisLabelWidth / 2), max(0, canvasWidth - axisLabelWidth)))
                         }
                     }
                     .frame(width: canvasWidth, height: 30)
@@ -550,7 +667,8 @@ private struct ContinuousHeatmapView: View {
                     .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
                 }
             }
-            .padding(.vertical, 4)
+            .padding(12)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .background(
             RoundedRectangle(cornerRadius: 16)
@@ -558,26 +676,8 @@ private struct ContinuousHeatmapView: View {
         )
     }
 
-    fileprivate var timelineWidth: CGFloat {
-        let totalHours = max(range.interval.duration / 3600.0, 1)
-        let pointsPerHour: CGFloat
-
-        switch totalHours {
-        case ...24:
-            pointsPerHour = 36
-        case ...168:
-            pointsPerHour = 10
-        case ...744:
-            pointsPerHour = 3
-        default:
-            pointsPerHour = 0.4
-        }
-
-        return max(720, CGFloat(totalHours) * pointsPerHour)
-    }
-
-    fileprivate var timelineTicks: [Date] {
-        let tickCount = 7
+    fileprivate func timelineTicks(canvasWidth: CGFloat) -> [Date] {
+        let tickCount = max(3, min(Int(canvasWidth / axisLabelWidth), 8))
         let totalDuration = range.interval.duration
         guard totalDuration > 0 else {
             return [range.interval.start]
@@ -639,7 +739,7 @@ private struct DailyHeatmapView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let canvasWidth = max(geometry.size.width - labelWidth - 12, 540)
+            let canvasWidth = max(geometry.size.width - labelWidth - 24, 320)
             let rowStride = rowHeight + rowSpacing
             let canvasHeight = max(CGFloat(categories.count) * rowStride - rowSpacing, rowHeight)
             let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
@@ -708,8 +808,10 @@ private struct DailyHeatmapView: View {
                     .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
                 }
             }
+            .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .clipped()
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.gray.opacity(0.06))
@@ -769,7 +871,7 @@ private struct WeeklyHeatmapView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let canvasWidth = max(geometry.size.width - labelWidth - 12, 540)
+            let canvasWidth = max(geometry.size.width - labelWidth - 24, 320)
             let rowStride = rowHeight + rowSpacing
             let canvasHeight = max(CGFloat(categories.count) * rowStride - rowSpacing, rowHeight)
             let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
@@ -840,8 +942,10 @@ private struct WeeklyHeatmapView: View {
                     .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
                 }
             }
+            .padding(12)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .clipped()
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.gray.opacity(0.06))

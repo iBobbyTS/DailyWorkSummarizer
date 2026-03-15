@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import IOKit.ps
 
 private final class URLSessionDataTaskBox: @unchecked Sendable {
     var task: URLSessionDataTask?
@@ -89,7 +90,7 @@ final class AnalysisService {
     }
 
     func runNow() {
-        triggerAnalysis(scheduledFor: Date())
+        triggerAnalysis(scheduledFor: Date(), isAutomatic: false)
     }
 
     func cancelCurrentRun() {
@@ -115,10 +116,7 @@ final class AnalysisService {
 
     func currentPrompt() -> String {
         let snapshot = settingsStore.snapshot
-        return buildPrompt(
-            with: snapshot.validCategoryRules,
-            forceThinking: snapshot.provider == .lmStudio && snapshot.forceThinking
-        )
+        return buildPrompt(with: snapshot.validCategoryRules)
     }
 
     func testCurrentSettings(with imageFileURL: URL) async throws -> AnalysisResponse {
@@ -136,10 +134,7 @@ final class AnalysisService {
             throw AnalysisServiceError.invalidConfiguration("请先配置模型名称")
         }
 
-        let prompt = buildPrompt(
-            with: snapshot.validCategoryRules,
-            forceThinking: snapshot.provider == .lmStudio && snapshot.forceThinking
-        )
+        let prompt = buildPrompt(with: snapshot.validCategoryRules)
         do {
             return try await analyzeImage(at: imageFileURL, settings: snapshot, prompt: prompt)
         } catch {
@@ -168,7 +163,7 @@ final class AnalysisService {
         let nextDate = settingsStore.snapshot.nextAnalysisDate(after: Date())
         timer = Timer(fire: nextDate, interval: 0, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.triggerAnalysis(scheduledFor: nextDate)
+                self?.triggerAnalysis(scheduledFor: nextDate, isAutomatic: true)
             }
         }
 
@@ -177,7 +172,14 @@ final class AnalysisService {
         }
     }
 
-    private func triggerAnalysis(scheduledFor: Date) {
+    private func triggerAnalysis(scheduledFor: Date, isAutomatic: Bool) {
+        if isAutomatic,
+           settingsStore.snapshot.autoAnalysisRequiresCharger,
+           !Self.isConnectedToCharger() {
+            scheduleNextRun()
+            return
+        }
+
         runningTask?.cancel()
         runningTask = Task { [weak self] in
             guard let self else { return }
@@ -191,10 +193,7 @@ final class AnalysisService {
     private func runAnalysis(scheduledFor: Date) async {
         let snapshot = settingsStore.snapshot
         activeRunSettings = snapshot
-        let prompt = buildPrompt(
-            with: snapshot.validCategoryRules,
-            forceThinking: snapshot.provider == .lmStudio && snapshot.forceThinking
-        )
+        let prompt = buildPrompt(with: snapshot.validCategoryRules)
         let categoriesJSON = encodeCategories(snapshot.validCategoryRules)
         let pendingCaptures = (try? database.listScreenshotFiles(defaultDurationMinutes: snapshot.screenshotIntervalMinutes)) ?? []
 
@@ -421,27 +420,10 @@ final class AnalysisService {
         await stopModelIfNeeded(for: snapshot)
     }
 
-    private func buildPrompt(with rules: [CategoryRule], forceThinking: Bool) -> String {
+    private func buildPrompt(with rules: [CategoryRule]) -> String {
         let list = rules.map { rule in
             "\(rule.name)：\(rule.description)"
         }.joined(separator: "\n")
-
-        let thinkingInstruction = forceThinking
-            ? "\n请把思考过程写在 \"<think></think>\" 里。\n"
-            : ""
-        let outputRequirements = forceThinking
-            ? """
-            返回要求：
-            1. </think> 后面的正式回复里只能返回一个类别名
-            2. 正式回复里不要返回 JSON、Markdown、解释或其他多余文本
-            3. 返回的类别名必须与候选类别完全一致
-            """
-            : """
-            返回要求：
-            1. 只能返回一个类别名
-            2. 不要返回 JSON、Markdown、解释、思考过程或其他多余文本
-            3. 返回的类别名必须与候选类别完全一致
-            """
 
         return """
         你是一个工作桌面截图分类助手。
@@ -450,8 +432,10 @@ final class AnalysisService {
 
         候选类别：
         \(list)
-        \(thinkingInstruction)
-        \(outputRequirements)
+        返回要求：
+        1. 只能返回一个类别名
+        2. 不要返回 JSON、Markdown、解释、思考过程或其他多余文本
+        3. 返回的类别名必须与候选类别完全一致
         """
     }
 
@@ -984,6 +968,15 @@ final class AnalysisService {
         default:
             return false
         }
+    }
+
+    nonisolated static func isConnectedToCharger() -> Bool {
+        guard let powerInfo = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let powerSourceType = IOPSGetProvidingPowerSourceType(powerInfo)?.takeUnretainedValue() as String? else {
+            return false
+        }
+
+        return powerSourceType == kIOPMACPowerKey
     }
 
     nonisolated static func shouldRetryAnalysis(after error: Error, attempt: Int, maxAttempts: Int = 3) -> Bool {

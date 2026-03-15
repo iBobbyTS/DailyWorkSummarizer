@@ -34,6 +34,20 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var reportWeekStart: ReportWeekStart {
+        didSet {
+            userDefaults.set(reportWeekStart.rawValue, forKey: Keys.reportWeekStart)
+            notifySettingsChanged()
+        }
+    }
+
+    @Published var autoAnalysisRequiresCharger: Bool {
+        didSet {
+            userDefaults.set(autoAnalysisRequiresCharger, forKey: Keys.autoAnalysisRequiresCharger)
+            notifySettingsChanged()
+        }
+    }
+
     @Published var provider: ModelProvider {
         didSet {
             userDefaults.set(provider.rawValue, forKey: Keys.provider)
@@ -74,13 +88,6 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    @Published var forceThinking: Bool {
-        didSet {
-            userDefaults.set(forceThinking, forKey: Keys.forceThinking)
-            notifySettingsChanged()
-        }
-    }
-
     @Published private(set) var categoryRules: [CategoryRule]
 
     private let userDefaults: UserDefaults
@@ -99,23 +106,25 @@ final class SettingsStore: ObservableObject {
         let savedInterval = userDefaults.object(forKey: Keys.screenshotIntervalMinutes) as? Int ?? AppDefaults.screenshotIntervalMinutes
         let savedAnalysisTime = userDefaults.object(forKey: Keys.analysisTimeMinutes) as? Int ?? AppDefaults.analysisTimeMinutes
         let savedAutomaticAnalysisEnabled = userDefaults.object(forKey: Keys.automaticAnalysisEnabled) as? Bool ?? AppDefaults.automaticAnalysisEnabled
+        let savedReportWeekStart = ReportWeekStart(rawValue: userDefaults.string(forKey: Keys.reportWeekStart) ?? "") ?? .sunday
+        let savedAutoAnalysisRequiresCharger = userDefaults.object(forKey: Keys.autoAnalysisRequiresCharger) as? Bool ?? AppDefaults.autoAnalysisRequiresCharger
         let savedProvider = ModelProvider(rawValue: userDefaults.string(forKey: Keys.provider) ?? "") ?? .openAI
         let savedBaseURL = userDefaults.string(forKey: Keys.apiBaseURL) ?? ""
         let savedModelName = userDefaults.string(forKey: Keys.modelName) ?? ""
         let savedAPIKey = keychain.string(for: AppDefaults.apiKeyAccount)
         let savedLMStudioContextLength = userDefaults.object(forKey: Keys.lmStudioContextLength) as? Int ?? AppDefaults.lmStudioContextLength
-        let savedForceThinking = userDefaults.object(forKey: Keys.forceThinking) as? Bool ?? AppDefaults.forceThinking
         let savedRules = (try? database.fetchCategoryRules()) ?? []
 
         screenshotIntervalMinutes = max(1, min(60, savedInterval))
         analysisTimeMinutes = max(0, min(23 * 60 + 59, savedAnalysisTime))
         automaticAnalysisEnabled = savedAutomaticAnalysisEnabled
+        reportWeekStart = savedReportWeekStart
+        autoAnalysisRequiresCharger = savedAutoAnalysisRequiresCharger
         provider = savedProvider
         apiBaseURL = savedBaseURL
         modelName = savedModelName
         apiKey = savedAPIKey
         lmStudioContextLength = max(4096, min(65536, savedLMStudioContextLength))
-        forceThinking = savedForceThinking
         categoryRules = savedRules.isEmpty ? AppDefaults.defaultCategoryRules : savedRules
 
         if savedRules.isEmpty {
@@ -128,12 +137,12 @@ final class SettingsStore: ObservableObject {
             screenshotIntervalMinutes: screenshotIntervalMinutes,
             analysisTimeMinutes: analysisTimeMinutes,
             automaticAnalysisEnabled: automaticAnalysisEnabled,
+            autoAnalysisRequiresCharger: autoAnalysisRequiresCharger,
             provider: provider,
             apiBaseURL: apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
             modelName: modelName.trimmingCharacters(in: .whitespacesAndNewlines),
             apiKey: apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
             lmStudioContextLength: lmStudioContextLength,
-            forceThinking: forceThinking,
             categoryRules: categoryRules
         )
     }
@@ -163,6 +172,20 @@ final class SettingsStore: ObservableObject {
         saveCategoryRules()
     }
 
+    func moveCategoryRuleUp(id: UUID) {
+        guard let index = categoryRules.firstIndex(where: { $0.id == id }),
+              index > 0 else { return }
+        categoryRules.swapAt(index, index - 1)
+        saveCategoryRules()
+    }
+
+    func moveCategoryRuleDown(id: UUID) {
+        guard let index = categoryRules.firstIndex(where: { $0.id == id }),
+              index < categoryRules.count - 1 else { return }
+        categoryRules.swapAt(index, index + 1)
+        saveCategoryRules()
+    }
+
     private func saveCategoryRules() {
         try? database.replaceCategoryRules(categoryRules)
         notifySettingsChanged()
@@ -176,10 +199,11 @@ final class SettingsStore: ObservableObject {
         static let screenshotIntervalMinutes = "settings.screenshotIntervalMinutes"
         static let analysisTimeMinutes = "settings.analysisTimeMinutes"
         static let automaticAnalysisEnabled = "settings.automaticAnalysisEnabled"
+        static let reportWeekStart = "settings.reportWeekStart"
+        static let autoAnalysisRequiresCharger = "settings.autoAnalysisRequiresCharger"
         static let provider = "settings.provider"
         static let apiBaseURL = "settings.apiBaseURL"
         static let modelName = "settings.modelName"
         static let lmStudioContextLength = "settings.lmStudioContextLength"
-        static let forceThinking = "settings.forceThinking"
     }
 }

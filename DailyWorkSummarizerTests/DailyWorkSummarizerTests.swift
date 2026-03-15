@@ -42,12 +42,12 @@ struct DailyWorkSummarizerTests {
             screenshotIntervalMinutes: 5,
             analysisTimeMinutes: 18 * 60 + 30,
             automaticAnalysisEnabled: true,
+            autoAnalysisRequiresCharger: false,
             provider: .openAI,
             apiBaseURL: "",
             modelName: "",
             apiKey: "",
             lmStudioContextLength: AppDefaults.lmStudioContextLength,
-            forceThinking: false,
             categoryRules: []
         )
 

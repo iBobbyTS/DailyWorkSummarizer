@@ -5,8 +5,8 @@ enum AppDefaults {
     static let screenshotIntervalMinutes = 5
     static let analysisTimeMinutes = 18 * 60 + 30
     static let automaticAnalysisEnabled = true
+    static let autoAnalysisRequiresCharger = false
     static let lmStudioContextLength = 6000
-    static let forceThinking = false
     static let maxPageSize = 31
     static let screenshotFileExtension = "jpg"
     static let apiKeyAccount = "model-api-key"
@@ -134,6 +134,31 @@ enum DurationDisplayStyle {
     case dayAndHour
 }
 
+enum ReportWeekStart: String, CaseIterable, Codable, Identifiable {
+    case sunday
+    case monday
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .sunday:
+            return "周日"
+        case .monday:
+            return "周一"
+        }
+    }
+
+    var calendarFirstWeekday: Int {
+        switch self {
+        case .sunday:
+            return 1
+        case .monday:
+            return 2
+        }
+    }
+}
+
 struct CategoryRule: Identifiable, Codable, Hashable {
     var id: UUID
     var name: String
@@ -150,12 +175,12 @@ struct AppSettingsSnapshot {
     let screenshotIntervalMinutes: Int
     let analysisTimeMinutes: Int
     let automaticAnalysisEnabled: Bool
+    let autoAnalysisRequiresCharger: Bool
     let provider: ModelProvider
     let apiBaseURL: String
     let modelName: String
     let apiKey: String
     let lmStudioContextLength: Int
-    let forceThinking: Bool
     let categoryRules: [CategoryRule]
 
     var captureScope: CaptureScope {
@@ -241,7 +266,7 @@ struct CategoryDuration: Identifiable {
 }
 
 struct HeatmapEvent: Identifiable {
-    let id: Int64
+    let id: String
     let category: String
     let start: Date
     let end: Date
@@ -264,9 +289,13 @@ extension Array where Element == CategoryRule {
 
 extension Calendar {
     static var reportCalendar: Calendar {
+        reportCalendar(firstWeekday: 1)
+    }
+
+    static func reportCalendar(firstWeekday: Int) -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale(identifier: "zh_CN")
-        calendar.firstWeekday = 1
+        calendar.firstWeekday = firstWeekday
         return calendar
     }
 }

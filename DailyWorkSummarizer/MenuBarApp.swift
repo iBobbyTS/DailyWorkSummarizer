@@ -52,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             self.errorStore = errorStore
             self.screenshotService = ScreenshotService(database: database, settingsStore: settingsStore)
             self.analysisService = AnalysisService(database: database, settingsStore: settingsStore, errorStore: errorStore)
-            self.reportsViewModel = ReportsViewModel(database: database)
+            self.reportsViewModel = ReportsViewModel(database: database, settingsStore: settingsStore)
         } catch {
             presentFatalAlert(message: "初始化数据库失败", detail: error.localizedDescription)
             NSApp.terminate(nil)

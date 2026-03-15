@@ -1,6 +1,27 @@
+import AppKit
 import SwiftUI
 
 struct SettingsView: View {
+    private enum Layout {
+        static let sectionSpacing: CGFloat = 16
+        static let cardRowVerticalPadding: CGFloat = 10
+        static let cardRowHorizontalPadding: CGFloat = 18
+        static let tabHorizontalPadding: CGFloat = 8
+        static let tabVerticalPadding: CGFloat = 10
+        static let sliderLabelWidth: CGFloat = 64
+        static let numberFieldWidth: CGFloat = 72
+        static let contextFieldWidth: CGFloat = 84
+        static let percentageFieldRatio: CGFloat = 0.7
+        static let plainIntegerFormatter: NumberFormatter = {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .decimal
+            formatter.usesGroupingSeparator = false
+            formatter.maximumFractionDigits = 0
+            formatter.minimumFractionDigits = 0
+            return formatter
+        }()
+    }
+
     @ObservedObject var settingsStore: SettingsStore
     let screenshotService: ScreenshotService
     let analysisService: AnalysisService
@@ -38,6 +59,9 @@ struct SettingsView: View {
 
             modelTab
                 .tabItem { Text("模型") }
+
+            reportTab
+                .tabItem { Text("报告") }
         }
         .padding(20)
         .frame(minWidth: 700, minHeight: 560)
@@ -47,63 +71,59 @@ struct SettingsView: View {
     }
 
     private var captureTab: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("截屏设置")
-                .font(.title2.weight(.semibold))
+        VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
+            VStack(alignment: .leading, spacing: 0) {
+                intervalRow
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text("截图间隔")
-                    .font(.headline)
+                Divider()
 
                 HStack(spacing: 12) {
-                    Slider(
-                        value: Binding(
-                            get: { Double(settingsStore.screenshotIntervalMinutes) },
-                            set: { settingsStore.screenshotIntervalMinutes = Int($0.rounded()) }
-                        ),
-                        in: 1...60,
-                        step: 1
-                    )
-
-                    TextField(
-                        "分钟",
-                        value: Binding(
-                            get: { settingsStore.screenshotIntervalMinutes },
-                            set: { settingsStore.screenshotIntervalMinutes = $0 }
-                        ),
-                        format: .number
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 72)
-
-                    Text("分钟")
-                        .foregroundStyle(.secondary)
+                    Text("定时自动分析")
+                    Spacer()
+                    Toggle("", isOn: $settingsStore.automaticAnalysisEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
                 }
+                .padding(.horizontal, Layout.cardRowHorizontalPadding)
+                .padding(.vertical, Layout.cardRowVerticalPadding)
+
+                Divider()
+
+                HStack(spacing: 12) {
+                    Text("仅在连接充电器时定时开始分析")
+                    Spacer()
+                    Toggle("", isOn: $settingsStore.autoAnalysisRequiresCharger)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(.horizontal, Layout.cardRowHorizontalPadding)
+                .padding(.vertical, Layout.cardRowVerticalPadding)
+                .disabled(!settingsStore.automaticAnalysisEnabled)
+
+                Divider()
+
+                HStack(spacing: 12) {
+                    Text("定时分析时间")
+                    Spacer()
+                    DatePicker(
+                        "",
+                        selection: analysisTimeBinding,
+                        displayedComponents: [.hourAndMinute]
+                    )
+                    .labelsHidden()
+                    .datePickerStyle(.field)
+                    .disabled(!settingsStore.automaticAnalysisEnabled)
+                }
+                .padding(.horizontal, Layout.cardRowHorizontalPadding)
+                .padding(.vertical, Layout.cardRowVerticalPadding)
             }
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color.gray.opacity(0.08))
+            )
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("截屏范围")
-                    .font(.headline)
-
-                Text("截取当前活跃的屏幕")
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("分析启动时间")
-                    .font(.headline)
-
-                DatePicker(
-                    "每天开始分析",
-                    selection: analysisTimeBinding,
-                    displayedComponents: [.hourAndMinute]
-                )
-                .datePickerStyle(.field)
-
-                Text("建议使用 18:30。本项目会在下一个分析时间点处理尚未分析的截图，不会在启动应用时自动补跑。")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Divider()
+                .padding(.vertical, 4)
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
@@ -168,94 +188,94 @@ struct SettingsView: View {
 
             Spacer()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Layout.tabHorizontalPadding)
+        .padding(.vertical, Layout.tabVerticalPadding)
     }
 
     private var modelTab: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
                 Text("模型设置")
                     .font(.title2.weight(.semibold))
 
-                Picker("模型服务", selection: $settingsStore.provider) {
-                    ForEach(ModelProvider.allCases) { provider in
-                        Text(provider.title).tag(provider)
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 12) {
+                        Text("模型服务")
+                        Spacer()
+                        Picker("", selection: $settingsStore.provider) {
+                            ForEach(ModelProvider.allCases) { provider in
+                                Text(provider.title).tag(provider)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 220)
+                    }
+                    .padding(.horizontal, Layout.cardRowHorizontalPadding)
+                    .padding(.vertical, Layout.cardRowVerticalPadding)
+
+                    Divider()
+
+                    proportionalFieldRow("接口地址") { fieldWidth in
+                        TextField(settingsStore.provider == .lmStudio ? "http://127.0.0.1:1234" : "http://127.0.0.1:8000", text: $settingsStore.apiBaseURL)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: fieldWidth)
+                    }
+
+                    Divider()
+
+                    proportionalFieldRow("模型名称") { fieldWidth in
+                        TextField("请输入模型名称", text: $settingsStore.modelName)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: fieldWidth)
+                    }
+
+                    Divider()
+
+                    proportionalFieldRow("API 秘钥") { fieldWidth in
+                        SecureField("请输入 API Key（可留空）", text: $settingsStore.apiKey)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: fieldWidth)
+                    }
+
+                    if settingsStore.provider == .lmStudio {
+                        Divider()
+
+                        proportionalFieldRow("上下文长度", fieldWidth: Layout.contextFieldWidth) { fieldWidth in
+                            TextField(
+                                "4096 - 65536",
+                                value: Binding(
+                                    get: { settingsStore.lmStudioContextLength },
+                                    set: { settingsStore.lmStudioContextLength = $0 }
+                                ),
+                                formatter: Layout.plainIntegerFormatter
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: fieldWidth)
+                        }
                     }
                 }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 220)
+                .background(
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color.gray.opacity(0.08))
+                )
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("接口地址")
-                        .font(.headline)
-                    TextField(settingsStore.provider == .lmStudio ? "http://127.0.0.1:1234" : "http://127.0.0.1:8000", text: $settingsStore.apiBaseURL)
-                        .textFieldStyle(.roundedBorder)
-                    if settingsStore.provider != .lmStudio {
-                        Text("官方 API 未经过测试")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("模型名称")
-                        .font(.headline)
-                    TextField("请输入模型名称", text: $settingsStore.modelName)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("API Key")
-                        .font(.headline)
-                    SecureField("请输入 API Key（可留空）", text: $settingsStore.apiKey)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                if settingsStore.provider == .lmStudio {
-                    VStack(alignment: .leading, spacing: 8) {
-                    Toggle("继承 previous response", isOn: $settingsStore.inheritPreviousResponse)
-                    }
-                }
-
-                if settingsStore.provider == .lmStudio {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Context Length")
-                            .font(.headline)
-
-                        TextField(
-                            "4096 - 65536",
-                            value: Binding(
-                                get: { settingsStore.lmStudioContextLength },
-                                set: { settingsStore.lmStudioContextLength = $0 }
-                            ),
-                            format: .number
-                        )
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 160)
-
-                        Text("如果分类较多，建议更长的上下文。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("分析分类")
-                        .font(.headline)
-                    Text("下面是用于模型分析的分类，请输入你期望的类别和简介的描述，方便大模型进行分类。")
+                if settingsStore.provider != .lmStudio {
+                    Text("官方 API 未经过测试")
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
+
+                Text("分析分类")
+                    .font(.title2.weight(.semibold))
 
                 VStack(spacing: 12) {
                     HStack {
                         Text("类别名")
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frame(width: 180, alignment: .leading)
                         Text("描述")
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Color.clear
-                            .frame(width: 36)
+                            .frame(width: 96)
                     }
                     .font(.headline)
 
@@ -271,7 +291,7 @@ struct SettingsView: View {
                                 )
                             )
                             .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: .infinity)
+                            .frame(width: 180)
 
                             TextField(
                                 "例如：正在编码、查资料或写文档",
@@ -285,15 +305,34 @@ struct SettingsView: View {
                             )
                             .lineLimit(2...4)
                             .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: .infinity)
+                            .frame(maxWidth: .infinity, minHeight: 36)
 
-                            Button {
-                                settingsStore.removeCategoryRule(id: rule.id)
-                            } label: {
-                                Image(systemName: "trash")
+                            HStack(spacing: 6) {
+                                Button {
+                                    settingsStore.moveCategoryRuleUp(id: rule.id)
+                                } label: {
+                                    Image(systemName: "chevron.up")
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(isFirstCategoryRule(rule.id))
+
+                                Button {
+                                    settingsStore.moveCategoryRuleDown(id: rule.id)
+                                } label: {
+                                    Image(systemName: "chevron.down")
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(isLastCategoryRule(rule.id))
+
+                                Button {
+                                    settingsStore.removeCategoryRule(id: rule.id)
+                                } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(.red)
                             }
-                            .buttonStyle(.borderless)
-                            .foregroundStyle(.red)
+                            .frame(width: 96, alignment: .trailing)
                         }
                     }
                 }
@@ -308,19 +347,28 @@ struct SettingsView: View {
                     .padding(.vertical, 4)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Button {
-                        testModel()
-                    } label: {
-                        if isTestingModel {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("正在测试模型…")
-                        } else {
-                            Label("测试模型", systemImage: "bolt.horizontal")
+                    HStack(spacing: 12) {
+                        Button {
+                            testModel()
+                        } label: {
+                            if isTestingModel {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("正在测试模型…")
+                            } else {
+                                Label("测试模型", systemImage: "bolt.horizontal")
+                            }
                         }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isTestingModel)
+
+                        Button {
+                            copyPrompt()
+                        } label: {
+                            Label("复制prompt", systemImage: "doc.on.doc")
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isTestingModel)
 
                     if let modelTestCountdownText {
                         Text(modelTestCountdownText)
@@ -343,9 +391,108 @@ struct SettingsView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 12)
+            .padding(.horizontal, Layout.tabHorizontalPadding)
+            .padding(.vertical, Layout.tabVerticalPadding)
         }
+    }
+
+    private var intervalRow: some View {
+        GeometryReader { geometry in
+            let reservedWidth =
+                Layout.sliderLabelWidth +
+                Layout.numberFieldWidth +
+                28 +
+                Layout.cardRowHorizontalPadding * 2 +
+                36
+            let maxSliderWidth = max(140, geometry.size.width - reservedWidth)
+            let sliderWidth = min(maxSliderWidth, geometry.size.width * 0.6)
+
+            HStack(spacing: 12) {
+                Text("截图间隔")
+                    .frame(width: Layout.sliderLabelWidth, alignment: .leading)
+
+                Slider(
+                    value: Binding(
+                        get: { Double(settingsStore.screenshotIntervalMinutes) },
+                        set: { settingsStore.screenshotIntervalMinutes = Int($0.rounded()) }
+                    ),
+                    in: 1...60,
+                    step: 1
+                )
+                .frame(width: sliderWidth)
+
+                TextField(
+                    "分钟",
+                    value: Binding(
+                        get: { settingsStore.screenshotIntervalMinutes },
+                        set: { settingsStore.screenshotIntervalMinutes = $0 }
+                    ),
+                    format: .number
+                )
+                .textFieldStyle(.roundedBorder)
+                .frame(width: Layout.numberFieldWidth)
+
+                Text("分钟")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, Layout.cardRowHorizontalPadding)
+            .padding(.vertical, Layout.cardRowVerticalPadding)
+        }
+        .frame(height: 52)
+    }
+
+    private var reportTab: some View {
+        VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
+            Text("报告设置")
+                .font(.title2.weight(.semibold))
+
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 12) {
+                    Text("一周的第一天")
+                    Spacer()
+                    Picker("", selection: $settingsStore.reportWeekStart) {
+                        ForEach(ReportWeekStart.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 160)
+                }
+                .padding(.horizontal, Layout.cardRowHorizontalPadding)
+                .padding(.vertical, Layout.cardRowVerticalPadding)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color.gray.opacity(0.08))
+            )
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.horizontal, Layout.tabHorizontalPadding)
+        .padding(.vertical, Layout.tabVerticalPadding)
+    }
+
+    private func proportionalFieldRow<Content: View>(
+        _ title: String,
+        fieldWidth: CGFloat? = nil,
+        @ViewBuilder field: @escaping (CGFloat) -> Content
+    ) -> some View {
+        GeometryReader { geometry in
+            let availableWidth = geometry.size.width - Layout.cardRowHorizontalPadding * 2
+            let resolvedFieldWidth = fieldWidth ?? max(220, availableWidth * Layout.percentageFieldRatio)
+
+            HStack(spacing: 12) {
+                Text(title)
+                Spacer()
+                field(resolvedFieldWidth)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, Layout.cardRowHorizontalPadding)
+            .padding(.vertical, Layout.cardRowVerticalPadding)
+        }
+        .frame(height: 52)
     }
 
     private func capturePreview() {
@@ -431,6 +578,20 @@ struct SettingsView: View {
                 modelTestError = error.localizedDescription
             }
         }
+    }
+
+    private func copyPrompt() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(analysisService.currentPrompt(), forType: .string)
+    }
+
+    private func isFirstCategoryRule(_ id: UUID) -> Bool {
+        settingsStore.categoryRules.first?.id == id
+    }
+
+    private func isLastCategoryRule(_ id: UUID) -> Bool {
+        settingsStore.categoryRules.last?.id == id
     }
 
     private func removePreviewFile() {
