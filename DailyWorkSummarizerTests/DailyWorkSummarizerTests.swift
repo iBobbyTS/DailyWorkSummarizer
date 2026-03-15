@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreGraphics
 import Testing
 @testable import DailyWorkSummarizer
 
@@ -40,12 +41,13 @@ struct DailyWorkSummarizerTests {
         let snapshot = AppSettingsSnapshot(
             screenshotIntervalMinutes: 5,
             analysisTimeMinutes: 18 * 60 + 30,
+            automaticAnalysisEnabled: true,
             provider: .openAI,
             apiBaseURL: "",
             modelName: "",
             apiKey: "",
-            inheritPreviousResponse: false,
             lmStudioContextLength: AppDefaults.lmStudioContextLength,
+            forceThinking: false,
             categoryRules: []
         )
 
@@ -57,5 +59,69 @@ struct DailyWorkSummarizerTests {
         #expect(components.day == 14)
         #expect(components.hour == 18)
         #expect(components.minute == 30)
+    }
+
+    @Test func absenceRequiresSameMouseLocationAndSameFrontmostApp() async throws {
+        let shouldRecord = ScreenshotService.shouldRecordAbsence(
+            currentMouseLocation: CGPoint(x: 120, y: 240),
+            lastMouseLocation: CGPoint(x: 120, y: 240),
+            currentFrontmostAppIdentifier: "com.apple.Safari",
+            lastFrontmostAppIdentifier: "com.apple.Safari"
+        )
+
+        #expect(shouldRecord)
+    }
+
+    @Test func absenceDoesNotRecordWhenFrontmostAppChanges() async throws {
+        let shouldRecord = ScreenshotService.shouldRecordAbsence(
+            currentMouseLocation: CGPoint(x: 120, y: 240),
+            lastMouseLocation: CGPoint(x: 120, y: 240),
+            currentFrontmostAppIdentifier: "com.apple.Safari",
+            lastFrontmostAppIdentifier: "com.apple.dt.Xcode"
+        )
+
+        #expect(!shouldRecord)
+    }
+
+    @Test func retryPolicyRetriesServerAndInvalidResponseErrorsBeforeMaxAttempts() async throws {
+        #expect(
+            AnalysisService.shouldRetryAnalysis(
+                after: AnalysisServiceError.httpError(statusCode: 500, body: "server error"),
+                attempt: 1
+            )
+        )
+        #expect(
+            AnalysisService.shouldRetryAnalysis(
+                after: AnalysisServiceError.invalidResponse("no output"),
+                attempt: 2
+            )
+        )
+    }
+
+    @Test func retryPolicyDoesNotRetryLengthOrFourthAttempt() async throws {
+        #expect(
+            !AnalysisService.shouldRetryAnalysis(
+                after: AnalysisServiceError.lengthTruncated("truncated"),
+                attempt: 1
+            )
+        )
+        #expect(
+            !AnalysisService.shouldRetryAnalysis(
+                after: AnalysisServiceError.invalidResponse("invalid category"),
+                attempt: 3
+            )
+        )
+    }
+
+    @Test func pauseAfterFiveConsecutiveFailures() async throws {
+        #expect(!AnalysisService.shouldPauseAfterConsecutiveFailures(4))
+        #expect(AnalysisService.shouldPauseAfterConsecutiveFailures(5))
+    }
+
+    @Test func runtimeErrorRecordingFiltersOutNonAPIErrors() async throws {
+        #expect(AnalysisService.shouldRecordRuntimeError(AnalysisServiceError.invalidResponse("empty output")))
+        #expect(AnalysisService.shouldRecordRuntimeError(AnalysisServiceError.httpError(statusCode: 500, body: "server error")))
+        #expect(!AnalysisService.shouldRecordRuntimeError(AnalysisServiceError.invalidConfiguration("missing url")))
+        #expect(!AnalysisService.shouldRecordRuntimeError(CancellationError()))
     }
 }

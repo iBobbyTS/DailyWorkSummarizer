@@ -17,19 +17,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var statusItem: NSStatusItem?
     private var settingsWindow: NSWindow?
     private var reportsWindow: NSWindow?
+    private var errorsWindow: NSWindow?
     private var settingsObserver: NSObjectProtocol?
     private var databaseObserver: NSObjectProtocol?
     private var screenshotObserver: NSObjectProtocol?
     private var analysisObserver: NSObjectProtocol?
+    private var errorsObserver: NSObjectProtocol?
 
     private var database: AppDatabase?
     private var settingsStore: SettingsStore?
     private var screenshotService: ScreenshotService?
     private var analysisService: AnalysisService?
     private var reportsViewModel: ReportsViewModel?
+    private var errorStore: AnalysisErrorStore?
     private let statusSummaryItem = NSMenuItem(title: "当前没有待分析的截图", action: nil, keyEquivalent: "")
     private let statusAverageDurationItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let openScreenshotsItem = NSMenuItem(title: "打开截图文件夹", action: #selector(openScreenshotsFolder), keyEquivalent: "")
+    private let viewErrorsItem = NSMenuItem(title: "显示0个错误", action: #selector(openErrors), keyEquivalent: "")
+    private let automaticAnalysisToggleItem = NSMenuItem(title: "关闭定时分析", action: #selector(toggleAutomaticAnalysis), keyEquivalent: "")
     private let analyzeNowItem = NSMenuItem(title: "立即分析", action: #selector(runAnalysisNow), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -40,11 +45,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             let database = try AppDatabase()
             let keychain = KeychainStore(service: Bundle.main.bundleIdentifier ?? "DailyWorkSummarizer")
             let settingsStore = SettingsStore(database: database, keychain: keychain)
+            let errorStore = AnalysisErrorStore()
 
             self.database = database
             self.settingsStore = settingsStore
+            self.errorStore = errorStore
             self.screenshotService = ScreenshotService(database: database, settingsStore: settingsStore)
-            self.analysisService = AnalysisService(database: database, settingsStore: settingsStore)
+            self.analysisService = AnalysisService(database: database, settingsStore: settingsStore, errorStore: errorStore)
             self.reportsViewModel = ReportsViewModel(database: database)
         } catch {
             presentFatalAlert(message: "初始化数据库失败", detail: error.localizedDescription)
@@ -71,6 +78,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if let analysisObserver {
             NotificationCenter.default.removeObserver(analysisObserver)
         }
+        if let errorsObserver {
+            NotificationCenter.default.removeObserver(errorsObserver)
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -79,6 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             settingsWindow = nil
         } else if window == reportsWindow {
             reportsWindow = nil
+        } else if window == errorsWindow {
+            errorsWindow = nil
         }
     }
 
@@ -133,6 +145,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 self?.refreshStatusMenu()
             }
         }
+
+        errorsObserver = NotificationCenter.default.addObserver(
+            forName: .analysisErrorsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshStatusMenu()
+            }
+        }
     }
 
     private lazy var menu: NSMenu = {
@@ -143,6 +165,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusAverageDurationItem.isEnabled = false
         statusAverageDurationItem.isHidden = true
         openScreenshotsItem.target = self
+        viewErrorsItem.target = self
+        viewErrorsItem.isEnabled = false
+        automaticAnalysisToggleItem.target = self
         analyzeNowItem.target = self
 
         let statusSubmenu = NSMenu()
@@ -150,6 +175,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusSubmenu.addItem(statusAverageDurationItem)
         statusSubmenu.addItem(.separator())
         statusSubmenu.addItem(openScreenshotsItem)
+        statusSubmenu.addItem(viewErrorsItem)
+        statusSubmenu.addItem(automaticAnalysisToggleItem)
         statusSubmenu.addItem(analyzeNowItem)
 
         let statusItem = NSMenuItem(title: "当前状态", action: nil, keyEquivalent: "")
@@ -222,6 +249,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         screenshotService?.openScreenshotsFolder()
     }
 
+    @objc private func openErrors() {
+        guard let errorStore, errorStore.count > 0 else { return }
+        if let window = errorsWindow {
+            activateAndShow(window)
+            return
+        }
+
+        let controller = NSHostingController(rootView: AnalysisErrorsView(errorStore: errorStore))
+        let window = NSWindow(contentViewController: controller)
+        window.delegate = self
+        window.title = "查看错误"
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.setContentSize(NSSize(width: 780, height: 500))
+        window.center()
+        errorsWindow = window
+        activateAndShow(window)
+    }
+
+    @objc private func toggleAutomaticAnalysis() {
+        guard let settingsStore else { return }
+        settingsStore.automaticAnalysisEnabled.toggle()
+    }
+
     @objc private func runAnalysisNow() {
         guard let analysisService else { return }
         if analysisService.currentState.isRunning {
@@ -245,6 +295,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let pendingScreenshots = (try? database.listScreenshotFiles(defaultDurationMinutes: defaultDuration)) ?? []
         let analysisState = analysisService?.currentState ?? .idle
         let lastAverageDuration = try? database.fetchLatestAnalysisAverageDurationSeconds()
+        let errorCount = errorStore?.count ?? 0
+        let automaticAnalysisEnabled = settingsStore?.automaticAnalysisEnabled ?? AppDefaults.automaticAnalysisEnabled
+
+        viewErrorsItem.title = "显示\(errorCount)个错误"
+        viewErrorsItem.isEnabled = errorCount > 0
+        automaticAnalysisToggleItem.title = automaticAnalysisEnabled ? "关闭定时分析" : "开启定时分析"
+        automaticAnalysisToggleItem.isEnabled = true
 
         if let lastAverageDuration {
             statusAverageDurationItem.title = "上次分析平均每张耗时\(Self.averageDurationFormatter.string(from: NSNumber(value: lastAverageDuration)) ?? String(format: "%.1f", lastAverageDuration))秒"
