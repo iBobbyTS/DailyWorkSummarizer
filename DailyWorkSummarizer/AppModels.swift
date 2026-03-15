@@ -240,6 +240,7 @@ struct ReportRange: Identifiable, Hashable {
     let label: String
     let interval: DateInterval
     let totalHours: Double
+    let averageHoursPerDay: Double
     let itemCount: Int
 }
 

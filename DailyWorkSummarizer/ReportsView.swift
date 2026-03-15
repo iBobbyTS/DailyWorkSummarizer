@@ -229,11 +229,13 @@ final class ReportsViewModel: ObservableObject {
             }
 
             let totalHours = Double(durationRecords.reduce(0) { $0 + $1.durationMinutes }) / 60.0
+            let dayCount = max(interval.duration / 86_400.0, 1)
             return ReportRange(
                 id: "\(kind.rawValue)-\(Int(startDate.timeIntervalSince1970))",
                 label: label,
                 interval: interval,
                 totalHours: totalHours,
+                averageHoursPerDay: totalHours / dayCount,
                 itemCount: records.count
             )
         }
@@ -293,8 +295,14 @@ struct ReportsView: View {
                                 Text(range.label)
                                     .font(.headline)
                                     .foregroundStyle(.primary)
-                                Text("累计 \(range.totalHours.durationText(style: viewModel.selectedKind.durationDisplayStyle))")
-                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 8) {
+                                    Text("累计 \(range.totalHours.durationText(style: viewModel.selectedKind.durationDisplayStyle))")
+                                        .foregroundStyle(.secondary)
+                                    if viewModel.selectedKind != .day {
+                                        Text("日均 \(range.averageHoursPerDay.durationText(style: viewModel.selectedKind.durationDisplayStyle))")
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
                             }
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
