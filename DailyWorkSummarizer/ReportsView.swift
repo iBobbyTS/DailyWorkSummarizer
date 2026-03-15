@@ -296,10 +296,10 @@ struct ReportsView: View {
                                     .font(.headline)
                                     .foregroundStyle(.primary)
                                 HStack(spacing: 8) {
-                                    Text("累计 \(range.totalHours.durationText(style: viewModel.selectedKind.durationDisplayStyle))")
+                                    Text("累计 \(range.totalHours.durationText(for: viewModel.selectedKind))")
                                         .foregroundStyle(.secondary)
                                     if viewModel.selectedKind != .day {
-                                        Text("日均 \(range.averageHoursPerDay.durationText(style: viewModel.selectedKind.durationDisplayStyle))")
+                                        Text("日均 \(range.averageHoursPerDay.durationText(for: viewModel.selectedKind))")
                                             .foregroundStyle(.secondary)
                                     }
                                 }
@@ -378,7 +378,7 @@ struct ReportsView: View {
                             )
                             .foregroundStyle(Self.palette[index % Self.palette.count])
                             .annotation(position: .top) {
-                                Text(item.hours.durationText(style: viewModel.selectedKind.durationDisplayStyle))
+                                Text(item.hours.durationText(for: viewModel.selectedKind))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -412,7 +412,7 @@ struct ReportsView: View {
                                 .frame(width: 12, height: 12)
                             Text(item.category)
                             Spacer()
-                            Text(item.hours.durationText(style: viewModel.selectedKind.durationDisplayStyle))
+                            Text(item.hours.durationText(for: viewModel.selectedKind))
                                 .foregroundStyle(.secondary)
                         }
                     }

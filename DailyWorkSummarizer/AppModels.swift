@@ -110,17 +110,6 @@ enum ReportKind: String, CaseIterable, Identifiable {
             return "年报"
         }
     }
-
-    var durationDisplayStyle: DurationDisplayStyle {
-        switch self {
-        case .day:
-            return .minute
-        case .week, .month:
-            return .hourAndMinute
-        case .year:
-            return .dayAndHour
-        }
-    }
 }
 
 enum ReportVisualization: String, CaseIterable, Identifiable {
@@ -342,6 +331,26 @@ extension Double {
             }
             return "\(minutes) 分钟"
         }
+    }
+
+    func durationText(for kind: ReportKind) -> String {
+        let totalMinutes = max(Int((self * 60).rounded()), 0)
+        let style: DurationDisplayStyle
+
+        switch kind {
+        case .day, .week:
+            style = totalMinutes >= 60 ? .hourAndMinute : .minute
+        case .month, .year:
+            if totalMinutes >= 24 * 60 {
+                style = .dayAndHour
+            } else if totalMinutes >= 60 {
+                style = .hourAndMinute
+            } else {
+                style = .minute
+            }
+        }
+
+        return durationText(style: style)
     }
 }
 
