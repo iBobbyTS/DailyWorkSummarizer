@@ -120,14 +120,24 @@ final class ScreenshotService {
 
     private func performCapture(scheduledAt: Date, settings: AppSettingsSnapshot) {
         let currentMouseLocation = mouseLocation()
-        if let currentMouseLocation,
-           let lastMouseLocation = lastMouseLocation(),
-           currentMouseLocation == lastMouseLocation {
+        let currentFrontmostAppIdentifier = frontmostAppIdentifier()
+
+        if Self.shouldRecordAbsence(
+            currentMouseLocation: currentMouseLocation,
+            lastMouseLocation: lastMouseLocation(),
+            currentFrontmostAppIdentifier: currentFrontmostAppIdentifier,
+            lastFrontmostAppIdentifier: lastFrontmostAppIdentifier()
+        ) {
             try? database.recordAbsenceEvent(
                 capturedAt: scheduledAt,
                 durationMinutes: settings.screenshotIntervalMinutes
             )
-            saveLastMouseLocation(currentMouseLocation)
+            if let currentMouseLocation {
+                saveLastMouseLocation(currentMouseLocation)
+            }
+            if let currentFrontmostAppIdentifier {
+                saveLastFrontmostAppIdentifier(currentFrontmostAppIdentifier)
+            }
             return
         }
 
@@ -144,10 +154,30 @@ final class ScreenshotService {
             if let currentMouseLocation {
                 saveLastMouseLocation(currentMouseLocation)
             }
+            if let currentFrontmostAppIdentifier {
+                saveLastFrontmostAppIdentifier(currentFrontmostAppIdentifier)
+            }
             NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
         } catch {
             return
         }
+    }
+
+    nonisolated static func shouldRecordAbsence(
+        currentMouseLocation: CGPoint?,
+        lastMouseLocation: CGPoint?,
+        currentFrontmostAppIdentifier: String?,
+        lastFrontmostAppIdentifier: String?
+    ) -> Bool {
+        guard let currentMouseLocation,
+              let lastMouseLocation,
+              currentMouseLocation == lastMouseLocation,
+              let currentFrontmostAppIdentifier,
+              let lastFrontmostAppIdentifier else {
+            return false
+        }
+
+        return currentFrontmostAppIdentifier == lastFrontmostAppIdentifier
     }
 
     private func fileName(for date: Date, intervalMinutes: Int? = nil, suffix: String = "") -> String {
@@ -305,9 +335,34 @@ final class ScreenshotService {
         userDefaults.set(location.y, forKey: Keys.lastMouseY)
     }
 
+    private func frontmostAppIdentifier() -> String? {
+        guard let application = NSWorkspace.shared.frontmostApplication else {
+            return nil
+        }
+
+        if let bundleIdentifier = application.bundleIdentifier, !bundleIdentifier.isEmpty {
+            return bundleIdentifier
+        }
+
+        if let localizedName = application.localizedName, !localizedName.isEmpty {
+            return localizedName
+        }
+
+        return "\(application.processIdentifier)"
+    }
+
+    private func lastFrontmostAppIdentifier() -> String? {
+        userDefaults.string(forKey: Keys.lastFrontmostAppIdentifier)
+    }
+
+    private func saveLastFrontmostAppIdentifier(_ identifier: String) {
+        userDefaults.set(identifier, forKey: Keys.lastFrontmostAppIdentifier)
+    }
+
     private enum Keys {
         static let hasLastMouseLocation = "screenshot.lastMouseLocation.exists"
         static let lastMouseX = "screenshot.lastMouseLocation.x"
         static let lastMouseY = "screenshot.lastMouseLocation.y"
+        static let lastFrontmostAppIdentifier = "screenshot.lastFrontmostAppIdentifier"
     }
 }
