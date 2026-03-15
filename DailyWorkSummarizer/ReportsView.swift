@@ -110,6 +110,12 @@ final class ReportsViewModel: ObservableObject {
             )
         }
         .sorted { lhs, rhs in
+            if lhs.category == AppDefaults.absenceCategoryName, rhs.category != AppDefaults.absenceCategoryName {
+                return false
+            }
+            if rhs.category == AppDefaults.absenceCategoryName, lhs.category != AppDefaults.absenceCategoryName {
+                return true
+            }
             if lhs.hours == rhs.hours {
                 return lhs.category < rhs.category
             }
@@ -306,12 +312,16 @@ struct ReportsView: View {
             if let selectedRange = viewModel.selectedRange {
                 Text(selectedRange.label)
                     .font(.title2.weight(.semibold))
-                Text(viewModel.selectedVisualization == .barChart ? "按分类统计截图对应的累计小时数" : "按时间连续展示各分类的截图时段")
+                Text(
+                    viewModel.selectedVisualization == .barChart
+                    ? "按分类统计截图对应的累计小时数。“离开”表示已明确记录的离开，无数据不会计入图表。"
+                    : "按时间连续展示各分类的截图时段。有颜色的“离开”表示已明确记录的离开，空白表示无数据。"
+                )
                     .foregroundStyle(.secondary)
             } else {
                 Text("查看报告")
                     .font(.title2.weight(.semibold))
-                Text("左侧选择一个时间范围后，这里会展示该范围内的柱状图或热力图。")
+                Text("左侧选择一个时间范围后，这里会展示该范围内的柱状图或热力图。无数据不会显示为“离开”。")
                     .foregroundStyle(.secondary)
             }
 
@@ -339,7 +349,7 @@ struct ReportsView: View {
                 ContentUnavailableView(
                     "暂无报告数据",
                     systemImage: viewModel.selectedVisualization == .barChart ? "chart.bar.xaxis" : "square.grid.3x2",
-                    description: Text("当前时间范围没有可展示的分析结果。")
+                    description: Text("当前时间范围没有任何记录；无数据不会显示为“离开”。")
                 )
                 Spacer()
             } else {
