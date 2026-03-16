@@ -8,10 +8,11 @@ struct SettingsView: View {
         static let cardRowHorizontalPadding: CGFloat = 18
         static let tabHorizontalPadding: CGFloat = 8
         static let tabVerticalPadding: CGFloat = 10
-        static let sliderLabelWidth: CGFloat = 64
         static let numberFieldWidth: CGFloat = 72
         static let contextFieldWidth: CGFloat = 84
         static let percentageFieldRatio: CGFloat = 0.7
+        static let servicePickerWidth: CGFloat = 220
+        static let reportPickerWidth: CGFloat = 160
         static let plainIntegerFormatter: NumberFormatter = {
             let formatter = NumberFormatter()
             formatter.numberStyle = .decimal
@@ -199,19 +200,21 @@ struct SettingsView: View {
                     .font(.title2.weight(.semibold))
 
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 12) {
-                        Text("模型服务")
-                        Spacer()
-                        Picker("", selection: $settingsStore.provider) {
-                            ForEach(ModelProvider.allCases) { provider in
-                                Text(provider.title).tag(provider)
+                    proportionalFieldRow("模型服务") { fieldWidth in
+                        HStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            Picker("", selection: $settingsStore.provider) {
+                                ForEach(ModelProvider.allCases) { provider in
+                                    Text(provider.title).tag(provider)
+                                }
                             }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            .fixedSize()
+                            .frame(width: Layout.servicePickerWidth, alignment: .trailing)
                         }
-                        .pickerStyle(.menu)
-                        .frame(width: 220)
+                        .frame(width: fieldWidth, alignment: .trailing)
                     }
-                    .padding(.horizontal, Layout.cardRowHorizontalPadding)
-                    .padding(.vertical, Layout.cardRowVerticalPadding)
 
                     Divider()
 
@@ -398,42 +401,40 @@ struct SettingsView: View {
 
     private var intervalRow: some View {
         GeometryReader { geometry in
-            let reservedWidth =
-                Layout.sliderLabelWidth +
-                Layout.numberFieldWidth +
-                28 +
-                Layout.cardRowHorizontalPadding * 2 +
-                36
-            let maxSliderWidth = max(140, geometry.size.width - reservedWidth)
-            let sliderWidth = min(maxSliderWidth, geometry.size.width * 0.6)
+            let availableWidth = geometry.size.width - Layout.cardRowHorizontalPadding * 2
+            let controlGroupWidth = max(280, availableWidth * 0.68)
+            let sliderWidth = max(140, controlGroupWidth - Layout.numberFieldWidth - 40)
 
             HStack(spacing: 12) {
                 Text("截图间隔")
-                    .frame(width: Layout.sliderLabelWidth, alignment: .leading)
+                Spacer()
+                HStack(spacing: 12) {
+                    Slider(
+                        value: Binding(
+                            get: { Double(settingsStore.screenshotIntervalMinutes) },
+                            set: { settingsStore.screenshotIntervalMinutes = Int($0.rounded()) }
+                        ),
+                        in: 1...60,
+                        step: 1
+                    )
+                    .frame(width: sliderWidth)
 
-                Slider(
-                    value: Binding(
-                        get: { Double(settingsStore.screenshotIntervalMinutes) },
-                        set: { settingsStore.screenshotIntervalMinutes = Int($0.rounded()) }
-                    ),
-                    in: 1...60,
-                    step: 1
-                )
-                .frame(width: sliderWidth)
+                    TextField(
+                        "分钟",
+                        value: Binding(
+                            get: { settingsStore.screenshotIntervalMinutes },
+                            set: { settingsStore.screenshotIntervalMinutes = $0 }
+                        ),
+                        format: .number
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: Layout.numberFieldWidth)
 
-                TextField(
-                    "分钟",
-                    value: Binding(
-                        get: { settingsStore.screenshotIntervalMinutes },
-                        set: { settingsStore.screenshotIntervalMinutes = $0 }
-                    ),
-                    format: .number
-                )
-                .textFieldStyle(.roundedBorder)
-                .frame(width: Layout.numberFieldWidth)
-
-                Text("分钟")
-                    .foregroundStyle(.secondary)
+                    Text("分钟")
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
+                .frame(width: controlGroupWidth, alignment: .trailing)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, Layout.cardRowHorizontalPadding)
@@ -448,19 +449,20 @@ struct SettingsView: View {
                 .font(.title2.weight(.semibold))
 
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 12) {
-                    Text("一周的第一天")
-                    Spacer()
-                    Picker("", selection: $settingsStore.reportWeekStart) {
-                        ForEach(ReportWeekStart.allCases) { option in
-                            Text(option.title).tag(option)
+                proportionalFieldRow("一周的第一天") { fieldWidth in
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        Picker("", selection: $settingsStore.reportWeekStart) {
+                            ForEach(ReportWeekStart.allCases) { option in
+                                Text(option.title).tag(option)
+                            }
                         }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: Layout.reportPickerWidth)
                     }
-                    .pickerStyle(.menu)
-                    .frame(width: 160)
+                    .frame(width: fieldWidth, alignment: .trailing)
                 }
-                .padding(.horizontal, Layout.cardRowHorizontalPadding)
-                .padding(.vertical, Layout.cardRowVerticalPadding)
             }
             .background(
                 RoundedRectangle(cornerRadius: 20)
