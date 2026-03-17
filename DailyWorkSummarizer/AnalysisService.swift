@@ -26,6 +26,22 @@ enum AnalysisServiceError: LocalizedError {
     }
 }
 
+private struct ParsedAnalysisPayload: Decodable {
+    let category: String
+    let summary: String
+
+    private enum CodingKeys: String, CodingKey {
+        case category
+        case summary
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        category = try container.decode(String.self, forKey: .category)
+        summary = try container.decode(String.self, forKey: .summary)
+    }
+}
+
 @MainActor
 final class AnalysisService {
     private struct OpenAIResponsePayload {
@@ -36,7 +52,6 @@ final class AnalysisService {
     private struct LMStudioResponsePayload {
         let content: String
     }
-
     private let database: AppDatabase
     private let settingsStore: SettingsStore
     private let errorStore: AnalysisErrorStore
@@ -116,7 +131,11 @@ final class AnalysisService {
 
     func currentPrompt() -> String {
         let snapshot = settingsStore.snapshot
-        return buildPrompt(with: snapshot.validCategoryRules, language: snapshot.appLanguage)
+        return buildPrompt(
+            with: snapshot.validCategoryRules,
+            summaryInstruction: snapshot.analysisSummaryInstruction,
+            language: snapshot.appLanguage
+        )
     }
 
     func testCurrentSettings(with imageFileURL: URL) async throws -> AnalysisResponse {
@@ -134,7 +153,11 @@ final class AnalysisService {
             throw AnalysisServiceError.invalidConfiguration(localized(.analysisNeedsModelName, language: snapshot.appLanguage))
         }
 
-        let prompt = buildPrompt(with: snapshot.validCategoryRules, language: snapshot.appLanguage)
+        let prompt = buildPrompt(
+            with: snapshot.validCategoryRules,
+            summaryInstruction: snapshot.analysisSummaryInstruction,
+            language: snapshot.appLanguage
+        )
         do {
             return try await analyzeImage(at: imageFileURL, settings: snapshot, prompt: prompt)
         } catch {
@@ -193,7 +216,11 @@ final class AnalysisService {
     private func runAnalysis(scheduledFor: Date) async {
         let snapshot = settingsStore.snapshot
         activeRunSettings = snapshot
-        let prompt = buildPrompt(with: snapshot.validCategoryRules, language: snapshot.appLanguage)
+        let prompt = buildPrompt(
+            with: snapshot.validCategoryRules,
+            summaryInstruction: snapshot.analysisSummaryInstruction,
+            language: snapshot.appLanguage
+        )
         let categoriesJSON = encodeCategories(snapshot.validCategoryRules)
         let pendingCaptures = (try? database.listScreenshotFiles(defaultDurationMinutes: snapshot.screenshotIntervalMinutes)) ?? []
 
@@ -287,7 +314,7 @@ final class AnalysisService {
                     runID: runID,
                     capturedAt: capturedAt,
                     categoryName: nil,
-                    rawResponseText: nil,
+                    summaryText: nil,
                     status: "failed",
                     errorMessage: message,
                     durationMinutesSnapshot: durationMinutes
@@ -321,7 +348,7 @@ final class AnalysisService {
                     runID: runID,
                     capturedAt: capturedAt,
                     categoryName: response.category,
-                    rawResponseText: response.rawText,
+                    summaryText: response.summary,
                     status: "succeeded",
                     errorMessage: nil,
                     durationMinutesSnapshot: durationMinutes
@@ -345,7 +372,7 @@ final class AnalysisService {
                     runID: runID,
                     capturedAt: capturedAt,
                     categoryName: nil,
-                    rawResponseText: nil,
+                    summaryText: nil,
                     status: "failed",
                     errorMessage: message,
                     durationMinutesSnapshot: durationMinutes
@@ -420,8 +447,12 @@ final class AnalysisService {
         await stopModelIfNeeded(for: snapshot)
     }
 
-    private func buildPrompt(with rules: [CategoryRule], language: AppLanguage) -> String {
-        L10n.analysisPrompt(with: rules, language: language)
+    private func buildPrompt(
+        with rules: [CategoryRule],
+        summaryInstruction: String,
+        language: AppLanguage
+    ) -> String {
+        L10n.analysisPrompt(with: rules, summaryInstruction: summaryInstruction, language: language)
     }
 
     private func encodeCategories(_ rules: [CategoryRule]) -> String {
@@ -541,11 +572,7 @@ final class AnalysisService {
             finishReason = nil
         }
 
-        guard let category = extractCategory(
-            from: text,
-            validRules: settings.validCategoryRules,
-            finishReason: finishReason
-        ) else {
+        guard let response = Self.extractAnalysisResponse(from: text, validRules: settings.validCategoryRules) else {
             if finishReason == "length", allowLengthRetry {
                 let retryPrompt = prompt + "\n\n" + localized(.analysisRetrySupplement, language: settings.appLanguage)
                 return try await analyzeImageAttempt(
@@ -556,16 +583,12 @@ final class AnalysisService {
                 )
             }
             if finishReason == "length" {
-                throw AnalysisServiceError.lengthTruncated(
-                    localized(.analysisLengthTruncated, arguments: [text], language: settings.appLanguage)
-                )
+                throw AnalysisServiceError.lengthTruncated(localized(.analysisLengthTruncated, language: settings.appLanguage))
             }
-            throw AnalysisServiceError.invalidResponse(
-                localized(.analysisInvalidCategoryWithText, arguments: [text], language: settings.appLanguage)
-            )
+            throw AnalysisServiceError.invalidResponse(localized(.analysisInvalidCategoryWithText, language: settings.appLanguage))
         }
 
-        return AnalysisResponse(category: category, rawText: text)
+        return response
     }
 
     private func buildOpenAIRequestBody(imageData: Data, modelName: String, prompt: String) throws -> Data {
@@ -715,83 +738,43 @@ final class AnalysisService {
         return LMStudioResponsePayload(content: text)
     }
 
-    private func extractCategory(from rawText: String, validRules: [CategoryRule], finishReason: String?) -> String? {
-        let categories = validRules.map { $0.name }
-
-        let formalReply = extractFormalReply(from: rawText)
-        if let matched = extractCategoryFromPlainText(in: formalReply, categories: categories) {
-            return matched
-        }
-
-        if finishReason == "length",
-           let dominantCategory = extractDominantCategoryFromThinking(in: rawText, categories: categories) {
-            return dominantCategory
-        }
-
-        return nil
-    }
-
-    private func extractCategoryFromPlainText(in rawText: String, categories: [String]) -> String? {
-        let normalized = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let candidates = [
-            normalized,
-            unwrapCodeFence(from: normalized),
-            normalized
-                .components(separatedBy: .newlines)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .last(where: { !$0.isEmpty }) ?? "",
-            unwrapCodeFence(from: normalized)
-                .components(separatedBy: .newlines)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .last(where: { !$0.isEmpty }) ?? "",
-        ]
+    nonisolated static func extractAnalysisResponse(from rawText: String, validRules: [CategoryRule]) -> AnalysisResponse? {
+        let validCategories = Set(validRules.map(\.name))
+        let candidates = responseCandidates(from: rawText)
 
         for candidate in candidates {
-            if let matched = matchCategory(candidate, categories: categories) {
-                return matched
+            guard let data = candidate.data(using: .utf8),
+                  let payload = try? JSONDecoder().decode(ParsedAnalysisPayload.self, from: data) else {
+                continue
             }
+
+            let category = payload.category.trimmingCharacters(in: .whitespacesAndNewlines)
+            let summary = payload.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard validCategories.contains(category), !summary.isEmpty else {
+                continue
+            }
+
+            return AnalysisResponse(category: category, summary: summary)
         }
 
         return nil
     }
 
-    private func extractDominantCategoryFromThinking(in rawText: String, categories: [String]) -> String? {
-        let thinkingText = extractThinkingText(from: rawText)
-        let counts = categories
-            .map { category in
-                (category, occurrenceCount(of: category, in: thinkingText))
-            }
-            .filter { $0.1 > 0 }
-            .sorted { lhs, rhs in
-                if lhs.1 == rhs.1 {
-                    return lhs.0 < rhs.0
-                }
-                return lhs.1 > rhs.1
-            }
+    nonisolated private static func responseCandidates(from rawText: String) -> [String] {
+        let formalReply = extractFormalReply(from: rawText)
+        let orderedCandidates = [formalReply, rawText]
+            .map { unwrapCodeFence(from: $0) }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
 
-        guard let first = counts.first else {
-            return nil
+        var deduplicated: [String] = []
+        for candidate in orderedCandidates where !deduplicated.contains(candidate) {
+            deduplicated.append(candidate)
         }
-
-        let remainingSum = counts.dropFirst().reduce(0) { $0 + $1.1 }
-        return first.1 > remainingSum * 2 ? first.0 : nil
+        return deduplicated
     }
 
-    private func extractThinkingText(from rawText: String) -> String {
-        guard let startRange = rawText.range(of: "<think>") else {
-            return rawText
-        }
-
-        let contentStart = startRange.upperBound
-        if let endRange = rawText.range(of: "</think>", range: contentStart..<rawText.endIndex) {
-            return String(rawText[contentStart..<endRange.lowerBound])
-        }
-
-        return String(rawText[contentStart...])
-    }
-
-    private func extractFormalReply(from rawText: String) -> String {
+    nonisolated private static func extractFormalReply(from rawText: String) -> String {
         guard let startRange = rawText.range(of: "<think>") else {
             return rawText
         }
@@ -805,30 +788,7 @@ final class AnalysisService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func occurrenceCount(of needle: String, in haystack: String) -> Int {
-        guard !needle.isEmpty, !haystack.isEmpty else {
-            return 0
-        }
-
-        var count = 0
-        var searchRange: Range<String.Index>? = haystack.startIndex..<haystack.endIndex
-
-        while let foundRange = haystack.range(of: needle, options: [], range: searchRange) {
-            count += 1
-            searchRange = foundRange.upperBound..<haystack.endIndex
-        }
-
-        return count
-    }
-
-    private func matchCategory(_ value: String, categories: [String]) -> String? {
-        let trimmed = value.trimmingCharacters(
-            in: .whitespacesAndNewlines.union(.init(charactersIn: "\"'`"))
-        )
-        return categories.first { $0 == trimmed }
-    }
-
-    private func unwrapCodeFence(from text: String) -> String {
+    nonisolated private static func unwrapCodeFence(from text: String) -> String {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasPrefix("```"), trimmed.hasSuffix("```") else {
             return trimmed

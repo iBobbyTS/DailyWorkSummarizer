@@ -12,6 +12,15 @@ enum AppDefaults {
     static let apiKeyAccount = "model-api-key"
     static let absenceCategoryName = "离开"
 
+    static func defaultAnalysisSummaryInstruction(language: AppLanguage) -> String {
+        switch language {
+        case .simplifiedChinese:
+            return "注意观察画面里所打开项目的名称、课程名称等信息，进行简要描述"
+        case .english:
+            return "Pay attention to the project name, course name, and other visible context in the screenshot, then write a brief description."
+        }
+    }
+
     static func defaultCategoryRules(language: AppLanguage) -> [CategoryRule] {
         switch language {
         case .simplifiedChinese:
@@ -209,6 +218,7 @@ struct AppSettingsSnapshot {
     let automaticAnalysisEnabled: Bool
     let autoAnalysisRequiresCharger: Bool
     let appLanguage: AppLanguage
+    let analysisSummaryInstruction: String
     let provider: ModelProvider
     let apiBaseURL: String
     let modelName: String
@@ -309,7 +319,7 @@ struct HeatmapEvent: Identifiable {
 
 struct AnalysisResponse {
     let category: String
-    let rawText: String
+    let summary: String
 }
 
 extension Array where Element == CategoryRule {

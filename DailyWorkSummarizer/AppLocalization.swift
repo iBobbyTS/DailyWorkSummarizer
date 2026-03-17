@@ -46,6 +46,7 @@ enum L10n {
     enum Key: String {
         case settingsTabCapture
         case settingsTabModel
+        case settingsTabAnalysis
         case settingsTabGeneral
         case settingsTabReport
         case settingsCaptureAutoAnalysis
@@ -69,6 +70,12 @@ enum L10n {
         case settingsModelContextLength
         case settingsModelOfficialUntested
         case settingsModelCategoriesTitle
+        case settingsAnalysisCategoryTitle
+        case settingsAnalysisSummaryTitle
+        case settingsAnalysisSummaryHint
+        case settingsAnalysisSummaryPlaceholder
+        case settingsAnalysisResultCategory
+        case settingsAnalysisResultSummary
         case settingsModelCategoryName
         case settingsModelCategoryDescription
         case settingsModelCategoryNameExample
@@ -166,6 +173,7 @@ enum L10n {
         .simplifiedChinese: [
             .settingsTabCapture: "截屏",
             .settingsTabModel: "模型",
+            .settingsTabAnalysis: "分析",
             .settingsTabGeneral: "通用",
             .settingsTabReport: "报告",
             .settingsCaptureAutoAnalysis: "定时自动分析",
@@ -189,6 +197,12 @@ enum L10n {
             .settingsModelContextLength: "上下文长度",
             .settingsModelOfficialUntested: "官方 API 未经过测试",
             .settingsModelCategoriesTitle: "分析分类",
+            .settingsAnalysisCategoryTitle: "类别",
+            .settingsAnalysisSummaryTitle: "总结",
+            .settingsAnalysisSummaryHint: "请描述你最近在做什么项目，方便模型进行更准确的归纳",
+            .settingsAnalysisSummaryPlaceholder: "注意观察画面里所打开项目的名称、课程名称等信息，进行简要描述",
+            .settingsAnalysisResultCategory: "类别",
+            .settingsAnalysisResultSummary: "总结",
             .settingsModelCategoryName: "类别名",
             .settingsModelCategoryDescription: "描述",
             .settingsModelCategoryNameExample: "例如：专注工作",
@@ -197,7 +211,7 @@ enum L10n {
             .settingsModelTesting: "正在测试模型…",
             .settingsModelTest: "测试模型",
             .settingsModelCopyPrompt: "复制 Prompt",
-            .settingsModelTestResult: "测试分类结果",
+            .settingsModelTestResult: "测试结果",
             .settingsModelWaitingForModel: "正在分析，可能需要等待模型加载",
             .settingsModelNoTempScreenshot: "测试模型时未生成临时截图",
             .settingsGeneralTitle: "通用设置",
@@ -264,12 +278,12 @@ enum L10n {
             .analysisCancelledByUser: "用户手动暂停分析",
             .analysisPausedAfterFailures: "连续 5 张截图处理失败，已暂停当前分析",
             .analysisPartialFailures: "部分截图分析失败，请检查网络、模型接口或返回格式",
-            .analysisInvalidCategory: "模型返回无法解析为有效类别",
+            .analysisInvalidCategory: "模型返回无法解析为有效的 JSON 分析结果",
             .analysisInvalidBaseURL: "模型接口地址不合法",
             .analysisInvalidHTTPResponse: "模型接口没有返回有效的 HTTP 响应",
-            .analysisRetrySupplement: "补充要求：不要过度思考",
-            .analysisLengthTruncated: "模型输出因长度截断，未能生成完整分类结果：%@",
-            .analysisInvalidCategoryWithText: "模型返回无法解析为有效类别：%@",
+            .analysisRetrySupplement: "补充要求：直接输出完整 JSON，不要过度思考",
+            .analysisLengthTruncated: "模型输出因长度截断，未能生成完整的 JSON 分析结果",
+            .analysisInvalidCategoryWithText: "模型返回无法解析为有效的 JSON 分析结果",
             .analysisOpenAIFormatInvalid: "OpenAI 兼容接口返回格式不正确",
             .analysisOpenAINoText: "OpenAI 兼容接口没有返回可读文本",
             .analysisAnthropicFormatInvalid: "Anthropic 兼容接口返回格式不正确",
@@ -284,6 +298,7 @@ enum L10n {
         .english: [
             .settingsTabCapture: "Capture",
             .settingsTabModel: "Model",
+            .settingsTabAnalysis: "Analysis",
             .settingsTabGeneral: "General",
             .settingsTabReport: "Report",
             .settingsCaptureAutoAnalysis: "Scheduled analysis",
@@ -307,6 +322,12 @@ enum L10n {
             .settingsModelContextLength: "Context length",
             .settingsModelOfficialUntested: "Official APIs have not been tested",
             .settingsModelCategoriesTitle: "Analysis categories",
+            .settingsAnalysisCategoryTitle: "Category",
+            .settingsAnalysisSummaryTitle: "Summary",
+            .settingsAnalysisSummaryHint: "Describe the project or coursework you've been working on recently so the model can summarize more accurately.",
+            .settingsAnalysisSummaryPlaceholder: "Pay attention to the project name, course name, and other visible context in the screenshot, then write a brief description.",
+            .settingsAnalysisResultCategory: "Category",
+            .settingsAnalysisResultSummary: "Summary",
             .settingsModelCategoryName: "Category",
             .settingsModelCategoryDescription: "Description",
             .settingsModelCategoryNameExample: "Example: Focused Work",
@@ -382,12 +403,12 @@ enum L10n {
             .analysisCancelledByUser: "Analysis was paused by the user",
             .analysisPausedAfterFailures: "Analysis was paused after 5 consecutive screenshot failures",
             .analysisPartialFailures: "Some screenshots failed to analyze. Check the network, model API, or response format",
-            .analysisInvalidCategory: "The model response could not be matched to a valid category",
+            .analysisInvalidCategory: "The model response could not be parsed into a valid JSON analysis result",
             .analysisInvalidBaseURL: "The model base URL is invalid",
             .analysisInvalidHTTPResponse: "The model API did not return a valid HTTP response",
-            .analysisRetrySupplement: "Additional requirement: do not overthink it",
-            .analysisLengthTruncated: "The model output was truncated before a complete category could be returned: %@",
-            .analysisInvalidCategoryWithText: "The model response could not be matched to a valid category: %@",
+            .analysisRetrySupplement: "Additional requirement: return complete JSON directly and do not overthink it",
+            .analysisLengthTruncated: "The model output was truncated before a complete JSON analysis result could be returned",
+            .analysisInvalidCategoryWithText: "The model response could not be parsed into a valid JSON analysis result",
             .analysisOpenAIFormatInvalid: "The OpenAI-compatible API response format is invalid",
             .analysisOpenAINoText: "The OpenAI-compatible API did not return readable text",
             .analysisAnthropicFormatInvalid: "The Anthropic-compatible API response format is invalid",
@@ -536,39 +557,55 @@ enum L10n {
         }
     }
 
-    static func analysisPrompt(with rules: [CategoryRule], language: AppLanguage = .current) -> String {
+    static func analysisPrompt(
+        with rules: [CategoryRule],
+        summaryInstruction: String,
+        language: AppLanguage = .current
+    ) -> String {
         let separator = language == .simplifiedChinese ? "：" : ": "
         let list = rules.map { rule in
             "\(rule.name)\(separator)\(rule.description)"
         }
         .joined(separator: "\n")
+        let trimmedInstruction = summaryInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedInstruction = trimmedInstruction.isEmpty
+            ? AppDefaults.defaultAnalysisSummaryInstruction(language: language)
+            : trimmedInstruction
 
         switch language {
         case .simplifiedChinese:
             return """
             你是一个工作桌面截图分类助手。
-            请进行思考后，严格从下面的候选类别中选择唯一一个最匹配的类别。
+            请进行思考后，严格从下面的候选类别中选择唯一一个最匹配的类别。然后对工作内容进行一个简短的描述。
             不要过度思考，只关注截图主要部分。
 
             候选类别：
             \(list)
+            
+            描述要求：
+            \(resolvedInstruction)
+
             返回要求：
-            1. 只能返回一个类别名
-            2. 不要返回 JSON、Markdown、解释、思考过程或其他多余文本
-            3. 返回的类别名必须与候选类别完全一致
+            1. 返回的category必须与候选类别完全一致
+            2. 返回格式：包含以下字段的JSON {"category": 分析得出的类别, "summary": 对截图简短的描述}
+            3. 不要返回 Markdown、解释、思考过程或其他多余文本
             """
         case .english:
             return """
             You are a desktop screenshot classifier for daily work summaries.
-            Think briefly, then choose exactly one best-matching category from the candidates below.
+            Think briefly, choose exactly one best-matching category from the candidates below, then write a short description of the work.
             Do not overthink it. Focus only on the main content of the screenshot.
 
             Candidate categories:
             \(list)
+
+            Description requirements:
+            \(resolvedInstruction)
+
             Output requirements:
-            1. Return exactly one category name
-            2. Do not return JSON, Markdown, explanations, reasoning, or any extra text
-            3. The returned category name must exactly match one of the candidate names
+            1. The returned `category` must exactly match one of the candidate names
+            2. Return JSON with these fields: {"category": chosen category, "summary": short description of the screenshot}
+            3. Do not return Markdown, explanations, reasoning, or any extra text
             """
         }
     }

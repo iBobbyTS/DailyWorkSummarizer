@@ -55,6 +55,13 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var analysisSummaryInstruction: String {
+        didSet {
+            userDefaults.set(analysisSummaryInstruction, forKey: Keys.analysisSummaryInstruction)
+            notifySettingsChanged()
+        }
+    }
+
     @Published var provider: ModelProvider {
         didSet {
             userDefaults.set(provider.rawValue, forKey: Keys.provider)
@@ -116,6 +123,8 @@ final class SettingsStore: ObservableObject {
         let savedReportWeekStart = ReportWeekStart(rawValue: userDefaults.string(forKey: Keys.reportWeekStart) ?? "") ?? .sunday
         let savedAutoAnalysisRequiresCharger = userDefaults.object(forKey: Keys.autoAnalysisRequiresCharger) as? Bool ?? AppDefaults.autoAnalysisRequiresCharger
         let savedAppLanguage = AppLanguage(rawValue: userDefaults.string(forKey: AppLanguage.userDefaultsKey) ?? "") ?? .defaultValue
+        let savedAnalysisSummaryInstruction = userDefaults.string(forKey: Keys.analysisSummaryInstruction)
+            ?? AppDefaults.defaultAnalysisSummaryInstruction(language: savedAppLanguage)
         let savedProvider = ModelProvider(rawValue: userDefaults.string(forKey: Keys.provider) ?? "") ?? .openAI
         let savedBaseURL = userDefaults.string(forKey: Keys.apiBaseURL) ?? ""
         let savedModelName = userDefaults.string(forKey: Keys.modelName) ?? ""
@@ -129,6 +138,7 @@ final class SettingsStore: ObservableObject {
         reportWeekStart = savedReportWeekStart
         autoAnalysisRequiresCharger = savedAutoAnalysisRequiresCharger
         appLanguage = savedAppLanguage
+        analysisSummaryInstruction = savedAnalysisSummaryInstruction
         provider = savedProvider
         apiBaseURL = savedBaseURL
         modelName = savedModelName
@@ -148,6 +158,7 @@ final class SettingsStore: ObservableObject {
             automaticAnalysisEnabled: automaticAnalysisEnabled,
             autoAnalysisRequiresCharger: autoAnalysisRequiresCharger,
             appLanguage: appLanguage,
+            analysisSummaryInstruction: analysisSummaryInstruction.trimmingCharacters(in: .whitespacesAndNewlines),
             provider: provider,
             apiBaseURL: apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
             modelName: modelName.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -211,6 +222,7 @@ final class SettingsStore: ObservableObject {
         static let automaticAnalysisEnabled = "settings.automaticAnalysisEnabled"
         static let reportWeekStart = "settings.reportWeekStart"
         static let autoAnalysisRequiresCharger = "settings.autoAnalysisRequiresCharger"
+        static let analysisSummaryInstruction = "settings.analysisSummaryInstruction"
         static let provider = "settings.provider"
         static let apiBaseURL = "settings.apiBaseURL"
         static let modelName = "settings.modelName"

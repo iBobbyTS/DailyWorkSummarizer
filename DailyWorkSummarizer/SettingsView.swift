@@ -32,7 +32,7 @@ struct SettingsView: View {
     @State private var previewError: String?
     @State private var previewCountdownText: String?
     @State private var isCapturingPreview = false
-    @State private var modelTestResult: String?
+    @State private var modelTestResult: AnalysisResponse?
     @State private var modelTestError: String?
     @State private var modelTestCountdownText: String?
     @State private var isTestingModel = false
@@ -64,6 +64,9 @@ struct SettingsView: View {
 
             modelTab
                 .tabItem { Text(text(.settingsTabModel)) }
+
+            analysisTab
+                .tabItem { Text(text(.settingsTabAnalysis)) }
 
             generalTab
                 .tabItem { Text(text(.settingsTabGeneral)) }
@@ -275,134 +278,187 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text(text(.settingsModelCategoriesTitle))
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Layout.tabHorizontalPadding)
+            .padding(.vertical, Layout.tabVerticalPadding)
+        }
+    }
+
+    private var analysisTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
+                Text(text(.settingsAnalysisCategoryTitle))
                     .font(.title2.weight(.semibold))
 
-                VStack(spacing: 12) {
-                    HStack {
-                        Text(text(.settingsModelCategoryName))
-                            .frame(width: 180, alignment: .leading)
-                        Text(text(.settingsModelCategoryDescription))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Color.clear
-                            .frame(width: 96)
-                    }
-                    .font(.headline)
+                categoryRulesEditor
 
-                    ForEach(settingsStore.categoryRules) { rule in
-                        HStack(alignment: .top, spacing: 12) {
-                            TextField(
-                                text(.settingsModelCategoryNameExample),
-                                text: Binding(
-                                    get: {
-                                        settingsStore.categoryRules.first(where: { $0.id == rule.id })?.name ?? ""
-                                    },
-                                    set: { settingsStore.updateCategoryRuleName(id: rule.id, name: $0) }
-                                )
-                            )
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 180)
+                Text(text(.settingsAnalysisSummaryTitle))
+                    .font(.title2.weight(.semibold))
 
-                            TextField(
-                                text(.settingsModelCategoryDescriptionExample),
-                                text: Binding(
-                                    get: {
-                                        settingsStore.categoryRules.first(where: { $0.id == rule.id })?.description ?? ""
-                                    },
-                                    set: { settingsStore.updateCategoryRuleDescription(id: rule.id, description: $0) }
-                                ),
-                                axis: .vertical
-                            )
-                            .lineLimit(2...4)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: .infinity, minHeight: 36)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(text(.settingsAnalysisSummaryHint))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
 
-                            HStack(spacing: 6) {
-                                Button {
-                                    settingsStore.moveCategoryRuleUp(id: rule.id)
-                                } label: {
-                                    Image(systemName: "chevron.up")
-                                }
-                                .buttonStyle(.borderless)
-                                .disabled(isFirstCategoryRule(rule.id))
+                    ZStack(alignment: .topLeading) {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.gray.opacity(0.08))
 
-                                Button {
-                                    settingsStore.moveCategoryRuleDown(id: rule.id)
-                                } label: {
-                                    Image(systemName: "chevron.down")
-                                }
-                                .buttonStyle(.borderless)
-                                .disabled(isLastCategoryRule(rule.id))
-
-                                Button {
-                                    settingsStore.removeCategoryRule(id: rule.id)
-                                } label: {
-                                    Image(systemName: "trash")
-                                }
-                                .buttonStyle(.borderless)
-                                .foregroundStyle(.red)
-                            }
-                            .frame(width: 96, alignment: .trailing)
+                        if settingsStore.analysisSummaryInstruction.isEmpty {
+                            Text(text(.settingsAnalysisSummaryPlaceholder))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 12)
                         }
-                    }
-                }
 
-                Button {
-                    settingsStore.addCategoryRule()
-                } label: {
-                    Label(text(.settingsModelAddCategory), systemImage: "plus")
+                        TextEditor(text: $settingsStore.analysisSummaryInstruction)
+                            .scrollContentBackground(.hidden)
+                            .padding(8)
+                    }
+                    .frame(minHeight: 140)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.gray.opacity(0.14), lineWidth: 1)
+                    )
                 }
 
                 Divider()
                     .padding(.vertical, 4)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) {
-                        Button {
-                            testModel()
-                        } label: {
-                            if isTestingModel {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text(text(.settingsModelTesting))
-                            } else {
-                                Label(text(.settingsModelTest), systemImage: "bolt.horizontal")
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isTestingModel)
-
-                        Button {
-                            copyPrompt()
-                        } label: {
-                            Label(text(.settingsModelCopyPrompt), systemImage: "doc.on.doc")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-
-                    if let modelTestCountdownText {
-                        Text(modelTestCountdownText)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if let modelTestResult {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(text(.settingsModelTestResult))
-                                .font(.headline)
-                            Text(modelTestResult)
-                        }
-                    }
-
-                    if let modelTestError {
-                        Text(modelTestError)
-                            .foregroundStyle(.red)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
+                modelTestPanel
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Layout.tabHorizontalPadding)
             .padding(.vertical, Layout.tabVerticalPadding)
+        }
+    }
+
+    private var categoryRulesEditor: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(text(.settingsModelCategoryName))
+                    .frame(width: 180, alignment: .leading)
+                Text(text(.settingsModelCategoryDescription))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Color.clear
+                    .frame(width: 96)
+            }
+            .font(.headline)
+
+            ForEach(settingsStore.categoryRules) { rule in
+                HStack(alignment: .top, spacing: 12) {
+                    TextField(
+                        text(.settingsModelCategoryNameExample),
+                        text: Binding(
+                            get: {
+                                settingsStore.categoryRules.first(where: { $0.id == rule.id })?.name ?? ""
+                            },
+                            set: { settingsStore.updateCategoryRuleName(id: rule.id, name: $0) }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 180)
+
+                    TextField(
+                        text(.settingsModelCategoryDescriptionExample),
+                        text: Binding(
+                            get: {
+                                settingsStore.categoryRules.first(where: { $0.id == rule.id })?.description ?? ""
+                            },
+                            set: { settingsStore.updateCategoryRuleDescription(id: rule.id, description: $0) }
+                        ),
+                        axis: .vertical
+                    )
+                    .lineLimit(2...4)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: .infinity, minHeight: 36)
+
+                    HStack(spacing: 6) {
+                        Button {
+                            settingsStore.moveCategoryRuleUp(id: rule.id)
+                        } label: {
+                            Image(systemName: "chevron.up")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(isFirstCategoryRule(rule.id))
+
+                        Button {
+                            settingsStore.moveCategoryRuleDown(id: rule.id)
+                        } label: {
+                            Image(systemName: "chevron.down")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(isLastCategoryRule(rule.id))
+
+                        Button {
+                            settingsStore.removeCategoryRule(id: rule.id)
+                        } label: {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.red)
+                    }
+                    .frame(width: 96, alignment: .trailing)
+                }
+            }
+
+            Button {
+                settingsStore.addCategoryRule()
+            } label: {
+                Label(text(.settingsModelAddCategory), systemImage: "plus")
+            }
+        }
+    }
+
+    private var modelTestPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Button {
+                    testModel()
+                } label: {
+                    if isTestingModel {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(text(.settingsModelTesting))
+                    } else {
+                        Label(text(.settingsModelTest), systemImage: "bolt.horizontal")
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isTestingModel)
+
+                Button {
+                    copyPrompt()
+                } label: {
+                    Label(text(.settingsModelCopyPrompt), systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+            }
+
+            if let modelTestCountdownText {
+                Text(modelTestCountdownText)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let modelTestResult {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(text(.settingsModelTestResult))
+                        .font(.headline)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(labeledValue(text(.settingsAnalysisResultCategory), modelTestResult.category))
+                        Text(labeledValue(text(.settingsAnalysisResultSummary), modelTestResult.summary))
+                    }
+                }
+            }
+
+            if let modelTestError {
+                Text(modelTestError)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -549,6 +605,11 @@ struct SettingsView: View {
         text(.settingsCountdown, arguments: [remainingSeconds])
     }
 
+    private func labeledValue(_ label: String, _ value: String) -> String {
+        let separator = language == .simplifiedChinese ? "：" : ": "
+        return "\(label)\(separator)\(value)"
+    }
+
     private func capturePreview() {
         previewError = nil
         previewCountdownText = nil
@@ -627,7 +688,7 @@ struct SettingsView: View {
                     )
                 }
                 let response = try await analysisService.testCurrentSettings(with: temporaryFileURL)
-                modelTestResult = response.category
+                modelTestResult = response
             } catch {
                 modelTestError = error.localizedDescription
             }

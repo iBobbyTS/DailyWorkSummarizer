@@ -14,9 +14,15 @@ final class AppDatabase: @unchecked Sendable {
     private var handle: OpaquePointer?
     let databaseURL: URL
 
-    init() throws {
+    convenience init() throws {
         let supportURL = try Self.applicationSupportDirectory()
-        databaseURL = supportURL.appendingPathComponent("daily-work-summarizer.sqlite", isDirectory: false)
+        try self.init(
+            databaseURL: supportURL.appendingPathComponent("daily-work-summarizer.sqlite", isDirectory: false)
+        )
+    }
+
+    init(databaseURL: URL) throws {
+        self.databaseURL = databaseURL
 
         if sqlite3_open(databaseURL.path, &handle) != SQLITE_OK {
             let message = String(cString: sqlite3_errmsg(handle))
@@ -254,7 +260,7 @@ final class AppDatabase: @unchecked Sendable {
         runID: Int64,
         capturedAt: Date,
         categoryName: String?,
-        rawResponseText: String?,
+        summaryText: String?,
         status: String,
         errorMessage: String?,
         durationMinutesSnapshot: Int
@@ -265,7 +271,7 @@ final class AppDatabase: @unchecked Sendable {
                     run_id,
                     captured_at,
                     category_name,
-                    raw_response_text,
+                    summary_text,
                     status,
                     error_message,
                     duration_minutes_snapshot,
@@ -278,7 +284,7 @@ final class AppDatabase: @unchecked Sendable {
             sqlite3_bind_int64(statement, 1, runID)
             sqlite3_bind_double(statement, 2, capturedAt.timeIntervalSince1970)
             bind(categoryName, at: 3, to: statement)
-            bind(rawResponseText, at: 4, to: statement)
+            bind(summaryText, at: 4, to: statement)
             bind(status, at: 5, to: statement)
             bind(errorMessage, at: 6, to: statement)
             sqlite3_bind_int64(statement, 7, Int64(durationMinutesSnapshot))
@@ -371,7 +377,7 @@ final class AppDatabase: @unchecked Sendable {
                 run_id INTEGER NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
                 captured_at DOUBLE NOT NULL,
                 category_name TEXT,
-                raw_response_text TEXT,
+                summary_text TEXT,
                 status TEXT NOT NULL,
                 error_message TEXT,
                 duration_minutes_snapshot INTEGER NOT NULL,
@@ -457,7 +463,18 @@ final class AppDatabase: @unchecked Sendable {
 
     private func migrateAnalysisResultsIfNeeded() throws {
         let columns = try columnNames(in: "analysis_results")
-        guard columns.contains("capture_event_id") else {
+        let expectedColumns = [
+            "id",
+            "run_id",
+            "captured_at",
+            "category_name",
+            "summary_text",
+            "status",
+            "error_message",
+            "duration_minutes_snapshot",
+            "created_at",
+        ]
+        guard columns != expectedColumns else {
             return
         }
 
@@ -468,35 +485,36 @@ final class AppDatabase: @unchecked Sendable {
                 run_id INTEGER NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
                 captured_at DOUBLE NOT NULL,
                 category_name TEXT,
-                raw_response_text TEXT,
+                summary_text TEXT,
                 status TEXT NOT NULL,
                 error_message TEXT,
                 duration_minutes_snapshot INTEGER NOT NULL,
                 created_at DOUBLE NOT NULL
             );
         """)
+        let legacyColumns = Set(columns)
         try executeLocked("""
             INSERT INTO analysis_results (
                 id,
                 run_id,
                 captured_at,
                 category_name,
-                raw_response_text,
+                summary_text,
                 status,
                 error_message,
                 duration_minutes_snapshot,
                 created_at
             )
             SELECT
-                id,
-                run_id,
-                captured_at,
-                category_name,
-                raw_response_text,
-                status,
-                error_message,
-                duration_minutes_snapshot,
-                created_at
+                \(legacyColumns.contains("id") ? "id" : "NULL"),
+                \(legacyColumns.contains("run_id") ? "run_id" : "0"),
+                \(legacyColumns.contains("captured_at") ? "captured_at" : "0"),
+                \(legacyColumns.contains("category_name") ? "category_name" : "NULL"),
+                \(legacyColumns.contains("summary_text") ? "summary_text" : "NULL"),
+                \(legacyColumns.contains("status") ? "status" : "'failed'"),
+                \(legacyColumns.contains("error_message") ? "error_message" : "NULL"),
+                \(legacyColumns.contains("duration_minutes_snapshot") ? "duration_minutes_snapshot" : "0"),
+                \(legacyColumns.contains("created_at") ? "created_at" : "0")
             FROM analysis_results_legacy;
         """)
         try executeLocked("DROP TABLE analysis_results_legacy;")
