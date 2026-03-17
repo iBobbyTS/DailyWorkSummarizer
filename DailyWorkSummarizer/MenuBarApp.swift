@@ -30,12 +30,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var analysisService: AnalysisService?
     private var reportsViewModel: ReportsViewModel?
     private var errorStore: AnalysisErrorStore?
-    private let statusSummaryItem = NSMenuItem(title: "当前没有待分析的截图", action: nil, keyEquivalent: "")
+    private let statusSummaryItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let statusAverageDurationItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    private let openScreenshotsItem = NSMenuItem(title: "打开截图文件夹", action: #selector(openScreenshotsFolder), keyEquivalent: "")
-    private let viewErrorsItem = NSMenuItem(title: "显示0个错误", action: #selector(openErrors), keyEquivalent: "")
-    private let automaticAnalysisToggleItem = NSMenuItem(title: "关闭定时分析", action: #selector(toggleAutomaticAnalysis), keyEquivalent: "")
-    private let analyzeNowItem = NSMenuItem(title: "立即分析", action: #selector(runAnalysisNow), keyEquivalent: "")
+    private let openScreenshotsItem = NSMenuItem(title: "", action: #selector(openScreenshotsFolder), keyEquivalent: "")
+    private let viewErrorsItem = NSMenuItem(title: "", action: #selector(openErrors), keyEquivalent: "")
+    private let automaticAnalysisToggleItem = NSMenuItem(title: "", action: #selector(toggleAutomaticAnalysis), keyEquivalent: "")
+    private let analyzeNowItem = NSMenuItem(title: "", action: #selector(runAnalysisNow), keyEquivalent: "")
+    private let currentStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let settingsMenuItem = NSMenuItem(title: "", action: #selector(openSettings), keyEquivalent: ",")
+    private let reportsMenuItem = NSMenuItem(title: "", action: #selector(openReports), keyEquivalent: "r")
+    private let quitMenuItem = NSMenuItem(title: "", action: #selector(quit), keyEquivalent: "q")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -54,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             self.analysisService = AnalysisService(database: database, settingsStore: settingsStore, errorStore: errorStore)
             self.reportsViewModel = ReportsViewModel(database: database, settingsStore: settingsStore)
         } catch {
-            presentFatalAlert(message: "初始化数据库失败", detail: error.localizedDescription)
+            presentFatalAlert(message: text(.alertDatabaseInitFailed, language: .current), detail: error.localizedDescription)
             NSApp.terminate(nil)
             return
         }
@@ -97,10 +101,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private func setupStatusItem() {
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "chart.bar.doc.horizontal", accessibilityDescription: "每日工作总结")
+            button.image = NSImage(systemSymbolName: "chart.bar.doc.horizontal", accessibilityDescription: text(.statusAccessibilityDescription, language: .current))
         }
         statusItem.menu = menu
         self.statusItem = statusItem
+        refreshLocalizedUI()
         refreshStatusMenu()
     }
 
@@ -113,6 +118,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             Task { @MainActor [weak self] in
                 self?.screenshotService?.reschedule()
                 self?.analysisService?.reschedule()
+                self?.refreshLocalizedUI()
+                self?.refreshStatusMenu()
             }
         }
 
@@ -179,14 +186,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusSubmenu.addItem(automaticAnalysisToggleItem)
         statusSubmenu.addItem(analyzeNowItem)
 
-        let statusItem = NSMenuItem(title: "当前状态", action: nil, keyEquivalent: "")
-        menu.addItem(statusItem)
-        menu.setSubmenu(statusSubmenu, for: statusItem)
+        menu.addItem(currentStatusMenuItem)
+        menu.setSubmenu(statusSubmenu, for: currentStatusMenuItem)
         menu.addItem(.separator())
-        menu.addItem(withTitle: "设置", action: #selector(openSettings), keyEquivalent: ",")
-        menu.addItem(withTitle: "查看报告", action: #selector(openReports), keyEquivalent: "r")
+        menu.addItem(settingsMenuItem)
+        menu.addItem(reportsMenuItem)
         menu.addItem(.separator())
-        menu.addItem(withTitle: "退出", action: #selector(quit), keyEquivalent: "q")
+        menu.addItem(quitMenuItem)
         menu.items.forEach { $0.target = self }
         return menu
     }()
@@ -213,7 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         )
         let window = NSWindow(contentViewController: controller)
         window.delegate = self
-        window.title = "设置"
+        window.title = text(.windowSettings, language: settingsStore.appLanguage)
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.setContentSize(NSSize(width: 760, height: 620))
         window.center()
@@ -233,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let controller = NSHostingController(rootView: ReportsView(viewModel: reportsViewModel))
         let window = NSWindow(contentViewController: controller)
         window.delegate = self
-        window.title = "查看报告"
+        window.title = text(.windowReports, language: settingsStore?.appLanguage ?? .current)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.setContentSize(NSSize(width: 1040, height: 700))
         window.center()
@@ -250,16 +256,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     @objc private func openErrors() {
-        guard let errorStore, errorStore.count > 0 else { return }
+        guard let errorStore, let settingsStore, errorStore.count > 0 else { return }
         if let window = errorsWindow {
             activateAndShow(window)
             return
         }
 
-        let controller = NSHostingController(rootView: AnalysisErrorsView(errorStore: errorStore))
+        let controller = NSHostingController(rootView: AnalysisErrorsView(errorStore: errorStore, settingsStore: settingsStore))
         let window = NSWindow(contentViewController: controller)
         window.delegate = self
-        window.title = "查看错误"
+        window.title = text(.windowErrors, language: settingsStore.appLanguage)
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.setContentSize(NSSize(width: 780, height: 500))
         window.center()
@@ -297,14 +303,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let lastAverageDuration = try? database.fetchLatestAnalysisAverageDurationSeconds()
         let errorCount = errorStore?.count ?? 0
         let automaticAnalysisEnabled = settingsStore?.automaticAnalysisEnabled ?? AppDefaults.automaticAnalysisEnabled
+        let language = settingsStore?.appLanguage ?? .current
 
-        viewErrorsItem.title = "显示\(errorCount)个错误"
+        viewErrorsItem.title = text(.menuShowErrorsCount, arguments: [errorCount], language: language)
         viewErrorsItem.isEnabled = errorCount > 0
-        automaticAnalysisToggleItem.title = automaticAnalysisEnabled ? "关闭定时分析" : "开启定时分析"
+        automaticAnalysisToggleItem.title = automaticAnalysisEnabled
+            ? text(.menuTurnOffAutoAnalysis, language: language)
+            : text(.menuTurnOnAutoAnalysis, language: language)
         automaticAnalysisToggleItem.isEnabled = true
 
         if let lastAverageDuration {
-            statusAverageDurationItem.title = "上次分析平均每张耗时\(Self.averageDurationFormatter.string(from: NSNumber(value: lastAverageDuration)) ?? String(format: "%.1f", lastAverageDuration))秒"
+            let durationText = averageDurationFormatter(language: language).string(from: NSNumber(value: lastAverageDuration))
+                ?? String(format: "%.1f", lastAverageDuration)
+            statusAverageDurationItem.title = text(.menuLastAverageDuration, arguments: [durationText], language: language)
             statusAverageDurationItem.isHidden = false
         } else {
             statusAverageDurationItem.title = ""
@@ -314,31 +325,76 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if analysisState.isRunning {
             let startedAt = analysisState.startedAt ?? pendingScreenshots.first?.capturedAt ?? Date()
             if analysisState.isStopping {
-                statusSummaryItem.title = "正在暂停从 \(Self.statusDateFormatter.string(from: startedAt)) 开始的截屏分析（\(analysisState.completedCount)/\(analysisState.totalCount)）"
-                analyzeNowItem.title = "正在暂停"
+                statusSummaryItem.title = text(
+                    .menuSummaryPausing,
+                    arguments: [
+                        statusDateFormatter(language: language).string(from: startedAt),
+                        analysisState.completedCount,
+                        analysisState.totalCount,
+                    ],
+                    language: language
+                )
+                analyzeNowItem.title = text(.menuAnalyzeNowPausing, language: language)
                 analyzeNowItem.isEnabled = false
             } else {
-                statusSummaryItem.title = "正在分析从 \(Self.statusDateFormatter.string(from: startedAt)) 开始的截屏（\(analysisState.completedCount)/\(analysisState.totalCount)）"
-                analyzeNowItem.title = "暂停分析"
+                statusSummaryItem.title = text(
+                    .menuSummaryAnalyzing,
+                    arguments: [
+                        statusDateFormatter(language: language).string(from: startedAt),
+                        analysisState.completedCount,
+                        analysisState.totalCount,
+                    ],
+                    language: language
+                )
+                analyzeNowItem.title = text(.menuAnalyzeNowPause, language: language)
                 analyzeNowItem.isEnabled = true
             }
             return
         }
 
         if let earliestCapture = pendingScreenshots.first?.capturedAt {
-            statusSummaryItem.title = "当前截图从 \(Self.statusDateFormatter.string(from: earliestCapture)) 开始，共 \(pendingScreenshots.count) 张"
-            analyzeNowItem.title = "开始分析"
+            statusSummaryItem.title = text(
+                .menuSummaryPending,
+                arguments: [
+                    statusDateFormatter(language: language).string(from: earliestCapture),
+                    pendingScreenshots.count,
+                ],
+                language: language
+            )
+            analyzeNowItem.title = text(.menuAnalyzeNowStart, language: language)
             analyzeNowItem.isEnabled = true
             return
         }
 
         if let nextCaptureDate = screenshotService?.nextCaptureDate {
-            statusSummaryItem.title = "下一次会在\(Self.statusDateFormatter.string(from: nextCaptureDate))进行截图"
+            statusSummaryItem.title = text(
+                .menuNextCaptureAt,
+                arguments: [statusDateFormatter(language: language).string(from: nextCaptureDate)],
+                language: language
+            )
         } else {
-            statusSummaryItem.title = "当前没有待分析的截图"
+            statusSummaryItem.title = text(.menuNoPending, language: language)
         }
-        analyzeNowItem.title = "开始分析"
+        analyzeNowItem.title = text(.menuAnalyzeNowStart, language: language)
         analyzeNowItem.isEnabled = false
+    }
+
+    private func refreshLocalizedUI() {
+        let language = settingsStore?.appLanguage ?? .current
+
+        if let button = statusItem?.button {
+            button.image = NSImage(systemSymbolName: "chart.bar.doc.horizontal", accessibilityDescription: text(.statusAccessibilityDescription, language: language))
+        }
+
+        currentStatusMenuItem.title = text(.menuCurrentStatus, language: language)
+        openScreenshotsItem.title = text(.menuOpenScreenshotsFolder, language: language)
+        settingsMenuItem.title = text(.menuSettings, language: language)
+        reportsMenuItem.title = text(.menuReports, language: language)
+        quitMenuItem.title = text(.menuQuit, language: language)
+
+        settingsWindow?.title = text(.windowSettings, language: language)
+        reportsWindow?.title = text(.windowReports, language: language)
+        errorsWindow?.title = text(.windowErrors, language: language)
     }
 
     private func terminateOtherRunningInstances() {
@@ -361,19 +417,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         alert.runModal()
     }
 
-    private static let statusDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy.M.d HH:mm"
-        return formatter
-    }()
+    private func text(_ key: L10n.Key, language: AppLanguage) -> String {
+        L10n.string(key, language: language)
+    }
 
-    private static let averageDurationFormatter: NumberFormatter = {
+    private func text(_ key: L10n.Key, arguments: [CVarArg], language: AppLanguage) -> String {
+        L10n.string(key, language: language, arguments: arguments)
+    }
+
+    private func statusDateFormatter(language: AppLanguage) -> DateFormatter {
+        L10n.statusDateFormatter(language: language)
+    }
+
+    private func averageDurationFormatter(language: AppLanguage) -> NumberFormatter {
         let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.locale = language.locale
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 1
         return formatter
-    }()
+    }
 }

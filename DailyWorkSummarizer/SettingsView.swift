@@ -37,6 +37,10 @@ struct SettingsView: View {
     @State private var modelTestCountdownText: String?
     @State private var isTestingModel = false
 
+    private var language: AppLanguage {
+        settingsStore.appLanguage
+    }
+
     private var analysisTimeBinding: Binding<Date> {
         Binding<Date>(
             get: {
@@ -56,13 +60,16 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             captureTab
-                .tabItem { Text("截屏") }
+                .tabItem { Text(text(.settingsTabCapture)) }
 
             modelTab
-                .tabItem { Text("模型") }
+                .tabItem { Text(text(.settingsTabModel)) }
+
+            generalTab
+                .tabItem { Text(text(.settingsTabGeneral)) }
 
             reportTab
-                .tabItem { Text("报告") }
+                .tabItem { Text(text(.settingsTabReport)) }
         }
         .padding(20)
         .frame(minWidth: 700, minHeight: 560)
@@ -79,7 +86,7 @@ struct SettingsView: View {
                 Divider()
 
                 HStack(spacing: 12) {
-                    Text("定时自动分析")
+                    Text(text(.settingsCaptureAutoAnalysis))
                     Spacer()
                     Toggle("", isOn: $settingsStore.automaticAnalysisEnabled)
                         .labelsHidden()
@@ -91,7 +98,7 @@ struct SettingsView: View {
                 Divider()
 
                 HStack(spacing: 12) {
-                    Text("仅在连接充电器时定时开始分析")
+                    Text(text(.settingsCaptureRequireCharger))
                     Spacer()
                     Toggle("", isOn: $settingsStore.autoAnalysisRequiresCharger)
                         .labelsHidden()
@@ -104,7 +111,7 @@ struct SettingsView: View {
                 Divider()
 
                 HStack(spacing: 12) {
-                    Text("定时分析时间")
+                    Text(text(.settingsCaptureAnalysisTime))
                     Spacer()
                     DatePicker(
                         "",
@@ -134,9 +141,9 @@ struct SettingsView: View {
                         if isCapturingPreview {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("正在测试截屏…")
+                            Text(text(.settingsCaptureTestingScreenshot))
                         } else {
-                            Label("测试截屏", systemImage: "camera")
+                            Label(text(.settingsCaptureTestScreenshot), systemImage: "camera")
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -145,21 +152,21 @@ struct SettingsView: View {
                     Button {
                         openAppLocation()
                     } label: {
-                        Label("打开 App 位置", systemImage: "folder")
+                        Label(text(.settingsCaptureOpenAppLocation), systemImage: "folder")
                     }
                     .buttonStyle(.bordered)
 
                     Button {
                         openScreenshotsFolder()
                     } label: {
-                        Label("打开截屏文件夹", systemImage: "photo.on.rectangle")
+                        Label(text(.settingsCaptureOpenScreenshotsFolder), systemImage: "photo.on.rectangle")
                     }
                     .buttonStyle(.bordered)
                 }
 
                 if let previewImage {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("测试结果")
+                        Text(text(.settingsCaptureTestResult))
                             .font(.headline)
 
                         Image(nsImage: previewImage)
@@ -196,16 +203,16 @@ struct SettingsView: View {
     private var modelTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
-                Text("模型设置")
+                Text(text(.settingsModelTitle))
                     .font(.title2.weight(.semibold))
 
                 VStack(alignment: .leading, spacing: 0) {
-                    proportionalFieldRow("模型服务") { fieldWidth in
+                    proportionalFieldRow(text(.settingsModelService)) { fieldWidth in
                         HStack(spacing: 0) {
                             Spacer(minLength: 0)
                             Picker("", selection: $settingsStore.provider) {
                                 ForEach(ModelProvider.allCases) { provider in
-                                    Text(provider.title).tag(provider)
+                                    Text(provider.title(in: language)).tag(provider)
                                 }
                             }
                             .pickerStyle(.menu)
@@ -218,7 +225,7 @@ struct SettingsView: View {
 
                     Divider()
 
-                    proportionalFieldRow("接口地址") { fieldWidth in
+                    proportionalFieldRow(text(.settingsModelBaseURL)) { fieldWidth in
                         TextField(settingsStore.provider == .lmStudio ? "http://127.0.0.1:1234" : "http://127.0.0.1:8000", text: $settingsStore.apiBaseURL)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: fieldWidth)
@@ -226,16 +233,16 @@ struct SettingsView: View {
 
                     Divider()
 
-                    proportionalFieldRow("模型名称") { fieldWidth in
-                        TextField("请输入模型名称", text: $settingsStore.modelName)
+                    proportionalFieldRow(text(.settingsModelName)) { fieldWidth in
+                        TextField(text(.settingsModelNamePlaceholder), text: $settingsStore.modelName)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: fieldWidth)
                     }
 
                     Divider()
 
-                    proportionalFieldRow("API 秘钥") { fieldWidth in
-                        SecureField("请输入 API Key（可留空）", text: $settingsStore.apiKey)
+                    proportionalFieldRow(text(.settingsModelAPIKey)) { fieldWidth in
+                        SecureField(text(.settingsModelAPIKeyPlaceholder), text: $settingsStore.apiKey)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: fieldWidth)
                     }
@@ -243,7 +250,7 @@ struct SettingsView: View {
                     if settingsStore.provider == .lmStudio {
                         Divider()
 
-                        proportionalFieldRow("上下文长度", fieldWidth: Layout.contextFieldWidth) { fieldWidth in
+                        proportionalFieldRow(text(.settingsModelContextLength), fieldWidth: Layout.contextFieldWidth) { fieldWidth in
                             TextField(
                                 "4096 - 65536",
                                 value: Binding(
@@ -263,19 +270,19 @@ struct SettingsView: View {
                 )
 
                 if settingsStore.provider != .lmStudio {
-                    Text("官方 API 未经过测试")
+                    Text(text(.settingsModelOfficialUntested))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
-                Text("分析分类")
+                Text(text(.settingsModelCategoriesTitle))
                     .font(.title2.weight(.semibold))
 
                 VStack(spacing: 12) {
                     HStack {
-                        Text("类别名")
+                        Text(text(.settingsModelCategoryName))
                             .frame(width: 180, alignment: .leading)
-                        Text("描述")
+                        Text(text(.settingsModelCategoryDescription))
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Color.clear
                             .frame(width: 96)
@@ -285,7 +292,7 @@ struct SettingsView: View {
                     ForEach(settingsStore.categoryRules) { rule in
                         HStack(alignment: .top, spacing: 12) {
                             TextField(
-                                "例如：专注工作",
+                                text(.settingsModelCategoryNameExample),
                                 text: Binding(
                                     get: {
                                         settingsStore.categoryRules.first(where: { $0.id == rule.id })?.name ?? ""
@@ -297,7 +304,7 @@ struct SettingsView: View {
                             .frame(width: 180)
 
                             TextField(
-                                "例如：正在编码、查资料或写文档",
+                                text(.settingsModelCategoryDescriptionExample),
                                 text: Binding(
                                     get: {
                                         settingsStore.categoryRules.first(where: { $0.id == rule.id })?.description ?? ""
@@ -343,7 +350,7 @@ struct SettingsView: View {
                 Button {
                     settingsStore.addCategoryRule()
                 } label: {
-                    Label("添加分类", systemImage: "plus")
+                    Label(text(.settingsModelAddCategory), systemImage: "plus")
                 }
 
                 Divider()
@@ -357,9 +364,9 @@ struct SettingsView: View {
                             if isTestingModel {
                                 ProgressView()
                                     .controlSize(.small)
-                                Text("正在测试模型…")
+                                Text(text(.settingsModelTesting))
                             } else {
-                                Label("测试模型", systemImage: "bolt.horizontal")
+                                Label(text(.settingsModelTest), systemImage: "bolt.horizontal")
                             }
                         }
                         .buttonStyle(.borderedProminent)
@@ -368,7 +375,7 @@ struct SettingsView: View {
                         Button {
                             copyPrompt()
                         } label: {
-                            Label("复制prompt", systemImage: "doc.on.doc")
+                            Label(text(.settingsModelCopyPrompt), systemImage: "doc.on.doc")
                         }
                         .buttonStyle(.bordered)
                     }
@@ -380,7 +387,7 @@ struct SettingsView: View {
 
                     if let modelTestResult {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("测试分类结果")
+                            Text(text(.settingsModelTestResult))
                                 .font(.headline)
                             Text(modelTestResult)
                         }
@@ -406,7 +413,7 @@ struct SettingsView: View {
             let sliderWidth = max(140, controlGroupWidth - Layout.numberFieldWidth - 40)
 
             HStack(spacing: 12) {
-                Text("截图间隔")
+                Text(text(.settingsCaptureInterval))
                 Spacer()
                 HStack(spacing: 12) {
                     Slider(
@@ -420,7 +427,7 @@ struct SettingsView: View {
                     .frame(width: sliderWidth)
 
                     TextField(
-                        "分钟",
+                        text(.settingsCaptureMinutesPlaceholder),
                         value: Binding(
                             get: { settingsStore.screenshotIntervalMinutes },
                             set: { settingsStore.screenshotIntervalMinutes = $0 }
@@ -430,7 +437,7 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: Layout.numberFieldWidth)
 
-                    Text("分钟")
+                    Text(text(.settingsCaptureMinutesUnit))
                         .foregroundStyle(.secondary)
                         .fixedSize()
                 }
@@ -443,18 +450,51 @@ struct SettingsView: View {
         .frame(height: 52)
     }
 
-    private var reportTab: some View {
+    private var generalTab: some View {
         VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
-            Text("报告设置")
+            Text(text(.settingsGeneralTitle))
                 .font(.title2.weight(.semibold))
 
             VStack(alignment: .leading, spacing: 0) {
-                proportionalFieldRow("一周的第一天") { fieldWidth in
+                proportionalFieldRow(text(.settingsLanguage)) { fieldWidth in
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        Picker("", selection: $settingsStore.appLanguage) {
+                            ForEach(AppLanguage.allCases) { option in
+                                Text(option.localizedName).tag(option)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: Layout.reportPickerWidth)
+                    }
+                    .frame(width: fieldWidth, alignment: .trailing)
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color.gray.opacity(0.08))
+            )
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.horizontal, Layout.tabHorizontalPadding)
+        .padding(.vertical, Layout.tabVerticalPadding)
+    }
+
+    private var reportTab: some View {
+        VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
+            Text(text(.settingsReportTitle))
+                .font(.title2.weight(.semibold))
+
+            VStack(alignment: .leading, spacing: 0) {
+                proportionalFieldRow(text(.settingsReportWeekStart)) { fieldWidth in
                     HStack(spacing: 0) {
                         Spacer(minLength: 0)
                         Picker("", selection: $settingsStore.reportWeekStart) {
                             ForEach(ReportWeekStart.allCases) { option in
-                                Text(option.title).tag(option)
+                                Text(option.title(in: language)).tag(option)
                             }
                         }
                         .pickerStyle(.menu)
@@ -497,6 +537,18 @@ struct SettingsView: View {
         .frame(height: 52)
     }
 
+    private func text(_ key: L10n.Key) -> String {
+        L10n.string(key, language: language)
+    }
+
+    private func text(_ key: L10n.Key, arguments: [CVarArg]) -> String {
+        L10n.string(key, language: language, arguments: arguments)
+    }
+
+    private func countdownText(_ remainingSeconds: Int) -> String {
+        text(.settingsCountdown, arguments: [remainingSeconds])
+    }
+
     private func capturePreview() {
         previewError = nil
         previewCountdownText = nil
@@ -515,7 +567,7 @@ struct SettingsView: View {
                 try? FileManager.default.removeItem(at: validationResult.fileURL)
 
                 for remainingSeconds in stride(from: 3, through: 1, by: -1) {
-                    previewCountdownText = "倒计时：\(remainingSeconds)秒"
+                    previewCountdownText = countdownText(remainingSeconds)
                     try await Task.sleep(for: .seconds(1))
                 }
 
@@ -559,9 +611,9 @@ struct SettingsView: View {
             do {
                 for remainingSeconds in stride(from: 3, through: 1, by: -1) {
                     if remainingSeconds == 1 {
-                        modelTestCountdownText = "正在分析，可能需要等待模型加载"
+                        modelTestCountdownText = text(.settingsModelWaitingForModel)
                     } else {
-                        modelTestCountdownText = "倒计时：\(remainingSeconds)秒"
+                        modelTestCountdownText = countdownText(remainingSeconds)
                     }
                     try await Task.sleep(for: .seconds(1))
                 }
@@ -571,7 +623,7 @@ struct SettingsView: View {
                     throw NSError(
                         domain: "SettingsView",
                         code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: "测试模型时未生成临时截图"]
+                        userInfo: [NSLocalizedDescriptionKey: text(.settingsModelNoTempScreenshot)]
                     )
                 }
                 let response = try await analysisService.testCurrentSettings(with: temporaryFileURL)

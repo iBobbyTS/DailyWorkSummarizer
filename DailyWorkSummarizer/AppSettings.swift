@@ -48,6 +48,13 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var appLanguage: AppLanguage {
+        didSet {
+            userDefaults.set(appLanguage.rawValue, forKey: AppLanguage.userDefaultsKey)
+            notifySettingsChanged()
+        }
+    }
+
     @Published var provider: ModelProvider {
         didSet {
             userDefaults.set(provider.rawValue, forKey: Keys.provider)
@@ -108,6 +115,7 @@ final class SettingsStore: ObservableObject {
         let savedAutomaticAnalysisEnabled = userDefaults.object(forKey: Keys.automaticAnalysisEnabled) as? Bool ?? AppDefaults.automaticAnalysisEnabled
         let savedReportWeekStart = ReportWeekStart(rawValue: userDefaults.string(forKey: Keys.reportWeekStart) ?? "") ?? .sunday
         let savedAutoAnalysisRequiresCharger = userDefaults.object(forKey: Keys.autoAnalysisRequiresCharger) as? Bool ?? AppDefaults.autoAnalysisRequiresCharger
+        let savedAppLanguage = AppLanguage(rawValue: userDefaults.string(forKey: AppLanguage.userDefaultsKey) ?? "") ?? .defaultValue
         let savedProvider = ModelProvider(rawValue: userDefaults.string(forKey: Keys.provider) ?? "") ?? .openAI
         let savedBaseURL = userDefaults.string(forKey: Keys.apiBaseURL) ?? ""
         let savedModelName = userDefaults.string(forKey: Keys.modelName) ?? ""
@@ -120,12 +128,13 @@ final class SettingsStore: ObservableObject {
         automaticAnalysisEnabled = savedAutomaticAnalysisEnabled
         reportWeekStart = savedReportWeekStart
         autoAnalysisRequiresCharger = savedAutoAnalysisRequiresCharger
+        appLanguage = savedAppLanguage
         provider = savedProvider
         apiBaseURL = savedBaseURL
         modelName = savedModelName
         apiKey = savedAPIKey
         lmStudioContextLength = max(4096, min(65536, savedLMStudioContextLength))
-        categoryRules = savedRules.isEmpty ? AppDefaults.defaultCategoryRules : savedRules
+        categoryRules = savedRules.isEmpty ? AppDefaults.defaultCategoryRules(language: savedAppLanguage) : savedRules
 
         if savedRules.isEmpty {
             try? database.replaceCategoryRules(categoryRules)
@@ -138,6 +147,7 @@ final class SettingsStore: ObservableObject {
             analysisTimeMinutes: analysisTimeMinutes,
             automaticAnalysisEnabled: automaticAnalysisEnabled,
             autoAnalysisRequiresCharger: autoAnalysisRequiresCharger,
+            appLanguage: appLanguage,
             provider: provider,
             apiBaseURL: apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
             modelName: modelName.trimmingCharacters(in: .whitespacesAndNewlines),

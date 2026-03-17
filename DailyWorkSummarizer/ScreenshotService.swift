@@ -51,7 +51,7 @@ final class ScreenshotService {
             throw NSError(
                 domain: "ScreenshotService",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "没有获得屏幕录制权限"]
+                userInfo: [NSLocalizedDescriptionKey: text(.screenshotPermissionDenied)]
             )
         }
 
@@ -66,7 +66,7 @@ final class ScreenshotService {
             throw NSError(
                 domain: "ScreenshotService",
                 code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "测试截图完成，但无法读取预览图像"]
+                userInfo: [NSLocalizedDescriptionKey: text(.screenshotPreviewUnreadable)]
             )
         }
         return PreviewCaptureResult(image: image, fileURL: finalURL)
@@ -82,7 +82,7 @@ final class ScreenshotService {
             throw NSError(
                 domain: "ScreenshotService",
                 code: 5,
-                userInfo: [NSLocalizedDescriptionKey: "没有获得屏幕录制权限"]
+                userInfo: [NSLocalizedDescriptionKey: text(.screenshotPermissionDenied)]
             )
         }
 
@@ -305,7 +305,7 @@ final class ScreenshotService {
                 domain: "ScreenshotService",
                 code: Int(process.terminationStatus),
                 userInfo: [
-                    NSLocalizedDescriptionKey: errorText.isEmpty ? "系统 screencapture 命令执行失败" : errorText
+                    NSLocalizedDescriptionKey: errorText.isEmpty ? text(.screenshotCommandFailed) : errorText
                 ]
             )
         }
@@ -357,6 +357,10 @@ final class ScreenshotService {
 
     private func saveLastFrontmostAppIdentifier(_ identifier: String) {
         userDefaults.set(identifier, forKey: Keys.lastFrontmostAppIdentifier)
+    }
+
+    private func text(_ key: L10n.Key) -> String {
+        L10n.string(key, language: settingsStore.appLanguage)
     }
 
     private enum Keys {

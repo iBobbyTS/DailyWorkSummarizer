@@ -2,21 +2,19 @@ import SwiftUI
 
 struct AnalysisErrorsView: View {
     @ObservedObject var errorStore: AnalysisErrorStore
+    @ObservedObject var settingsStore: SettingsStore
 
-    private static let timestampFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy.M.d HH:mm:ss"
-        return formatter
-    }()
+    private var language: AppLanguage {
+        settingsStore.appLanguage
+    }
 
     var body: some View {
         VStack(spacing: 16) {
             if errorStore.entries.isEmpty {
                 ContentUnavailableView(
-                    "当前没有错误",
+                    text(.errorsEmptyTitle),
                     systemImage: "checkmark.circle",
-                    description: Text("后续分析出错时，会在这里显示最新的大模型返回错误。")
+                    description: Text(text(.errorsEmptyDescription))
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -24,7 +22,7 @@ struct AnalysisErrorsView: View {
                     ForEach(errorStore.entries) { entry in
                         HStack(alignment: .top, spacing: 12) {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(Self.timestampFormatter.string(from: entry.createdAt))
+                                Text(L10n.timestampFormatter(language: language).string(from: entry.createdAt))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                 Text(entry.message)
@@ -48,7 +46,7 @@ struct AnalysisErrorsView: View {
 
             HStack {
                 Spacer()
-                Button("清空所有错误") {
+                Button(text(.errorsClearAll)) {
                     errorStore.removeAll()
                 }
                 .disabled(errorStore.entries.isEmpty)
@@ -56,5 +54,9 @@ struct AnalysisErrorsView: View {
         }
         .padding(20)
         .frame(minWidth: 720, minHeight: 420)
+    }
+
+    private func text(_ key: L10n.Key) -> String {
+        L10n.string(key, language: language)
     }
 }

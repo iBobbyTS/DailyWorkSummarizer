@@ -46,12 +46,18 @@ final class ReportsViewModel: ObservableObject {
     private let settingsStore: SettingsStore
     private var sourceItems: [ReportSourceItem] = []
     private var databaseObserver: AnyCancellable?
+    private var settingsObserver: AnyCancellable?
 
     init(database: AppDatabase, settingsStore: SettingsStore) {
         self.database = database
         self.settingsStore = settingsStore
         reload()
         databaseObserver = NotificationCenter.default.publisher(for: .appDatabaseDidChange)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.reload()
+            }
+        settingsObserver = NotificationCenter.default.publisher(for: .appSettingsDidChange)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.reload()
@@ -71,6 +77,10 @@ final class ReportsViewModel: ObservableObject {
     func showNextPage() {
         guard selectedPage + 1 < totalPages else { return }
         selectedPage += 1
+    }
+
+    var appLanguage: AppLanguage {
+        settingsStore.appLanguage
     }
 
     var selectedRange: ReportRange? {
@@ -226,7 +236,11 @@ final class ReportsViewModel: ObservableObject {
         )
     }
     private func buildRanges(for kind: ReportKind, from items: [ReportSourceItem]) -> [ReportRange] {
-        let calendar = Calendar.reportCalendar(firstWeekday: settingsStore.reportWeekStart.calendarFirstWeekday)
+        let language = settingsStore.appLanguage
+        let calendar = Calendar.reportCalendar(
+            language: language,
+            firstWeekday: settingsStore.reportWeekStart.calendarFirstWeekday
+        )
         let grouped: [Date: [ReportSourceItem]]
 
         switch kind {
@@ -248,20 +262,20 @@ final class ReportsViewModel: ObservableObject {
             case .day:
                 let end = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
                 interval = DateInterval(start: startDate, end: end)
-                label = DateFormatter.reportDay.string(from: startDate)
+                label = L10n.reportDayFormatter(language: language).string(from: startDate)
             case .week:
                 let end = calendar.date(byAdding: .day, value: 7, to: startDate) ?? startDate
                 interval = DateInterval(start: startDate, end: end)
                 let displayEnd = calendar.date(byAdding: .day, value: 6, to: startDate) ?? startDate
-                label = "\(DateFormatter.reportDay.string(from: startDate)) - \(DateFormatter.reportDay.string(from: displayEnd))"
+                label = "\(L10n.reportDayFormatter(language: language).string(from: startDate)) - \(L10n.reportDayFormatter(language: language).string(from: displayEnd))"
             case .month:
                 let end = calendar.date(byAdding: .month, value: 1, to: startDate) ?? startDate
                 interval = DateInterval(start: startDate, end: end)
-                label = DateFormatter.reportMonth.string(from: startDate)
+                label = L10n.reportMonthFormatter(language: language).string(from: startDate)
             case .year:
                 let end = calendar.date(byAdding: .year, value: 1, to: startDate) ?? startDate
                 interval = DateInterval(start: startDate, end: end)
-                label = DateFormatter.reportYear.string(from: startDate)
+                label = L10n.reportYearFormatter(language: language).string(from: startDate)
             }
 
             let durationRecords = records.filter { $0.categoryName != AppDefaults.absenceCategoryName }
@@ -361,6 +375,10 @@ private extension Array where Element == HeatmapEvent {
 struct ReportsView: View {
     @ObservedObject var viewModel: ReportsViewModel
 
+    private var language: AppLanguage {
+        viewModel.appLanguage
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             leftPanel
@@ -376,15 +394,15 @@ struct ReportsView: View {
 
     private var leftPanel: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Picker("报告类型", selection: $viewModel.selectedKind) {
+            Picker(text(.reportType), selection: $viewModel.selectedKind) {
                 ForEach(ReportKind.allCases) { kind in
-                    Text(kind.title).tag(kind)
+                    Text(kind.title(in: language)).tag(kind)
                 }
             }
             .pickerStyle(.segmented)
 
             HStack {
-                Button("上一页") {
+                Button(text(.reportPreviousPage)) {
                     viewModel.showPreviousPage()
                 }
                 .disabled(viewModel.selectedPage == 0)
@@ -396,7 +414,7 @@ struct ReportsView: View {
 
                 Spacer()
 
-                Button("下一页") {
+                Button(text(.reportNextPage)) {
                     viewModel.showNextPage()
                 }
                 .disabled(viewModel.selectedPage + 1 >= viewModel.totalPages)
@@ -413,10 +431,14 @@ struct ReportsView: View {
                                     .font(.headline)
                                     .foregroundStyle(.primary)
                                 HStack(spacing: 8) {
-                                    Text("累计 \(range.totalHours.durationText(for: viewModel.selectedKind))")
+                                    Text(text(.reportTotalDuration, arguments: [
+                                        range.totalHours.durationText(for: viewModel.selectedKind, language: language)
+                                    ]))
                                         .foregroundStyle(.secondary)
                                     if viewModel.selectedKind != .day {
-                                        Text("日均 \(range.averageHoursPerDay.durationText(for: viewModel.selectedKind))")
+                                        Text(text(.reportAverageDuration, arguments: [
+                                            range.averageHoursPerDay.durationText(for: viewModel.selectedKind, language: language)
+                                        ]))
                                             .foregroundStyle(.secondary)
                                     }
                                 }
@@ -450,14 +472,14 @@ struct ReportsView: View {
                 Text(selectedRange.label)
                     .font(.title2.weight(.semibold))
             } else {
-                Text("查看报告")
+                Text(text(.reportViewTitle))
                     .font(.title2.weight(.semibold))
             }
 
             HStack(alignment: .center, spacing: 16) {
-                Picker("图表类型", selection: $viewModel.selectedVisualization) {
+                Picker(text(.reportChartType), selection: $viewModel.selectedVisualization) {
                     ForEach(ReportVisualization.allCases) { visualization in
-                        Text(visualization.title).tag(visualization)
+                        Text(visualization.title(in: language)).tag(visualization)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -466,26 +488,26 @@ struct ReportsView: View {
                 if viewModel.selectedKind != .day {
                     Spacer(minLength: 0)
 
-                    Toggle("工作日", isOn: $viewModel.includeWorkdays)
+                    Toggle(text(.reportWorkdays), isOn: $viewModel.includeWorkdays)
                         .toggleStyle(.checkbox)
 
-                    Toggle("周末", isOn: $viewModel.includeWeekends)
+                    Toggle(text(.reportWeekends), isOn: $viewModel.includeWeekends)
                         .toggleStyle(.checkbox)
                 }
             }
 
             if viewModel.selectedVisualization == .heatmap,
                viewModel.selectedKind == .month || viewModel.selectedKind == .year {
-                Toggle("叠加每日时间", isOn: $viewModel.overlayDailyHeatmap)
+                Toggle(text(.reportOverlayDailyTime), isOn: $viewModel.overlayDailyHeatmap)
                     .toggleStyle(.switch)
             }
 
             if visibleLegendItems.isEmpty {
                 Spacer()
                 ContentUnavailableView(
-                    "暂无报告数据",
+                    text(.reportNoDataTitle),
                     systemImage: viewModel.selectedVisualization == .barChart ? "chart.bar.xaxis" : "square.grid.3x2",
-                    description: Text("当前时间范围没有符合筛选条件的记录。")
+                    description: Text(text(.reportNoDataDescription))
                 )
                 .frame(maxWidth: .infinity)
                 Spacer()
@@ -503,18 +525,18 @@ struct ReportsView: View {
                     if viewModel.selectedVisualization == .barChart {
                         Chart(Array(barChartItems.enumerated()), id: \.element.category) { index, item in
                             BarMark(
-                                x: .value("分类", item.category),
-                                y: .value("累计小时", item.hours)
+                                x: .value(text(.reportCategoryAxis), displayCategory(item.category)),
+                                y: .value(text(.reportTotalHoursAxis), item.hours)
                             )
                             .foregroundStyle(Self.palette[index % Self.palette.count])
                             .annotation(position: .top) {
-                                Text(item.hours.durationText(for: viewModel.selectedKind))
+                                Text(item.hours.durationText(for: viewModel.selectedKind, language: language))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .chartXAxisLabel("分类")
-                        .chartYAxisLabel("累计小时")
+                        .chartXAxisLabel(text(.reportCategoryAxis))
+                        .chartYAxisLabel(text(.reportTotalHoursAxis))
                         .chartLegend(.hidden)
                     } else if let selectedRange = viewModel.selectedRange {
                         HeatmapTimelineView(
@@ -541,9 +563,9 @@ struct ReportsView: View {
             RoundedRectangle(cornerRadius: 4)
                 .fill(color)
                 .frame(width: 12, height: 12)
-            Text(item.category)
+            Text(displayCategory(item.category))
                 .font(.subheadline)
-            Text(item.hours.durationText(for: viewModel.selectedKind))
+            Text(item.hours.durationText(for: viewModel.selectedKind, language: language))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -553,6 +575,18 @@ struct ReportsView: View {
             RoundedRectangle(cornerRadius: 12)
                 .fill(Color.gray.opacity(0.08))
         )
+    }
+
+    private func text(_ key: L10n.Key) -> String {
+        L10n.string(key, language: language)
+    }
+
+    private func text(_ key: L10n.Key, arguments: [CVarArg]) -> String {
+        L10n.string(key, language: language, arguments: arguments)
+    }
+
+    private func displayCategory(_ categoryName: String) -> String {
+        L10n.displayCategoryName(categoryName, language: language)
     }
 
     private static let palette: [Color] = [
@@ -729,7 +763,7 @@ private struct ContinuousHeatmapView: View {
                 HStack(alignment: .top, spacing: 0) {
                     VStack(alignment: .leading, spacing: rowSpacing) {
                         ForEach(categories, id: \.self) { category in
-                            Text(category)
+                            Text(L10n.displayCategoryName(category))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .frame(width: labelWidth, height: rowHeight, alignment: .leading)
@@ -801,40 +835,15 @@ private struct ContinuousHeatmapView: View {
     }
 
     fileprivate static func tickFormatter(for interval: DateInterval) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.timeZone = .current
-
-        switch interval.duration {
-        case ..<86_400.0:
-            formatter.dateFormat = "H:mm"
-        case ..<1_209_600.0:
-            formatter.dateFormat = "M.d H:mm"
-        case ..<3_888_000.0:
-            formatter.dateFormat = "M.d"
-        case ..<34_560_000.0:
-            formatter.dateFormat = "M月d日"
-        default:
-            formatter.dateFormat = "yyyy.M"
-        }
-
-        return formatter
+        L10n.reportTickFormatter(for: interval)
     }
 
     private func tickLabel(for tick: Date, isLast: Bool) -> String {
         if isLast {
-            return Self.finalTickFormatter.string(from: range.interval.end.addingTimeInterval(-1))
+            return L10n.reportFinalTickFormatter().string(from: range.interval.end.addingTimeInterval(-1))
         }
         return Self.tickFormatter(for: range.interval).string(from: tick)
     }
-
-    private static let finalTickFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.timeZone = .current
-        formatter.dateFormat = "M月d日"
-        return formatter
-    }()
 }
 
 private struct DailyHeatmapView: View {
@@ -890,7 +899,7 @@ private struct DailyHeatmapView: View {
                 HStack(alignment: .top, spacing: 0) {
                     VStack(alignment: .leading, spacing: rowSpacing) {
                         ForEach(categories, id: \.self) { category in
-                            Text(category)
+                            Text(L10n.displayCategoryName(category))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .frame(width: labelWidth, height: rowHeight, alignment: .leading)
@@ -968,16 +977,8 @@ private struct DailyHeatmapView: View {
         if hours == 24 {
             return "24:00"
         }
-        return Self.tickFormatter.string(from: tick)
+        return L10n.dailyHeatmapTickFormatter().string(from: tick)
     }
-
-    fileprivate static let tickFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.timeZone = .current
-        formatter.dateFormat = "H:mm"
-        return formatter
-    }()
 }
 
 private struct WeeklyHeatmapView: View {
@@ -1036,7 +1037,7 @@ private struct WeeklyHeatmapView: View {
                 HStack(alignment: .top, spacing: 0) {
                     VStack(alignment: .leading, spacing: rowSpacing) {
                         ForEach(categories, id: \.self) { category in
-                            Text(category)
+                            Text(L10n.displayCategoryName(category))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .frame(width: labelWidth, height: rowHeight, alignment: .leading)
@@ -1157,7 +1158,7 @@ private struct WeeklyHeatmapView: View {
         if hours == 24 {
             return "24:00"
         }
-        return DailyHeatmapView.tickFormatter.string(from: tick)
+        return L10n.dailyHeatmapTickFormatter().string(from: tick)
     }
 }
 
@@ -1223,7 +1224,7 @@ private struct OverlayDailyHeatmapView: View {
                 HStack(alignment: .top, spacing: 0) {
                     VStack(alignment: .leading, spacing: rowSpacing) {
                         ForEach(categories, id: \.self) { category in
-                            Text(category)
+                            Text(L10n.displayCategoryName(category))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .frame(width: labelWidth, height: rowHeight, alignment: .leading)
@@ -1334,29 +1335,6 @@ private struct OverlayDailyHeatmapView: View {
         if hours == 24 {
             return "24:00"
         }
-        return DailyHeatmapView.tickFormatter.string(from: tick)
+        return L10n.dailyHeatmapTickFormatter().string(from: tick)
     }
-}
-
-private extension DateFormatter {
-    static let reportDay: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy年M月d日"
-        return formatter
-    }()
-
-    static let reportMonth: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy年M月"
-        return formatter
-    }()
-
-    static let reportYear: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "yyyy年"
-        return formatter
-    }()
 }

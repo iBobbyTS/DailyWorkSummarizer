@@ -11,11 +11,23 @@ enum AppDefaults {
     static let screenshotFileExtension = "jpg"
     static let apiKeyAccount = "model-api-key"
     static let absenceCategoryName = "离开"
-    static let defaultCategoryRules: [CategoryRule] = [
-        CategoryRule(name: "专注工作", description: "正在编码、写文档、阅读技术资料或完成明确的工作任务"),
-        CategoryRule(name: "会议沟通", description: "正在开会、聊天、回消息或处理协作沟通类事项"),
-        CategoryRule(name: "休息离开", description: "离开工位、娱乐浏览或进行与工作无关的活动"),
-    ]
+
+    static func defaultCategoryRules(language: AppLanguage) -> [CategoryRule] {
+        switch language {
+        case .simplifiedChinese:
+            return [
+                CategoryRule(name: "专注工作", description: "正在编码、写文档、阅读技术资料或完成明确的工作任务"),
+                CategoryRule(name: "会议沟通", description: "正在开会、聊天、回消息或处理协作沟通类事项"),
+                CategoryRule(name: "休息离开", description: "离开工位、娱乐浏览或进行与工作无关的活动"),
+            ]
+        case .english:
+            return [
+                CategoryRule(name: "Focused Work", description: "Coding, writing docs, reading technical materials, or completing clearly defined work"),
+                CategoryRule(name: "Meetings & Communication", description: "Meetings, chatting, replying to messages, or other collaboration-heavy tasks"),
+                CategoryRule(name: "Break / Away", description: "Away from the desk, casual browsing, entertainment, or non-work activities"),
+            ]
+        }
+    }
 }
 
 enum ModelProvider: String, CaseIterable, Codable, Identifiable {
@@ -26,11 +38,15 @@ enum ModelProvider: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
 
     var title: String {
+        title(in: .current)
+    }
+
+    func title(in language: AppLanguage) -> String {
         switch self {
         case .openAI:
-            return "OpenAI（未测试）"
+            return L10n.string(.providerOpenAIUntested, language: language)
         case .anthropic:
-            return "Anthropic（未测试）"
+            return L10n.string(.providerAnthropicUntested, language: language)
         case .lmStudio:
             return "LM Studio API"
         }
@@ -83,9 +99,13 @@ enum CaptureScope: String, Codable {
     case activeDisplay = "active_display"
 
     var title: String {
+        title(in: .current)
+    }
+
+    func title(in language: AppLanguage) -> String {
         switch self {
         case .activeDisplay:
-            return "当前活跃的屏幕"
+            return L10n.string(.captureScopeActiveDisplay, language: language)
         }
     }
 }
@@ -99,15 +119,19 @@ enum ReportKind: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     var title: String {
+        title(in: .current)
+    }
+
+    func title(in language: AppLanguage) -> String {
         switch self {
         case .day:
-            return "日报"
+            return L10n.string(.reportKindDay, language: language)
         case .week:
-            return "周报"
+            return L10n.string(.reportKindWeek, language: language)
         case .month:
-            return "月报"
+            return L10n.string(.reportKindMonth, language: language)
         case .year:
-            return "年报"
+            return L10n.string(.reportKindYear, language: language)
         }
     }
 }
@@ -119,11 +143,15 @@ enum ReportVisualization: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     var title: String {
+        title(in: .current)
+    }
+
+    func title(in language: AppLanguage) -> String {
         switch self {
         case .barChart:
-            return "柱状图"
+            return L10n.string(.reportVisualizationBar, language: language)
         case .heatmap:
-            return "热力图"
+            return L10n.string(.reportVisualizationHeatmap, language: language)
         }
     }
 }
@@ -141,11 +169,15 @@ enum ReportWeekStart: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
 
     var title: String {
+        title(in: .current)
+    }
+
+    func title(in language: AppLanguage) -> String {
         switch self {
         case .sunday:
-            return "周日"
+            return L10n.string(.reportWeekStartSunday, language: language)
         case .monday:
-            return "周一"
+            return L10n.string(.reportWeekStartMonday, language: language)
         }
     }
 
@@ -176,6 +208,7 @@ struct AppSettingsSnapshot {
     let analysisTimeMinutes: Int
     let automaticAnalysisEnabled: Bool
     let autoAnalysisRequiresCharger: Bool
+    let appLanguage: AppLanguage
     let provider: ModelProvider
     let apiBaseURL: String
     let modelName: String
@@ -194,15 +227,16 @@ struct AppSettingsSnapshot {
         }
     }
 
-    func nextAnalysisDate(after now: Date, calendar: Calendar = .reportCalendar) -> Date {
+    func nextAnalysisDate(after now: Date, calendar: Calendar? = nil) -> Date {
+        let resolvedCalendar = calendar ?? .reportCalendar(language: appLanguage)
         let minutes = max(0, min(23 * 60 + 59, analysisTimeMinutes))
-        let startOfToday = calendar.startOfDay(for: now)
-        let todayTarget = calendar.date(byAdding: .minute, value: minutes, to: startOfToday) ?? now
+        let startOfToday = resolvedCalendar.startOfDay(for: now)
+        let todayTarget = resolvedCalendar.date(byAdding: .minute, value: minutes, to: startOfToday) ?? now
         if todayTarget > now {
             return todayTarget
         }
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: startOfToday) ?? now
-        return calendar.date(byAdding: .minute, value: minutes, to: tomorrow) ?? now
+        let tomorrow = resolvedCalendar.date(byAdding: .day, value: 1, to: startOfToday) ?? now
+        return resolvedCalendar.date(byAdding: .minute, value: minutes, to: tomorrow) ?? now
     }
 }
 
@@ -289,12 +323,20 @@ extension Array where Element == CategoryRule {
 
 extension Calendar {
     static var reportCalendar: Calendar {
-        reportCalendar(firstWeekday: 1)
+        reportCalendar(language: .current, firstWeekday: 1)
+    }
+
+    static func reportCalendar(language: AppLanguage) -> Calendar {
+        reportCalendar(language: language, firstWeekday: 1)
     }
 
     static func reportCalendar(firstWeekday: Int) -> Calendar {
+        reportCalendar(language: .current, firstWeekday: firstWeekday)
+    }
+
+    static func reportCalendar(language: AppLanguage, firstWeekday: Int) -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.locale = Locale(identifier: "zh_CN")
+        calendar.locale = language.locale
         calendar.firstWeekday = firstWeekday
         return calendar
     }
@@ -324,45 +366,12 @@ extension ReportSourceItem {
 }
 
 extension Double {
-    func durationText(style: DurationDisplayStyle) -> String {
+    func durationText(style: DurationDisplayStyle, language: AppLanguage = .current) -> String {
         let totalMinutes = max(Int((self * 60).rounded()), 0)
-
-        switch style {
-        case .minute:
-            return "\(totalMinutes) 分钟"
-        case .hourAndMinute:
-            let hours = totalMinutes / 60
-            let minutes = totalMinutes % 60
-            if hours > 0, minutes > 0 {
-                return "\(hours) 小时 \(minutes) 分"
-            }
-            if hours > 0 {
-                return "\(hours) 小时"
-            }
-            return "\(minutes) 分钟"
-        case .dayAndHour:
-            let totalHours = totalMinutes / 60
-            let days = totalHours / 24
-            let hours = totalHours % 24
-            if days > 0, hours > 0 {
-                return "\(days) 天 \(hours) 小时"
-            }
-            if days > 0 {
-                return "\(days) 天"
-            }
-
-            let minutes = totalMinutes % 60
-            if totalHours > 0, minutes > 0 {
-                return "\(totalHours) 小时 \(minutes) 分"
-            }
-            if totalHours > 0 {
-                return "\(totalHours) 小时"
-            }
-            return "\(minutes) 分钟"
-        }
+        return L10n.durationText(totalMinutes: totalMinutes, style: style, language: language)
     }
 
-    func durationText(for kind: ReportKind) -> String {
+    func durationText(for kind: ReportKind, language: AppLanguage = .current) -> String {
         let totalMinutes = max(Int((self * 60).rounded()), 0)
         let style: DurationDisplayStyle
 
@@ -379,7 +388,7 @@ extension Double {
             }
         }
 
-        return durationText(style: style)
+        return durationText(style: style, language: language)
     }
 }
 

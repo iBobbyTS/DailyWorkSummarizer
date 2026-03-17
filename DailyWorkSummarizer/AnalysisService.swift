@@ -19,7 +19,7 @@ enum AnalysisServiceError: LocalizedError {
         case .invalidResponse(let message):
             return message
         case .httpError(let statusCode, let body):
-            return "接口返回错误 (\(statusCode))：\(body)"
+            return L10n.string(.analysisHTTPError, arguments: [statusCode, body])
         case .lengthTruncated(let message):
             return message
         }
@@ -116,25 +116,25 @@ final class AnalysisService {
 
     func currentPrompt() -> String {
         let snapshot = settingsStore.snapshot
-        return buildPrompt(with: snapshot.validCategoryRules)
+        return buildPrompt(with: snapshot.validCategoryRules, language: snapshot.appLanguage)
     }
 
     func testCurrentSettings(with imageFileURL: URL) async throws -> AnalysisResponse {
         let snapshot = settingsStore.snapshot
 
         guard !snapshot.validCategoryRules.isEmpty else {
-            throw AnalysisServiceError.invalidConfiguration("至少需要配置一条有效的分析类别和描述")
+            throw AnalysisServiceError.invalidConfiguration(localized(.analysisNeedsCategoryRule, language: snapshot.appLanguage))
         }
 
         guard !snapshot.apiBaseURL.isEmpty else {
-            throw AnalysisServiceError.invalidConfiguration("请先配置模型接口地址")
+            throw AnalysisServiceError.invalidConfiguration(localized(.analysisNeedsBaseURL, language: snapshot.appLanguage))
         }
 
         guard !snapshot.modelName.isEmpty else {
-            throw AnalysisServiceError.invalidConfiguration("请先配置模型名称")
+            throw AnalysisServiceError.invalidConfiguration(localized(.analysisNeedsModelName, language: snapshot.appLanguage))
         }
 
-        let prompt = buildPrompt(with: snapshot.validCategoryRules)
+        let prompt = buildPrompt(with: snapshot.validCategoryRules, language: snapshot.appLanguage)
         do {
             return try await analyzeImage(at: imageFileURL, settings: snapshot, prompt: prompt)
         } catch {
@@ -193,7 +193,7 @@ final class AnalysisService {
     private func runAnalysis(scheduledFor: Date) async {
         let snapshot = settingsStore.snapshot
         activeRunSettings = snapshot
-        let prompt = buildPrompt(with: snapshot.validCategoryRules)
+        let prompt = buildPrompt(with: snapshot.validCategoryRules, language: snapshot.appLanguage)
         let categoriesJSON = encodeCategories(snapshot.validCategoryRules)
         let pendingCaptures = (try? database.listScreenshotFiles(defaultDurationMinutes: snapshot.screenshotIntervalMinutes)) ?? []
 
@@ -235,7 +235,7 @@ final class AnalysisService {
                 status: "failed",
                 successCount: 0,
                 failureCount: pendingCaptures.count,
-                errorMessage: "至少需要配置一条有效的分析类别和描述"
+                errorMessage: localized(.analysisNeedsCategoryRule, language: snapshot.appLanguage)
             )
             return
         }
@@ -246,7 +246,7 @@ final class AnalysisService {
                 status: "failed",
                 successCount: 0,
                 failureCount: pendingCaptures.count,
-                errorMessage: "请先配置模型接口地址"
+                errorMessage: localized(.analysisNeedsBaseURL, language: snapshot.appLanguage)
             )
             return
         }
@@ -257,7 +257,7 @@ final class AnalysisService {
                 status: "failed",
                 successCount: 0,
                 failureCount: pendingCaptures.count,
-                errorMessage: "请先配置模型名称"
+                errorMessage: localized(.analysisNeedsModelName, language: snapshot.appLanguage)
             )
             return
         }
@@ -282,7 +282,7 @@ final class AnalysisService {
             let durationMinutes = capture.durationMinutes
 
             guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                let message = "截图文件不存在，无法继续分析"
+                let message = localized(.analysisScreenshotMissing, language: snapshot.appLanguage)
                 try? database.insertAnalysisResult(
                     runID: runID,
                     capturedAt: capturedAt,
@@ -379,14 +379,14 @@ final class AnalysisService {
                 successCount: successCount,
                 failureCount: failureCount,
                 averageItemDurationSeconds: measuredItemCount > 0 ? measuredDurationTotal / Double(measuredItemCount) : nil,
-                errorMessage: "用户手动暂停分析"
+                errorMessage: localized(.analysisCancelledByUser, language: snapshot.appLanguage)
             )
             await stopModelIfNeeded(for: snapshot)
             return
         }
 
         if wasPausedAfterFailures {
-            let message = "连续 5 张截图处理失败，已暂停当前分析"
+            let message = localized(.analysisPausedAfterFailures, language: snapshot.appLanguage)
             let finalStatus = successCount > 0 ? "partial_failed" : "failed"
             try? database.finishAnalysisRun(
                 id: runID,
@@ -415,28 +415,13 @@ final class AnalysisService {
             successCount: successCount,
             failureCount: failureCount,
             averageItemDurationSeconds: measuredItemCount > 0 ? measuredDurationTotal / Double(measuredItemCount) : nil,
-            errorMessage: failureCount > 0 ? "部分截图分析失败，请检查网络、模型接口或返回格式" : nil
+            errorMessage: failureCount > 0 ? localized(.analysisPartialFailures, language: snapshot.appLanguage) : nil
         )
         await stopModelIfNeeded(for: snapshot)
     }
 
-    private func buildPrompt(with rules: [CategoryRule]) -> String {
-        let list = rules.map { rule in
-            "\(rule.name)：\(rule.description)"
-        }.joined(separator: "\n")
-
-        return """
-        你是一个工作桌面截图分类助手。
-        请进行思考后，严格从下面的候选类别中选择唯一一个最匹配的类别。
-        不要过度思考，只关注截图主要部分。
-
-        候选类别：
-        \(list)
-        返回要求：
-        1. 只能返回一个类别名
-        2. 不要返回 JSON、Markdown、解释、思考过程或其他多余文本
-        3. 返回的类别名必须与候选类别完全一致
-        """
+    private func buildPrompt(with rules: [CategoryRule], language: AppLanguage) -> String {
+        L10n.analysisPrompt(with: rules, language: language)
     }
 
     private func encodeCategories(_ rules: [CategoryRule]) -> String {
@@ -478,7 +463,7 @@ final class AnalysisService {
             }
         }
 
-        throw lastError ?? AnalysisServiceError.invalidResponse("模型返回无法解析为有效类别")
+        throw lastError ?? AnalysisServiceError.invalidResponse(localized(.analysisInvalidCategory, language: settings.appLanguage))
     }
 
     private func analyzeImageAttempt(
@@ -489,7 +474,7 @@ final class AnalysisService {
     ) async throws -> AnalysisResponse {
         let imageData = try Data(contentsOf: fileURL)
         guard let endpoint = settings.provider.requestURL(from: settings.apiBaseURL) else {
-            throw AnalysisServiceError.invalidConfiguration("模型接口地址不合法")
+            throw AnalysisServiceError.invalidConfiguration(localized(.analysisInvalidBaseURL, language: settings.appLanguage))
         }
 
         var request = URLRequest(url: endpoint)
@@ -532,7 +517,7 @@ final class AnalysisService {
 
         let (data, response) = try await performDataRequest(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw AnalysisServiceError.invalidResponse("模型接口没有返回有效的 HTTP 响应")
+            throw AnalysisServiceError.invalidResponse(localized(.analysisInvalidHTTPResponse, language: settings.appLanguage))
         }
 
         let rawBody = String(decoding: data, as: UTF8.self)
@@ -562,7 +547,7 @@ final class AnalysisService {
             finishReason: finishReason
         ) else {
             if finishReason == "length", allowLengthRetry {
-                let retryPrompt = prompt + "\n\n补充要求：不要过度思考"
+                let retryPrompt = prompt + "\n\n" + localized(.analysisRetrySupplement, language: settings.appLanguage)
                 return try await analyzeImageAttempt(
                     at: fileURL,
                     settings: settings,
@@ -571,9 +556,13 @@ final class AnalysisService {
                 )
             }
             if finishReason == "length" {
-                throw AnalysisServiceError.lengthTruncated("模型输出因长度截断，未能生成完整分类结果：\(text)")
+                throw AnalysisServiceError.lengthTruncated(
+                    localized(.analysisLengthTruncated, arguments: [text], language: settings.appLanguage)
+                )
             }
-            throw AnalysisServiceError.invalidResponse("模型返回无法解析为有效类别：\(text)")
+            throw AnalysisServiceError.invalidResponse(
+                localized(.analysisInvalidCategoryWithText, arguments: [text], language: settings.appLanguage)
+            )
         }
 
         return AnalysisResponse(category: category, rawText: text)
@@ -661,7 +650,7 @@ final class AnalysisService {
               let choices = payload["choices"] as? [[String: Any]],
               let firstChoice = choices.first,
               let message = firstChoice["message"] as? [String: Any] else {
-            throw AnalysisServiceError.invalidResponse("OpenAI 兼容接口返回格式不正确")
+            throw AnalysisServiceError.invalidResponse(localized(.analysisOpenAIFormatInvalid))
         }
 
         let finishReason = firstChoice["finish_reason"] as? String
@@ -679,13 +668,13 @@ final class AnalysisService {
             }
         }
 
-        throw AnalysisServiceError.invalidResponse("OpenAI 兼容接口没有返回可读文本")
+        throw AnalysisServiceError.invalidResponse(localized(.analysisOpenAINoText))
     }
 
     private func parseAnthropicResponse(from data: Data) throws -> String {
         guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let content = payload["content"] as? [[String: Any]] else {
-            throw AnalysisServiceError.invalidResponse("Anthropic 兼容接口返回格式不正确")
+            throw AnalysisServiceError.invalidResponse(localized(.analysisAnthropicFormatInvalid))
         }
 
         let text = content.compactMap { block in
@@ -693,7 +682,7 @@ final class AnalysisService {
         }.joined(separator: "\n")
 
         guard !text.isEmpty else {
-            throw AnalysisServiceError.invalidResponse("Anthropic 兼容接口没有返回可读文本")
+            throw AnalysisServiceError.invalidResponse(localized(.analysisAnthropicNoText))
         }
 
         return text
@@ -702,7 +691,7 @@ final class AnalysisService {
     private func parseLMStudioResponse(from data: Data) throws -> LMStudioResponsePayload {
         guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let output = payload["output"] as? [[String: Any]] else {
-            throw AnalysisServiceError.invalidResponse("LM Studio API 返回格式不正确")
+            throw AnalysisServiceError.invalidResponse(localized(.analysisLMStudioFormatInvalid))
         }
 
         let messageText = output
@@ -720,7 +709,7 @@ final class AnalysisService {
         let text = messageText.isEmpty ? reasoningText : messageText
 
         guard !text.isEmpty else {
-            throw AnalysisServiceError.invalidResponse("LM Studio API 没有返回可读文本")
+            throw AnalysisServiceError.invalidResponse(localized(.analysisLMStudioNoText))
         }
 
         return LMStudioResponsePayload(content: text)
@@ -872,6 +861,8 @@ final class AnalysisService {
 
     private func performDataRequest(for request: URLRequest) async throws -> (Data, URLResponse) {
         let taskBox = URLSessionDataTaskBox()
+        let language = settingsStore.appLanguage
+        let missingDataMessage = L10n.string(.analysisNoResponseData, language: language)
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -889,7 +880,7 @@ final class AnalysisService {
                     }
 
                     guard let data, let response else {
-                        continuation.resume(throwing: AnalysisServiceError.invalidResponse("模型接口没有返回数据"))
+                        continuation.resume(throwing: AnalysisServiceError.invalidResponse(missingDataMessage))
                         return
                     }
 
@@ -1031,5 +1022,13 @@ final class AnalysisService {
         }
 
         return nil
+    }
+
+    private func localized(_ key: L10n.Key, language: AppLanguage? = nil) -> String {
+        L10n.string(key, language: language ?? settingsStore.appLanguage)
+    }
+
+    private func localized(_ key: L10n.Key, arguments: [CVarArg], language: AppLanguage? = nil) -> String {
+        L10n.string(key, language: language ?? settingsStore.appLanguage, arguments: arguments)
     }
 }
