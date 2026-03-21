@@ -2,6 +2,13 @@ import AppKit
 import SwiftUI
 
 struct SettingsView: View {
+    private enum ModelCopyDestination: String, Identifiable {
+        case workContentAnalysis
+        case screenshotAnalysis
+
+        var id: String { rawValue }
+    }
+
     private enum Layout {
         static let sectionSpacing: CGFloat = 16
         static let cardRowVerticalPadding: CGFloat = 10
@@ -36,6 +43,7 @@ struct SettingsView: View {
     @State private var modelTestError: String?
     @State private var modelTestCountdownText: String?
     @State private var isTestingModel = false
+    @State private var pendingModelCopyDestination: ModelCopyDestination?
 
     private var language: AppLanguage {
         settingsStore.appLanguage
@@ -59,14 +67,11 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
-            captureTab
-                .tabItem { Text(text(.settingsTabCapture)) }
+            screenshotAnalysisTab
+                .tabItem { Text(text(.settingsTabScreenshotAnalysis)) }
 
-            modelTab
-                .tabItem { Text(text(.settingsTabModel)) }
-
-            analysisTab
-                .tabItem { Text(text(.settingsTabAnalysis)) }
+            workContentAnalysisTab
+                .tabItem { Text(text(.settingsTabWorkContentAnalysis)) }
 
             generalTab
                 .tabItem { Text(text(.settingsTabGeneral)) }
@@ -76,12 +81,92 @@ struct SettingsView: View {
         }
         .padding(20)
         .frame(minWidth: 700, minHeight: 560)
+        .alert(item: $pendingModelCopyDestination) { destination in
+            Alert(
+                title: Text(text(.settingsModelCopyConfirmTitle)),
+                message: Text(copyConfirmationMessage(for: destination)),
+                primaryButton: .destructive(Text(text(.commonConfirm))) {
+                    copyModelConfiguration(to: destination)
+                },
+                secondaryButton: .cancel(Text(text(.commonCancel)))
+            )
+        }
         .onDisappear {
             removePreviewFile()
         }
     }
 
-    private var captureTab: some View {
+    private var screenshotAnalysisTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
+                Text(text(.settingsTabCapture))
+                    .font(.title2.weight(.semibold))
+
+                captureSection
+
+                Divider()
+                    .padding(.vertical, 4)
+
+                modelConfigurationSection(
+                    provider: $settingsStore.provider,
+                    apiBaseURL: $settingsStore.apiBaseURL,
+                    modelName: $settingsStore.modelName,
+                    apiKey: $settingsStore.apiKey,
+                    lmStudioContextLength: Binding(
+                        get: { settingsStore.lmStudioContextLength },
+                        set: { settingsStore.lmStudioContextLength = $0 }
+                    ),
+                    copyButtonTitle: text(.settingsModelCopyToWorkContent),
+                    onCopy: { pendingModelCopyDestination = .workContentAnalysis },
+                    showTestingPanel: true
+                )
+
+                Divider()
+                    .padding(.vertical, 4)
+
+                Text(text(.settingsAnalysisCategoryTitle))
+                    .font(.title2.weight(.semibold))
+
+                categoryRulesEditor
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Layout.tabHorizontalPadding)
+            .padding(.vertical, Layout.tabVerticalPadding)
+        }
+    }
+
+    private var workContentAnalysisTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
+                modelConfigurationSection(
+                    provider: $settingsStore.workContentProvider,
+                    apiBaseURL: $settingsStore.workContentAPIBaseURL,
+                    modelName: $settingsStore.workContentModelName,
+                    apiKey: $settingsStore.workContentAPIKey,
+                    lmStudioContextLength: Binding(
+                        get: { settingsStore.workContentLMStudioContextLength },
+                        set: { settingsStore.workContentLMStudioContextLength = $0 }
+                    ),
+                    copyButtonTitle: text(.settingsModelCopyToScreenshotAnalysis),
+                    onCopy: { pendingModelCopyDestination = .screenshotAnalysis },
+                    showTestingPanel: false
+                )
+
+                Divider()
+                    .padding(.vertical, 4)
+
+                Text(text(.settingsAnalysisSummaryTitle))
+                    .font(.title2.weight(.semibold))
+
+                summarySection
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Layout.tabHorizontalPadding)
+            .padding(.vertical, Layout.tabVerticalPadding)
+        }
+    }
+
+    private var captureSection: some View {
         VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
             VStack(alignment: .leading, spacing: 0) {
                 intervalRow
@@ -199,139 +284,127 @@ struct SettingsView: View {
 
             Spacer()
         }
-        .padding(.horizontal, Layout.tabHorizontalPadding)
-        .padding(.vertical, Layout.tabVerticalPadding)
     }
 
-    private var modelTab: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
-                Text(text(.settingsModelTitle))
-                    .font(.title2.weight(.semibold))
+    private var summarySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(text(.settingsAnalysisSummaryHint))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
 
-                VStack(alignment: .leading, spacing: 0) {
-                    proportionalFieldRow(text(.settingsModelService)) { fieldWidth in
-                        HStack(spacing: 0) {
-                            Spacer(minLength: 0)
-                            Picker("", selection: $settingsStore.provider) {
-                                ForEach(ModelProvider.allCases) { provider in
-                                    Text(provider.title(in: language)).tag(provider)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .labelsHidden()
-                            .fixedSize()
-                            .frame(width: Layout.servicePickerWidth, alignment: .trailing)
-                        }
-                        .frame(width: fieldWidth, alignment: .trailing)
-                    }
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.08))
 
-                    Divider()
-
-                    proportionalFieldRow(text(.settingsModelBaseURL)) { fieldWidth in
-                        TextField(settingsStore.provider == .lmStudio ? "http://127.0.0.1:1234" : "http://127.0.0.1:8000", text: $settingsStore.apiBaseURL)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: fieldWidth)
-                    }
-
-                    Divider()
-
-                    proportionalFieldRow(text(.settingsModelName)) { fieldWidth in
-                        TextField(text(.settingsModelNamePlaceholder), text: $settingsStore.modelName)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: fieldWidth)
-                    }
-
-                    Divider()
-
-                    proportionalFieldRow(text(.settingsModelAPIKey)) { fieldWidth in
-                        SecureField(text(.settingsModelAPIKeyPlaceholder), text: $settingsStore.apiKey)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: fieldWidth)
-                    }
-
-                    if settingsStore.provider == .lmStudio {
-                        Divider()
-
-                        proportionalFieldRow(text(.settingsModelContextLength), fieldWidth: Layout.contextFieldWidth) { fieldWidth in
-                            TextField(
-                                "4096 - 65536",
-                                value: Binding(
-                                    get: { settingsStore.lmStudioContextLength },
-                                    set: { settingsStore.lmStudioContextLength = $0 }
-                                ),
-                                formatter: Layout.plainIntegerFormatter
-                            )
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: fieldWidth)
-                        }
-                    }
-                }
-                .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(Color.gray.opacity(0.08))
-                )
-
-                if settingsStore.provider != .lmStudio {
-                    Text(text(.settingsModelOfficialUntested))
-                        .font(.footnote)
+                if settingsStore.analysisSummaryInstruction.isEmpty {
+                    Text(text(.settingsAnalysisSummaryPlaceholder))
                         .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
                 }
 
-                Spacer(minLength: 0)
+                TextEditor(text: $settingsStore.analysisSummaryInstruction)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, Layout.tabHorizontalPadding)
-            .padding(.vertical, Layout.tabVerticalPadding)
+            .frame(minHeight: 140)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color.gray.opacity(0.14), lineWidth: 1)
+            )
         }
     }
 
-    private var analysisTab: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
-                Text(text(.settingsAnalysisCategoryTitle))
-                    .font(.title2.weight(.semibold))
+    private func modelConfigurationSection(
+        provider: Binding<ModelProvider>,
+        apiBaseURL: Binding<String>,
+        modelName: Binding<String>,
+        apiKey: Binding<String>,
+        lmStudioContextLength: Binding<Int>,
+        copyButtonTitle: String,
+        onCopy: @escaping () -> Void,
+        showTestingPanel: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
+            Text(text(.settingsModelTitle))
+                .font(.title2.weight(.semibold))
 
-                categoryRulesEditor
-
-                Text(text(.settingsAnalysisSummaryTitle))
-                    .font(.title2.weight(.semibold))
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(text(.settingsAnalysisSummaryHint))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    ZStack(alignment: .topLeading) {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.gray.opacity(0.08))
-
-                        if settingsStore.analysisSummaryInstruction.isEmpty {
-                            Text(text(.settingsAnalysisSummaryPlaceholder))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 12)
+            VStack(alignment: .leading, spacing: 0) {
+                proportionalFieldRow(text(.settingsModelService)) { fieldWidth in
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        Picker("", selection: provider) {
+                            ForEach(ModelProvider.allCases) { option in
+                                Text(option.title(in: language)).tag(option)
+                            }
                         }
-
-                        TextEditor(text: $settingsStore.analysisSummaryInstruction)
-                            .scrollContentBackground(.hidden)
-                            .padding(8)
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .fixedSize()
+                        .frame(width: Layout.servicePickerWidth, alignment: .trailing)
                     }
-                    .frame(minHeight: 140)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.gray.opacity(0.14), lineWidth: 1)
-                    )
+                    .frame(width: fieldWidth, alignment: .trailing)
                 }
 
                 Divider()
-                    .padding(.vertical, 4)
 
+                proportionalFieldRow(text(.settingsModelBaseURL)) { fieldWidth in
+                    TextField(provider.wrappedValue == .lmStudio ? "http://127.0.0.1:1234" : "http://127.0.0.1:8000", text: apiBaseURL)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: fieldWidth)
+                }
+
+                Divider()
+
+                proportionalFieldRow(text(.settingsModelName)) { fieldWidth in
+                    TextField(text(.settingsModelNamePlaceholder), text: modelName)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: fieldWidth)
+                }
+
+                Divider()
+
+                proportionalFieldRow(text(.settingsModelAPIKey)) { fieldWidth in
+                    SecureField(text(.settingsModelAPIKeyPlaceholder), text: apiKey)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: fieldWidth)
+                }
+
+                if provider.wrappedValue == .lmStudio {
+                    Divider()
+
+                    proportionalFieldRow(text(.settingsModelContextLength), fieldWidth: Layout.contextFieldWidth) { fieldWidth in
+                        TextField(
+                            "4096 - 65536",
+                            value: lmStudioContextLength,
+                            formatter: Layout.plainIntegerFormatter
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: fieldWidth)
+                    }
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color.gray.opacity(0.08))
+            )
+
+            if provider.wrappedValue != .lmStudio {
+                Text(text(.settingsModelOfficialUntested))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button {
+                onCopy()
+            } label: {
+                Label(copyButtonTitle, systemImage: "arrow.left.arrow.right")
+            }
+            .buttonStyle(.bordered)
+
+            if showTestingPanel {
                 modelTestPanel
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, Layout.tabHorizontalPadding)
-            .padding(.vertical, Layout.tabVerticalPadding)
         }
     }
 
@@ -349,17 +422,24 @@ struct SettingsView: View {
 
             ForEach(settingsStore.categoryRules) { rule in
                 HStack(alignment: .top, spacing: 12) {
-                    TextField(
-                        text(.settingsModelCategoryNameExample),
-                        text: Binding(
-                            get: {
-                                settingsStore.categoryRules.first(where: { $0.id == rule.id })?.name ?? ""
-                            },
-                            set: { settingsStore.updateCategoryRuleName(id: rule.id, name: $0) }
+                    if rule.isPreservedOther {
+                        TextField("", text: .constant(rule.displayName(in: language)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 180)
+                            .disabled(true)
+                    } else {
+                        TextField(
+                            text(.settingsModelCategoryNameExample),
+                            text: Binding(
+                                get: {
+                                    settingsStore.categoryRules.first(where: { $0.id == rule.id })?.name ?? ""
+                                },
+                                set: { settingsStore.updateCategoryRuleName(id: rule.id, name: $0) }
+                            )
                         )
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 180)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 180)
+                    }
 
                     TextField(
                         text(.settingsModelCategoryDescriptionExample),
@@ -382,7 +462,7 @@ struct SettingsView: View {
                             Image(systemName: "chevron.up")
                         }
                         .buttonStyle(.borderless)
-                        .disabled(isFirstCategoryRule(rule.id))
+                        .disabled(rule.isPreservedOther || isFirstCategoryRule(rule.id))
 
                         Button {
                             settingsStore.moveCategoryRuleDown(id: rule.id)
@@ -390,7 +470,7 @@ struct SettingsView: View {
                             Image(systemName: "chevron.down")
                         }
                         .buttonStyle(.borderless)
-                        .disabled(isLastCategoryRule(rule.id))
+                        .disabled(rule.isPreservedOther || isLastMovableCategoryRule(rule.id))
 
                         Button {
                             settingsStore.removeCategoryRule(id: rule.id)
@@ -399,6 +479,7 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.borderless)
                         .foregroundStyle(.red)
+                        .disabled(rule.isPreservedOther)
                     }
                     .frame(width: 96, alignment: .trailing)
                 }
@@ -408,6 +489,12 @@ struct SettingsView: View {
                 settingsStore.addCategoryRule()
             } label: {
                 Label(text(.settingsModelAddCategory), systemImage: "plus")
+            }
+
+            if let validationMessage = settingsStore.categoryRulesValidationMessage {
+                Text(validationMessage)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -610,6 +697,24 @@ struct SettingsView: View {
         return "\(label)\(separator)\(value)"
     }
 
+    private func copyConfirmationMessage(for destination: ModelCopyDestination) -> String {
+        switch destination {
+        case .workContentAnalysis:
+            return text(.settingsModelCopyToWorkContentConfirmMessage)
+        case .screenshotAnalysis:
+            return text(.settingsModelCopyToScreenshotAnalysisConfirmMessage)
+        }
+    }
+
+    private func copyModelConfiguration(to destination: ModelCopyDestination) {
+        switch destination {
+        case .workContentAnalysis:
+            settingsStore.copyScreenshotAnalysisModelToWorkContent()
+        case .screenshotAnalysis:
+            settingsStore.copyWorkContentModelToScreenshotAnalysis()
+        }
+    }
+
     private func capturePreview() {
         previewError = nil
         previewCountdownText = nil
@@ -705,8 +810,11 @@ struct SettingsView: View {
         settingsStore.categoryRules.first?.id == id
     }
 
-    private func isLastCategoryRule(_ id: UUID) -> Bool {
-        settingsStore.categoryRules.last?.id == id
+    private func isLastMovableCategoryRule(_ id: UUID) -> Bool {
+        guard let index = settingsStore.categoryRules.firstIndex(where: { $0.id == id }) else {
+            return true
+        }
+        return index >= max(settingsStore.categoryRules.count - 2, 0)
     }
 
     private func removePreviewFile() {

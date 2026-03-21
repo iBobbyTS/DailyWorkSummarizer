@@ -51,6 +51,7 @@ final class SettingsStore: ObservableObject {
     @Published var appLanguage: AppLanguage {
         didSet {
             userDefaults.set(appLanguage.rawValue, forKey: AppLanguage.userDefaultsKey)
+            normalizeCategoryRulesForCurrentLanguage()
             notifySettingsChanged()
         }
     }
@@ -102,7 +103,48 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var workContentProvider: ModelProvider {
+        didSet {
+            userDefaults.set(workContentProvider.rawValue, forKey: Keys.workContentProvider)
+            notifySettingsChanged()
+        }
+    }
+
+    @Published var workContentAPIBaseURL: String {
+        didSet {
+            userDefaults.set(workContentAPIBaseURL, forKey: Keys.workContentAPIBaseURL)
+            notifySettingsChanged()
+        }
+    }
+
+    @Published var workContentModelName: String {
+        didSet {
+            userDefaults.set(workContentModelName, forKey: Keys.workContentModelName)
+            notifySettingsChanged()
+        }
+    }
+
+    @Published var workContentAPIKey: String {
+        didSet {
+            keychain.set(workContentAPIKey, for: AppDefaults.workContentAPIKeyAccount)
+            notifySettingsChanged()
+        }
+    }
+
+    @Published var workContentLMStudioContextLength: Int {
+        didSet {
+            let clamped = max(4096, min(65536, workContentLMStudioContextLength))
+            if workContentLMStudioContextLength != clamped {
+                workContentLMStudioContextLength = clamped
+                return
+            }
+            userDefaults.set(workContentLMStudioContextLength, forKey: Keys.workContentLMStudioContextLength)
+            notifySettingsChanged()
+        }
+    }
+
     @Published private(set) var categoryRules: [CategoryRule]
+    @Published private(set) var categoryRulesValidationMessage: String?
 
     private let userDefaults: UserDefaults
     private let keychain: KeychainStore
@@ -130,6 +172,13 @@ final class SettingsStore: ObservableObject {
         let savedModelName = userDefaults.string(forKey: Keys.modelName) ?? ""
         let savedAPIKey = keychain.string(for: AppDefaults.apiKeyAccount)
         let savedLMStudioContextLength = userDefaults.object(forKey: Keys.lmStudioContextLength) as? Int ?? AppDefaults.lmStudioContextLength
+        let savedWorkContentProvider = ModelProvider(rawValue: userDefaults.string(forKey: Keys.workContentProvider) ?? "") ?? savedProvider
+        let savedWorkContentBaseURL = userDefaults.string(forKey: Keys.workContentAPIBaseURL) ?? savedBaseURL
+        let savedWorkContentModelName = userDefaults.string(forKey: Keys.workContentModelName) ?? savedModelName
+        let savedWorkContentAPIKey = keychain.string(for: AppDefaults.workContentAPIKeyAccount).isEmpty
+            ? savedAPIKey
+            : keychain.string(for: AppDefaults.workContentAPIKeyAccount)
+        let savedWorkContentLMStudioContextLength = userDefaults.object(forKey: Keys.workContentLMStudioContextLength) as? Int ?? savedLMStudioContextLength
         let savedRules = (try? database.fetchCategoryRules()) ?? []
 
         screenshotIntervalMinutes = max(1, min(60, savedInterval))
@@ -144,9 +193,16 @@ final class SettingsStore: ObservableObject {
         modelName = savedModelName
         apiKey = savedAPIKey
         lmStudioContextLength = max(4096, min(65536, savedLMStudioContextLength))
-        categoryRules = savedRules.isEmpty ? AppDefaults.defaultCategoryRules(language: savedAppLanguage) : savedRules
+        workContentProvider = savedWorkContentProvider
+        workContentAPIBaseURL = savedWorkContentBaseURL
+        workContentModelName = savedWorkContentModelName
+        workContentAPIKey = savedWorkContentAPIKey
+        workContentLMStudioContextLength = max(4096, min(65536, savedWorkContentLMStudioContextLength))
+        let initialRules = savedRules.isEmpty ? AppDefaults.defaultCategoryRules(language: savedAppLanguage) : savedRules
+        categoryRules = Self.normalizedCategoryRules(initialRules, language: savedAppLanguage)
+        categoryRulesValidationMessage = nil
 
-        if savedRules.isEmpty {
+        if savedRules.isEmpty || initialRules != categoryRules {
             try? database.replaceCategoryRules(categoryRules)
         }
     }
@@ -159,57 +215,128 @@ final class SettingsStore: ObservableObject {
             autoAnalysisRequiresCharger: autoAnalysisRequiresCharger,
             appLanguage: appLanguage,
             analysisSummaryInstruction: analysisSummaryInstruction.trimmingCharacters(in: .whitespacesAndNewlines),
-            provider: provider,
-            apiBaseURL: apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
-            modelName: modelName.trimmingCharacters(in: .whitespacesAndNewlines),
-            apiKey: apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
-            lmStudioContextLength: lmStudioContextLength,
+            screenshotAnalysisModelSettings: AnalysisModelSettings(
+                provider: provider,
+                apiBaseURL: apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
+                modelName: modelName.trimmingCharacters(in: .whitespacesAndNewlines),
+                apiKey: apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
+                lmStudioContextLength: lmStudioContextLength
+            ),
+            workContentAnalysisModelSettings: AnalysisModelSettings(
+                provider: workContentProvider,
+                apiBaseURL: workContentAPIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
+                modelName: workContentModelName.trimmingCharacters(in: .whitespacesAndNewlines),
+                apiKey: workContentAPIKey.trimmingCharacters(in: .whitespacesAndNewlines),
+                lmStudioContextLength: workContentLMStudioContextLength
+            ),
             categoryRules: categoryRules
         )
     }
 
     func addCategoryRule() {
-        categoryRules.append(CategoryRule())
+        clearCategoryRulesValidationMessage()
+        let insertIndex = max(categoryRules.count - 1, 0)
+        categoryRules.insert(CategoryRule(), at: insertIndex)
         saveCategoryRules()
     }
 
     func removeCategoryRule(id: UUID) {
+        guard !isPreservedCategoryRule(id: id) else { return }
+        clearCategoryRulesValidationMessage()
         categoryRules.removeAll { $0.id == id }
-        if categoryRules.isEmpty {
-            categoryRules = [CategoryRule()]
-        }
         saveCategoryRules()
     }
 
     func updateCategoryRuleName(id: UUID, name: String) {
-        guard let index = categoryRules.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = categoryRules.firstIndex(where: { $0.id == id }),
+              !categoryRules[index].isPreservedOther else { return }
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.hasPrefix("PRESERVED_") {
+            categoryRulesValidationMessage = L10n.string(.settingsAnalysisReservedPrefixError, language: appLanguage)
+            return
+        }
         categoryRules[index].name = name
+        clearCategoryRulesValidationMessage()
         saveCategoryRules()
     }
 
     func updateCategoryRuleDescription(id: UUID, description: String) {
         guard let index = categoryRules.firstIndex(where: { $0.id == id }) else { return }
         categoryRules[index].description = description
+        clearCategoryRulesValidationMessage()
         saveCategoryRules()
     }
 
     func moveCategoryRuleUp(id: UUID) {
         guard let index = categoryRules.firstIndex(where: { $0.id == id }),
-              index > 0 else { return }
+              index > 0,
+              !categoryRules[index].isPreservedOther else { return }
+        clearCategoryRulesValidationMessage()
         categoryRules.swapAt(index, index - 1)
         saveCategoryRules()
     }
 
     func moveCategoryRuleDown(id: UUID) {
         guard let index = categoryRules.firstIndex(where: { $0.id == id }),
-              index < categoryRules.count - 1 else { return }
+              index < max(categoryRules.count - 2, 0),
+              !categoryRules[index].isPreservedOther else { return }
+        clearCategoryRulesValidationMessage()
         categoryRules.swapAt(index, index + 1)
         saveCategoryRules()
     }
 
+    func copyScreenshotAnalysisModelToWorkContent() {
+        workContentProvider = provider
+        workContentAPIBaseURL = apiBaseURL
+        workContentModelName = modelName
+        workContentAPIKey = apiKey
+        workContentLMStudioContextLength = lmStudioContextLength
+    }
+
+    func copyWorkContentModelToScreenshotAnalysis() {
+        provider = workContentProvider
+        apiBaseURL = workContentAPIBaseURL
+        modelName = workContentModelName
+        apiKey = workContentAPIKey
+        lmStudioContextLength = workContentLMStudioContextLength
+    }
+
     private func saveCategoryRules() {
+        categoryRules = Self.normalizedCategoryRules(categoryRules, language: appLanguage)
         try? database.replaceCategoryRules(categoryRules)
         notifySettingsChanged()
+    }
+
+    private func normalizeCategoryRulesForCurrentLanguage() {
+        let normalizedRules = Self.normalizedCategoryRules(categoryRules, language: appLanguage)
+        guard normalizedRules != categoryRules else {
+            return
+        }
+        categoryRules = normalizedRules
+        try? database.replaceCategoryRules(categoryRules)
+    }
+
+    private func isPreservedCategoryRule(id: UUID) -> Bool {
+        categoryRules.first(where: { $0.id == id })?.isPreservedOther == true
+    }
+
+    private func clearCategoryRulesValidationMessage() {
+        categoryRulesValidationMessage = nil
+    }
+
+    private static func normalizedCategoryRules(_ rules: [CategoryRule], language: AppLanguage) -> [CategoryRule] {
+        let preservedDescription = rules
+            .first(where: { $0.isPreservedOther })?
+            .description
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let preservedRule = CategoryRule(
+            name: AppDefaults.preservedOtherCategoryName,
+            description: (preservedDescription?.isEmpty == false)
+                ? preservedDescription!
+                : AppDefaults.preservedOtherCategoryDescription(language: language)
+        )
+        let editableRules = rules.filter { !$0.isPreservedOther }
+        return editableRules + [preservedRule]
     }
 
     private func notifySettingsChanged() {
@@ -227,5 +354,9 @@ final class SettingsStore: ObservableObject {
         static let apiBaseURL = "settings.apiBaseURL"
         static let modelName = "settings.modelName"
         static let lmStudioContextLength = "settings.lmStudioContextLength"
+        static let workContentProvider = "settings.workContent.provider"
+        static let workContentAPIBaseURL = "settings.workContent.apiBaseURL"
+        static let workContentModelName = "settings.workContent.modelName"
+        static let workContentLMStudioContextLength = "settings.workContent.lmStudioContextLength"
     }
 }

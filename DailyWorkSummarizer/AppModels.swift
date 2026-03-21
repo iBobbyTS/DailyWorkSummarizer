@@ -9,8 +9,11 @@ enum AppDefaults {
     static let lmStudioContextLength = 6000
     static let maxPageSize = 31
     static let screenshotFileExtension = "jpg"
-    static let apiKeyAccount = "model-api-key"
+    static let apiKeyAccount = "model-api-key.screenshot-analysis"
+    static let workContentAPIKeyAccount = "model-api-key.work-content-analysis"
     static let absenceCategoryName = "离开"
+    static let preservedOtherCategoryName = "PRESERVED_OTHER"
+    nonisolated static let temporaryReportPrefix = "TEMP_"
 
     static func defaultAnalysisSummaryInstruction(language: AppLanguage) -> String {
         switch language {
@@ -28,14 +31,32 @@ enum AppDefaults {
                 CategoryRule(name: "专注工作", description: "正在编码、写文档、阅读技术资料或完成明确的工作任务"),
                 CategoryRule(name: "会议沟通", description: "正在开会、聊天、回消息或处理协作沟通类事项"),
                 CategoryRule(name: "休息离开", description: "离开工位、娱乐浏览或进行与工作无关的活动"),
+                preservedOtherCategoryRule(language: language),
             ]
         case .english:
             return [
                 CategoryRule(name: "Focused Work", description: "Coding, writing docs, reading technical materials, or completing clearly defined work"),
                 CategoryRule(name: "Meetings & Communication", description: "Meetings, chatting, replying to messages, or other collaboration-heavy tasks"),
                 CategoryRule(name: "Break / Away", description: "Away from the desk, casual browsing, entertainment, or non-work activities"),
+                preservedOtherCategoryRule(language: language),
             ]
         }
+    }
+
+    static func preservedOtherCategoryDescription(language: AppLanguage) -> String {
+        switch language {
+        case .simplifiedChinese:
+            return "除以上类别外的其他工作、学习或屏幕内容。"
+        case .english:
+            return "Any other work, study, or on-screen content that does not fit the categories above."
+        }
+    }
+
+    static func preservedOtherCategoryRule(language: AppLanguage) -> CategoryRule {
+        CategoryRule(
+            name: preservedOtherCategoryName,
+            description: preservedOtherCategoryDescription(language: language)
+        )
     }
 }
 
@@ -210,6 +231,22 @@ struct CategoryRule: Identifiable, Codable, Hashable {
         self.name = name
         self.description = description
     }
+
+    var isPreservedOther: Bool {
+        name == AppDefaults.preservedOtherCategoryName
+    }
+
+    func displayName(in language: AppLanguage) -> String {
+        isPreservedOther ? L10n.displayCategoryName(name, language: language) : name
+    }
+}
+
+struct AnalysisModelSettings: Equatable {
+    let provider: ModelProvider
+    let apiBaseURL: String
+    let modelName: String
+    let apiKey: String
+    let lmStudioContextLength: Int
 }
 
 struct AppSettingsSnapshot {
@@ -219,15 +256,32 @@ struct AppSettingsSnapshot {
     let autoAnalysisRequiresCharger: Bool
     let appLanguage: AppLanguage
     let analysisSummaryInstruction: String
-    let provider: ModelProvider
-    let apiBaseURL: String
-    let modelName: String
-    let apiKey: String
-    let lmStudioContextLength: Int
+    let screenshotAnalysisModelSettings: AnalysisModelSettings
+    let workContentAnalysisModelSettings: AnalysisModelSettings
     let categoryRules: [CategoryRule]
 
     var captureScope: CaptureScope {
         .activeDisplay
+    }
+
+    var provider: ModelProvider {
+        screenshotAnalysisModelSettings.provider
+    }
+
+    var apiBaseURL: String {
+        screenshotAnalysisModelSettings.apiBaseURL
+    }
+
+    var modelName: String {
+        screenshotAnalysisModelSettings.modelName
+    }
+
+    var apiKey: String {
+        screenshotAnalysisModelSettings.apiKey
+    }
+
+    var lmStudioContextLength: Int {
+        screenshotAnalysisModelSettings.lmStudioContextLength
     }
 
     var validCategoryRules: [CategoryRule] {
@@ -255,6 +309,50 @@ struct ReportSourceItem: Identifiable {
     let capturedAt: Date
     let categoryName: String
     let durationMinutes: Int
+}
+
+struct DailyReportActivityItem: Identifiable {
+    let id: Int64
+    let capturedAt: Date
+    let categoryName: String
+    let durationMinutes: Int
+    let itemSummaryText: String?
+}
+
+struct DailyReportRecord: Equatable {
+    let dayStart: Date
+    let dailySummaryText: String
+    let categorySummaries: [String: String]
+
+    nonisolated
+    var isTemporary: Bool {
+        dailySummaryText.hasPrefix(AppDefaults.temporaryReportPrefix)
+    }
+
+    nonisolated
+    var displayDailySummaryText: String {
+        Self.displayText(from: dailySummaryText)
+    }
+
+    nonisolated
+    func displayCategorySummary(for category: String) -> String? {
+        categorySummaries[category].map(Self.displayText(from:))
+    }
+
+    nonisolated
+    func isTemporaryCategorySummary(for category: String) -> Bool {
+        categorySummaries[category]?.hasPrefix(AppDefaults.temporaryReportPrefix) == true
+    }
+
+    nonisolated
+    private static func displayText(from value: String) -> String {
+        guard value.hasPrefix(AppDefaults.temporaryReportPrefix) else {
+            return value
+        }
+
+        return String(value.dropFirst(AppDefaults.temporaryReportPrefix.count))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 struct ScreenshotFileRecord: Identifiable {
