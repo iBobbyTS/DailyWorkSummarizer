@@ -338,6 +338,154 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
+    func fetchActivityDayStarts(calendar: Calendar = .reportCalendar) throws -> [Date] {
+        let sourceItems = try fetchReportSourceItems()
+        return Array(Set(sourceItems.map { calendar.startOfDay(for: $0.capturedAt) }))
+            .sorted()
+    }
+
+    func fetchLatestActivityDayStart(calendar: Calendar = .reportCalendar) throws -> Date? {
+        try fetchActivityDayStarts(calendar: calendar).last
+    }
+
+    func fetchPendingDailyReportDayStarts(
+        before dayStartExclusive: Date,
+        calendar: Calendar = .reportCalendar
+    ) throws -> [Date] {
+        let activityDays = try fetchActivityDayStarts(calendar: calendar)
+            .filter { $0 < dayStartExclusive }
+
+        return try activityDays.filter { dayStart in
+            guard let report = try fetchDailyReport(for: dayStart) else {
+                return true
+            }
+            return report.isTemporary
+        }
+    }
+
+    func fetchDailyReportActivityItems(for dayStart: Date) throws -> [DailyReportActivityItem] {
+        let calendar = Calendar.reportCalendar
+        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
+
+        return try queue.sync {
+            let statement = try prepareStatement("""
+                SELECT id, captured_at, category_name, duration_minutes, item_summary_text
+                FROM (
+                    SELECT
+                        id,
+                        captured_at,
+                        category_name,
+                        duration_minutes_snapshot AS duration_minutes,
+                        summary_text AS item_summary_text
+                    FROM analysis_results
+                    WHERE status = 'succeeded'
+                      AND category_name IS NOT NULL
+                      AND captured_at >= ?
+                      AND captured_at < ?
+
+                    UNION ALL
+
+                    SELECT
+                        -id AS id,
+                        captured_at,
+                        '\(AppDefaults.absenceCategoryName)' AS category_name,
+                        duration_minutes,
+                        NULL AS item_summary_text
+                    FROM absence_events
+                    WHERE captured_at >= ?
+                      AND captured_at < ?
+                )
+                ORDER BY captured_at ASC, id ASC;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_double(statement, 1, dayStart.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 2, dayEnd.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 3, dayStart.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 4, dayEnd.timeIntervalSince1970)
+
+            var items: [DailyReportActivityItem] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let itemSummaryText = sqlite3_column_type(statement, 4) == SQLITE_NULL
+                    ? nil
+                    : string(at: 4, from: statement)
+                items.append(
+                    DailyReportActivityItem(
+                        id: sqlite3_column_int64(statement, 0),
+                        capturedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 1)),
+                        categoryName: string(at: 2, from: statement),
+                        durationMinutes: Int(sqlite3_column_int64(statement, 3)),
+                        itemSummaryText: itemSummaryText
+                    )
+                )
+            }
+            return items
+        }
+    }
+
+    func fetchDailyReport(for dayStart: Date) throws -> DailyReportRecord? {
+        try queue.sync {
+            let statement = try prepareStatement("""
+                SELECT day_start, daily_summary_text, category_summaries_json
+                FROM daily_reports
+                WHERE day_start = ?
+                LIMIT 1;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_double(statement, 1, dayStart.timeIntervalSince1970)
+
+            guard sqlite3_step(statement) == SQLITE_ROW else {
+                return nil
+            }
+
+            let dayStart = Date(timeIntervalSince1970: sqlite3_column_double(statement, 0))
+            let dailySummaryText = string(at: 1, from: statement)
+            let categorySummaries = decodeCategorySummaries(from: string(at: 2, from: statement))
+            return DailyReportRecord(
+                dayStart: dayStart,
+                dailySummaryText: dailySummaryText,
+                categorySummaries: categorySummaries
+            )
+        }
+    }
+
+    func upsertDailyReport(
+        dayStart: Date,
+        dailySummaryText: String,
+        categorySummaries: [String: String]
+    ) throws {
+        try queue.sync {
+            let statement = try prepareStatement("""
+                INSERT INTO daily_reports (
+                    day_start,
+                    daily_summary_text,
+                    category_summaries_json,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(day_start) DO UPDATE SET
+                    daily_summary_text = excluded.daily_summary_text,
+                    category_summaries_json = excluded.category_summaries_json,
+                    updated_at = excluded.updated_at;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            let now = Date().timeIntervalSince1970
+            sqlite3_bind_double(statement, 1, dayStart.timeIntervalSince1970)
+            bind(dailySummaryText, at: 2, to: statement)
+            bind(encodeCategorySummaries(categorySummaries), at: 3, to: statement)
+            sqlite3_bind_double(statement, 4, now)
+            sqlite3_bind_double(statement, 5, now)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
+            }
+            postChangeNotification()
+        }
+    }
+
     private func migrate() throws {
         try execute("""
             CREATE TABLE IF NOT EXISTS category_rules (
@@ -394,11 +542,24 @@ final class AppDatabase: @unchecked Sendable {
             );
         """)
 
+        try execute("""
+            CREATE TABLE IF NOT EXISTS daily_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day_start DOUBLE NOT NULL UNIQUE,
+                daily_summary_text TEXT NOT NULL,
+                category_summaries_json TEXT NOT NULL,
+                created_at DOUBLE NOT NULL,
+                updated_at DOUBLE NOT NULL
+            );
+        """)
+
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_captured_at ON analysis_results (captured_at DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_category_name ON analysis_results (category_name, captured_at DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_absence_events_captured_at ON absence_events (captured_at DESC);")
+        try execute("CREATE INDEX IF NOT EXISTS idx_daily_reports_day_start ON daily_reports (day_start DESC);")
         try migrateAnalysisRunsIfNeeded()
         try migrateAnalysisResultsIfNeeded()
+        try migrateDailyReportsIfNeeded()
         try dropCaptureEventsTableIfNeeded()
     }
 
@@ -531,6 +692,59 @@ final class AppDatabase: @unchecked Sendable {
         try executeLocked("ALTER TABLE analysis_runs ADD COLUMN average_item_duration_seconds DOUBLE;")
     }
 
+    private func migrateDailyReportsIfNeeded() throws {
+        let tables = try tableNames()
+        guard tables.contains("daily_reports") else {
+            return
+        }
+
+        let columns = try columnNames(in: "daily_reports")
+        let expectedColumns = [
+            "id",
+            "day_start",
+            "daily_summary_text",
+            "category_summaries_json",
+            "created_at",
+            "updated_at",
+        ]
+        guard columns != expectedColumns else {
+            return
+        }
+
+        try executeLocked("ALTER TABLE daily_reports RENAME TO daily_reports_legacy;")
+        try executeLocked("""
+            CREATE TABLE daily_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day_start DOUBLE NOT NULL UNIQUE,
+                daily_summary_text TEXT NOT NULL,
+                category_summaries_json TEXT NOT NULL,
+                created_at DOUBLE NOT NULL,
+                updated_at DOUBLE NOT NULL
+            );
+        """)
+        let legacyColumns = Set(columns)
+        try executeLocked("""
+            INSERT INTO daily_reports (
+                id,
+                day_start,
+                daily_summary_text,
+                category_summaries_json,
+                created_at,
+                updated_at
+            )
+            SELECT
+                \(legacyColumns.contains("id") ? "id" : "NULL"),
+                \(legacyColumns.contains("day_start") ? "day_start" : "0"),
+                \(legacyColumns.contains("daily_summary_text") ? "daily_summary_text" : "''"),
+                \(legacyColumns.contains("category_summaries_json") ? "category_summaries_json" : "'{}'"),
+                \(legacyColumns.contains("created_at") ? "created_at" : "0"),
+                \(legacyColumns.contains("updated_at") ? "updated_at" : "0")
+            FROM daily_reports_legacy;
+        """)
+        try executeLocked("DROP TABLE daily_reports_legacy;")
+        try executeLocked("CREATE INDEX IF NOT EXISTS idx_daily_reports_day_start ON daily_reports (day_start DESC);")
+    }
+
     private func dropCaptureEventsTableIfNeeded() throws {
         let tables = try tableNames()
         guard tables.contains("capture_events") else {
@@ -590,5 +804,22 @@ final class AppDatabase: @unchecked Sendable {
 
         let value = baseName[markerRange.upperBound...]
         return Int(value)
+    }
+
+    private func encodeCategorySummaries(_ value: [String: String]) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(value) else {
+            return "{}"
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func decodeCategorySummaries(from rawValue: String) -> [String: String] {
+        guard let data = rawValue.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
+            return [:]
+        }
+        return decoded
     }
 }

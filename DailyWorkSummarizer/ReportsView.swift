@@ -6,6 +6,7 @@ import SwiftUI
 final class ReportsViewModel: ObservableObject {
     @Published var selectedKind: ReportKind = .day {
         didSet {
+            dailyReportGenerationError = nil
             selectedPage = 0
             rebuildRanges()
         }
@@ -19,6 +20,7 @@ final class ReportsViewModel: ObservableObject {
 
     @Published var selectedRangeID: String? {
         didSet {
+            dailyReportGenerationError = nil
             updateChartItems()
         }
     }
@@ -35,6 +37,9 @@ final class ReportsViewModel: ObservableObject {
             updateChartItems()
         }
     }
+    @Published private(set) var selectedDailyReport: DailyReportRecord?
+    @Published private(set) var isGeneratingDailyReport = false
+    @Published private(set) var dailyReportGenerationError: String?
     @Published private(set) var pageItems: [ReportRange] = []
     @Published private(set) var chartItems: [CategoryDuration] = []
     @Published private(set) var heatmapItems: [HeatmapEvent] = []
@@ -44,13 +49,19 @@ final class ReportsViewModel: ObservableObject {
 
     private let database: AppDatabase
     private let settingsStore: SettingsStore
+    private let dailyReportSummaryService: DailyReportSummaryService
     private var sourceItems: [ReportSourceItem] = []
     private var databaseObserver: AnyCancellable?
     private var settingsObserver: AnyCancellable?
 
-    init(database: AppDatabase, settingsStore: SettingsStore) {
+    init(
+        database: AppDatabase,
+        settingsStore: SettingsStore,
+        dailyReportSummaryService: DailyReportSummaryService
+    ) {
         self.database = database
         self.settingsStore = settingsStore
+        self.dailyReportSummaryService = dailyReportSummaryService
         reload()
         databaseObserver = NotificationCenter.default.publisher(for: .appDatabaseDidChange)
             .receive(on: RunLoop.main)
@@ -87,6 +98,56 @@ final class ReportsViewModel: ObservableObject {
         allRanges.first(where: { $0.id == selectedRangeID })
     }
 
+    var shouldShowSummarizeNowButton: Bool {
+        guard selectedKind == .day, selectedRange != nil else {
+            return false
+        }
+
+        guard let selectedDailyReport else {
+            return true
+        }
+
+        return selectedDailyReport.isTemporary
+    }
+
+    func categorySummary(for category: String) -> (text: String, isTemporary: Bool)? {
+        guard let selectedDailyReport,
+              let text = selectedDailyReport.displayCategorySummary(for: category) else {
+            return nil
+        }
+
+        return (
+            text: text,
+            isTemporary: selectedDailyReport.isTemporaryCategorySummary(for: category)
+        )
+    }
+
+    func summarizeSelectedDay() {
+        guard selectedKind == .day,
+              let dayStart = selectedRange?.interval.start,
+              !isGeneratingDailyReport else {
+            return
+        }
+
+        dailyReportGenerationError = nil
+        isGeneratingDailyReport = true
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                isGeneratingDailyReport = false
+            }
+
+            do {
+                let record = try await dailyReportSummaryService.summarizeDay(dayStart)
+                selectedDailyReport = record
+            } catch {
+                dailyReportGenerationError = error.localizedDescription
+                updateSelectedDailyReport()
+            }
+        }
+    }
+
     private func rebuildRanges() {
         allRanges = buildRanges(for: selectedKind, from: sourceItems)
         totalPages = max(1, Int(ceil(Double(allRanges.count) / Double(AppDefaults.maxPageSize))))
@@ -116,6 +177,7 @@ final class ReportsViewModel: ObservableObject {
             chartItems = []
             heatmapItems = []
             heatmapCategories = []
+            selectedDailyReport = nil
             return
         }
 
@@ -130,18 +192,7 @@ final class ReportsViewModel: ObservableObject {
                 hours: Double(items.reduce(0) { $0 + $1.durationMinutes }) / 60.0
             )
         }
-        .sorted { lhs, rhs in
-            if lhs.category == AppDefaults.absenceCategoryName, rhs.category != AppDefaults.absenceCategoryName {
-                return false
-            }
-            if rhs.category == AppDefaults.absenceCategoryName, lhs.category != AppDefaults.absenceCategoryName {
-                return true
-            }
-            if lhs.hours == rhs.hours {
-                return lhs.category < rhs.category
-            }
-            return lhs.hours > rhs.hours
-        }
+        .sorted(by: Self.categoryDurationSort)
 
         heatmapCategories = chartItems.map(\.category)
         heatmapItems = visibleItems
@@ -171,6 +222,39 @@ final class ReportsViewModel: ObservableObject {
                 return lhs.start < rhs.start
             }
             .mergedContiguousEvents()
+        updateSelectedDailyReport()
+    }
+
+    private func updateSelectedDailyReport() {
+        guard selectedKind == .day,
+              let dayStart = selectedRange?.interval.start else {
+            selectedDailyReport = nil
+            return
+        }
+
+        selectedDailyReport = try? database.fetchDailyReport(for: dayStart)
+    }
+
+    private static func categorySortPriority(_ category: String) -> Int {
+        if category == AppDefaults.absenceCategoryName {
+            return 2
+        }
+        if category == AppDefaults.preservedOtherCategoryName {
+            return 1
+        }
+        return 0
+    }
+
+    private static func categoryDurationSort(lhs: CategoryDuration, rhs: CategoryDuration) -> Bool {
+        let lhsPriority = categorySortPriority(lhs.category)
+        let rhsPriority = categorySortPriority(rhs.category)
+        if lhsPriority != rhsPriority {
+            return lhsPriority < rhsPriority
+        }
+        if lhs.hours == rhs.hours {
+            return lhs.category < rhs.category
+        }
+        return lhs.hours > rhs.hours
     }
 
     private func displayedItems(for range: ReportRange) -> [ReportSourceItem] {
@@ -374,9 +458,29 @@ private extension Array where Element == HeatmapEvent {
 
 struct ReportsView: View {
     @ObservedObject var viewModel: ReportsViewModel
+    @State private var hoveredLegendCategory: String?
+    @State private var hoveredBarCategory: String?
 
     private var language: AppLanguage {
         viewModel.appLanguage
+    }
+
+    private var hoveredCategory: String? {
+        hoveredLegendCategory ?? hoveredBarCategory
+    }
+
+    private var hoveredCategorySummary: (category: String, text: String, isTemporary: Bool)? {
+        guard viewModel.selectedKind == .day,
+              let hoveredCategory,
+              let summary = viewModel.categorySummary(for: hoveredCategory) else {
+            return nil
+        }
+
+        return (
+            category: hoveredCategory,
+            text: summary.text,
+            isTemporary: summary.isTemporary
+        )
     }
 
     var body: some View {
@@ -390,6 +494,15 @@ struct ReportsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 960, minHeight: 640)
+        .onChange(of: viewModel.selectedKind) { _, _ in
+            clearHoveredCategory()
+        }
+        .onChange(of: viewModel.selectedVisualization) { _, _ in
+            clearHoveredCategory()
+        }
+        .onChange(of: viewModel.selectedRangeID) { _, _ in
+            clearHoveredCategory()
+        }
     }
 
     private var leftPanel: some View {
@@ -465,15 +578,40 @@ struct ReportsView: View {
             (item.category, Self.palette[index % Self.palette.count])
         })
         let barChartItems = viewModel.chartItems.filter { $0.category != AppDefaults.absenceCategoryName }
+        let barChartEntries = Array(barChartItems.enumerated())
         let visibleLegendItems = viewModel.selectedVisualization == .barChart ? barChartItems : viewModel.chartItems
 
         return VStack(alignment: .leading, spacing: 16) {
-            if let selectedRange = viewModel.selectedRange {
-                Text(selectedRange.label)
-                    .font(.title2.weight(.semibold))
-            } else {
-                Text(text(.reportViewTitle))
-                    .font(.title2.weight(.semibold))
+            HStack(alignment: .center, spacing: 12) {
+                if let selectedRange = viewModel.selectedRange {
+                    Text(selectedRange.label)
+                        .font(.title2.weight(.semibold))
+                } else {
+                    Text(text(.reportViewTitle))
+                        .font(.title2.weight(.semibold))
+                }
+
+                Spacer(minLength: 0)
+
+                if viewModel.selectedKind == .day, viewModel.shouldShowSummarizeNowButton {
+                    Button(viewModel.isGeneratingDailyReport ? text(.reportSummarizing) : text(.reportSummarizeNow)) {
+                        viewModel.summarizeSelectedDay()
+                    }
+                    .disabled(viewModel.isGeneratingDailyReport)
+                }
+            }
+
+            if viewModel.selectedKind == .day,
+               let selectedDailyReport = viewModel.selectedDailyReport {
+                dailySummaryCard(report: selectedDailyReport)
+            }
+
+            if viewModel.selectedKind == .day,
+               let errorMessage = viewModel.dailyReportGenerationError,
+               !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(.subheadline)
+                    .foregroundStyle(.red)
             }
 
             HStack(alignment: .center, spacing: 16) {
@@ -521,11 +659,15 @@ struct ReportsView: View {
                     }
                 }
 
+                if let hoveredCategorySummary {
+                    categorySummaryCard(summary: hoveredCategorySummary)
+                }
+
                 Group {
                     if viewModel.selectedVisualization == .barChart {
-                        Chart(Array(barChartItems.enumerated()), id: \.element.category) { index, item in
+                        Chart(barChartEntries, id: \.element.category) { index, item in
                             BarMark(
-                                x: .value(text(.reportCategoryAxis), displayCategory(item.category)),
+                                x: .value(text(.reportCategoryAxis), index),
                                 y: .value(text(.reportTotalHoursAxis), item.hours)
                             )
                             .foregroundStyle(Self.palette[index % Self.palette.count])
@@ -535,9 +677,60 @@ struct ReportsView: View {
                                     .foregroundStyle(.secondary)
                             }
                         }
+                        .chartXAxis {
+                            AxisMarks(values: barChartEntries.map(\.offset)) { value in
+                                AxisGridLine()
+                                AxisTick()
+                                AxisValueLabel {
+                                    if let index = value.as(Int.self),
+                                       barChartItems.indices.contains(index) {
+                                        Text(displayCategory(barChartItems[index].category))
+                                    }
+                                }
+                            }
+                        }
                         .chartXAxisLabel(text(.reportCategoryAxis))
                         .chartYAxisLabel(text(.reportTotalHoursAxis))
                         .chartLegend(.hidden)
+                        .chartOverlay { proxy in
+                            GeometryReader { geometry in
+                                Rectangle()
+                                    .fill(.clear)
+                                    .contentShape(Rectangle())
+                                    .onContinuousHover { phase in
+                                        guard viewModel.selectedKind == .day else {
+                                            hoveredBarCategory = nil
+                                            return
+                                        }
+
+                                        switch phase {
+                                        case .active(let location):
+                                            guard let plotFrameAnchor = proxy.plotFrame else {
+                                                hoveredBarCategory = nil
+                                                return
+                                            }
+                                            let plotFrame = geometry[plotFrameAnchor]
+                                            let relativeX = location.x - plotFrame.origin.x
+                                            let relativeY = location.y - plotFrame.origin.y
+                                            guard relativeX >= 0,
+                                                  relativeX <= plotFrame.width,
+                                                  relativeY >= 0,
+                                                  relativeY <= plotFrame.height else {
+                                                hoveredBarCategory = nil
+                                                return
+                                            }
+
+                                            hoveredBarCategory = resolvedHoveredBarCategory(
+                                                at: relativeX,
+                                                proxy: proxy,
+                                                items: barChartItems
+                                            )
+                                        case .ended:
+                                            hoveredBarCategory = nil
+                                        }
+                                    }
+                            }
+                        }
                     } else if let selectedRange = viewModel.selectedRange {
                         HeatmapTimelineView(
                             kind: viewModel.selectedKind,
@@ -573,8 +766,109 @@ struct ReportsView: View {
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 12)
+                .fill(hoveredLegendCategory == item.category ? Color.accentColor.opacity(0.14) : Color.gray.opacity(0.08))
+        )
+        .onHover { isHovering in
+            guard viewModel.selectedKind == .day else { return }
+
+            if isHovering, viewModel.categorySummary(for: item.category) != nil {
+                hoveredLegendCategory = item.category
+            } else if hoveredLegendCategory == item.category {
+                hoveredLegendCategory = nil
+            }
+        }
+    }
+
+    private func dailySummaryCard(report: DailyReportRecord) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(text(.reportDailySummaryTitle))
+                    .font(.headline)
+                if report.isTemporary {
+                    temporaryBadge
+                }
+            }
+
+            Text(report.displayDailySummaryText)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
                 .fill(Color.gray.opacity(0.08))
         )
+    }
+
+    private func categorySummaryCard(
+        summary: (category: String, text: String, isTemporary: Bool)
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(displayCategory(summary.category))
+                    .font(.headline)
+                if summary.isTemporary {
+                    temporaryBadge
+                }
+            }
+
+            Text(summary.text)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.accentColor.opacity(0.08))
+        )
+    }
+
+    private var temporaryBadge: some View {
+        Text(text(.reportTemporarySummary))
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(Color.orange.opacity(0.16))
+            )
+    }
+
+    private func resolvedHoveredBarCategory(
+        at relativeX: CGFloat,
+        proxy: ChartProxy,
+        items: [CategoryDuration]
+    ) -> String? {
+        let positions = items.enumerated().compactMap { index, item -> (String, CGFloat)? in
+            guard let xPosition = proxy.position(forX: index) else {
+                return nil
+            }
+            return (item.category, xPosition)
+        }
+
+        guard let nearest = positions.min(by: { abs($0.1 - relativeX) < abs($1.1 - relativeX) }) else {
+            return nil
+        }
+
+        let sortedPositions = positions.map(\.1).sorted()
+        let minimumGap = zip(sortedPositions, sortedPositions.dropFirst())
+            .map { abs($1 - $0) }
+            .min() ?? 48
+        let threshold = max(18, minimumGap / 2)
+
+        guard abs(nearest.1 - relativeX) <= threshold else {
+            return nil
+        }
+        return nearest.0
+    }
+
+    private func clearHoveredCategory() {
+        hoveredLegendCategory = nil
+        hoveredBarCategory = nil
     }
 
     private func text(_ key: L10n.Key) -> String {

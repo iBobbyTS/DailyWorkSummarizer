@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var settingsStore: SettingsStore?
     private var screenshotService: ScreenshotService?
     private var analysisService: AnalysisService?
+    private var dailyReportSummaryService: DailyReportSummaryService?
     private var reportsViewModel: ReportsViewModel?
     private var errorStore: AnalysisErrorStore?
     private let statusSummaryItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -55,8 +56,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             self.settingsStore = settingsStore
             self.errorStore = errorStore
             self.screenshotService = ScreenshotService(database: database, settingsStore: settingsStore)
-            self.analysisService = AnalysisService(database: database, settingsStore: settingsStore, errorStore: errorStore)
-            self.reportsViewModel = ReportsViewModel(database: database, settingsStore: settingsStore)
+            let dailyReportSummaryService = DailyReportSummaryService(database: database, settingsStore: settingsStore)
+            self.dailyReportSummaryService = dailyReportSummaryService
+            self.analysisService = AnalysisService(
+                database: database,
+                settingsStore: settingsStore,
+                errorStore: errorStore,
+                dailyReportSummaryService: dailyReportSummaryService
+            )
+            self.reportsViewModel = ReportsViewModel(
+                database: database,
+                settingsStore: settingsStore,
+                dailyReportSummaryService: dailyReportSummaryService
+            )
         } catch {
             presentFatalAlert(message: text(.alertDatabaseInitFailed, language: .current), detail: error.localizedDescription)
             NSApp.terminate(nil)

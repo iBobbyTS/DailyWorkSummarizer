@@ -11,6 +11,7 @@ import SQLite3
 import Testing
 @testable import DailyWorkSummarizer
 
+@Suite(.serialized)
 @MainActor
 struct DailyWorkSummarizerTests {
     @Test func openAICompatibleURLNormalization() async throws {
@@ -47,11 +48,20 @@ struct DailyWorkSummarizerTests {
             autoAnalysisRequiresCharger: false,
             appLanguage: .simplifiedChinese,
             analysisSummaryInstruction: AppDefaults.defaultAnalysisSummaryInstruction(language: .simplifiedChinese),
-            provider: .openAI,
-            apiBaseURL: "",
-            modelName: "",
-            apiKey: "",
-            lmStudioContextLength: AppDefaults.lmStudioContextLength,
+            screenshotAnalysisModelSettings: AnalysisModelSettings(
+                provider: .openAI,
+                apiBaseURL: "",
+                modelName: "",
+                apiKey: "",
+                lmStudioContextLength: AppDefaults.lmStudioContextLength
+            ),
+            workContentAnalysisModelSettings: AnalysisModelSettings(
+                provider: .openAI,
+                apiBaseURL: "",
+                modelName: "",
+                apiKey: "",
+                lmStudioContextLength: AppDefaults.lmStudioContextLength
+            ),
             categoryRules: []
         )
 
@@ -197,6 +207,15 @@ struct DailyWorkSummarizerTests {
         )
     }
 
+    @Test func defaultCategoryRulesAlwaysAppendPreservedOther() async throws {
+        let chineseRules = AppDefaults.defaultCategoryRules(language: .simplifiedChinese)
+        let englishRules = AppDefaults.defaultCategoryRules(language: .english)
+
+        #expect(chineseRules.last?.name == AppDefaults.preservedOtherCategoryName)
+        #expect(englishRules.last?.name == AppDefaults.preservedOtherCategoryName)
+        #expect(chineseRules.last?.description == AppDefaults.preservedOtherCategoryDescription(language: .simplifiedChinese))
+    }
+
     @MainActor
     @Test func settingsStorePersistsSummaryInstruction() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
@@ -208,6 +227,7 @@ struct DailyWorkSummarizerTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
         }
 
@@ -225,6 +245,99 @@ struct DailyWorkSummarizerTests {
 
         #expect(store.snapshot.analysisSummaryInstruction == updatedInstruction)
         #expect(reloadedStore.analysisSummaryInstruction == updatedInstruction)
+        #expect(reloadedStore.workContentProvider == store.provider)
+    }
+
+    @MainActor
+    @Test func settingsStoreKeepsPreservedOtherLastAndRejectsReservedPrefixNames() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        userDefaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.userDefaultsKey)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        try database.replaceCategoryRules([
+            CategoryRule(name: "专注工作", description: "写代码"),
+        ])
+
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        let editableRuleID = try #require(store.categoryRules.first?.id)
+        let preservedRule = try #require(store.categoryRules.last)
+
+        #expect(store.categoryRules.count == 2)
+        #expect(preservedRule.name == AppDefaults.preservedOtherCategoryName)
+
+        store.updateCategoryRuleName(id: editableRuleID, name: "PRESERVED_TEST")
+
+        #expect(store.categoryRules.first?.name == "专注工作")
+        #expect(
+            store.categoryRulesValidationMessage
+            == L10n.string(.settingsAnalysisReservedPrefixError, language: .simplifiedChinese)
+        )
+
+        store.addCategoryRule()
+        let newlyAddedRule = try #require(store.categoryRules.dropLast().last)
+        store.updateCategoryRuleName(id: newlyAddedRule.id, name: "课程学习")
+
+        let preservedRuleID = try #require(store.categoryRules.last?.id)
+        store.updateCategoryRuleDescription(id: preservedRuleID, description: "用户自定义的其他内容描述")
+
+        #expect(store.categoryRules.last?.name == AppDefaults.preservedOtherCategoryName)
+        #expect(store.categoryRules.dropLast().last?.name == "课程学习")
+        #expect(store.categoryRules.last?.description == "用户自定义的其他内容描述")
+    }
+
+    @MainActor
+    @Test func settingsStoreCanCopyModelConfigurationBetweenTabs() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        store.provider = .anthropic
+        store.apiBaseURL = "https://screenshot.example.com"
+        store.modelName = "claude-screenshot"
+        store.apiKey = "screenshot-key"
+        store.lmStudioContextLength = 8192
+
+        store.copyScreenshotAnalysisModelToWorkContent()
+
+        #expect(store.workContentProvider == .anthropic)
+        #expect(store.workContentAPIBaseURL == "https://screenshot.example.com")
+        #expect(store.workContentModelName == "claude-screenshot")
+        #expect(store.workContentAPIKey == "screenshot-key")
+
+        store.workContentProvider = .lmStudio
+        store.workContentAPIBaseURL = "http://127.0.0.1:1234"
+        store.workContentModelName = "work-content-model"
+        store.workContentAPIKey = "work-content-key"
+        store.workContentLMStudioContextLength = 12000
+
+        store.copyWorkContentModelToScreenshotAnalysis()
+
+        #expect(store.provider == .lmStudio)
+        #expect(store.apiBaseURL == "http://127.0.0.1:1234")
+        #expect(store.modelName == "work-content-model")
+        #expect(store.apiKey == "work-content-key")
+        #expect(store.lmStudioContextLength == 12000)
     }
 
     @Test func databaseMigratesAnalysisResultsSchemaToSummaryOnly() async throws {
@@ -337,6 +450,281 @@ struct DailyWorkSummarizerTests {
         #expect(categoryName == "专注工作")
         #expect(summaryText == "开发 DailyWorkSummarizer 项目")
     }
+
+    @Test func dailyReportPromptIncludesActivitiesAndJSONContract() async throws {
+        let calendar = makeTestCalendar()
+        let dayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
+        let prompt = L10n.dailyReportSummaryPrompt(
+            for: dayStart,
+            categories: ["专注工作", "离开"],
+            activityLines: [
+                "09:00 | 30分钟 | 专注工作 | 开发 DailyWorkSummarizer 报告页",
+                "10:00 | 5分钟 | 离开 | 离开工位"
+            ],
+            summaryInstruction: "请突出项目名和课程名",
+            language: .simplifiedChinese
+        )
+
+        #expect(prompt.contains("请突出项目名和课程名"))
+        #expect(prompt.contains("\"dailySummary\""))
+        #expect(prompt.contains("\"categorySummaries\""))
+        #expect(prompt.contains("专注工作"))
+        #expect(prompt.contains("10:00 | 5分钟 | 离开 | 离开工位"))
+    }
+
+    @Test func dailyReportResponseParsingHandlesThinkAndCodeFenceJSON() async throws {
+        let rawText = """
+        <think>先整理一下当天内容</think>
+        ```json
+        {"dailySummary":"推进了 DailyWorkSummarizer 的日报总结功能","categorySummaries":{"专注工作":"完成日报总结链路开发","离开":"有短暂离开工位的时间"}}
+        ```
+        """
+
+        let response = DailyReportSummaryService.extractDailyReportResponse(
+            from: rawText,
+            categories: ["专注工作", "离开"]
+        )
+
+        #expect(response?.dailySummary == "推进了 DailyWorkSummarizer 的日报总结功能")
+        #expect(response?.categorySummaries["专注工作"] == "完成日报总结链路开发")
+        #expect(response?.categorySummaries["离开"] == "有短暂离开工位的时间")
+    }
+
+    @Test func dailyReportResponseParsingRejectsInvalidCategorySummaryShape() async throws {
+        #expect(
+            DailyReportSummaryService.extractDailyReportResponse(
+                from: #"{"dailySummary":"日报","categorySummaries":{"专注工作":"工作总结"}}"#,
+                categories: ["专注工作", "离开"]
+            ) == nil
+        )
+        #expect(
+            DailyReportSummaryService.extractDailyReportResponse(
+                from: #"{"dailySummary":"日报","categorySummaries":{"专注工作":"工作总结","离开":"离开总结","额外分类":"无效"}}"#,
+                categories: ["专注工作", "离开"]
+            ) == nil
+        )
+        #expect(
+            DailyReportSummaryService.extractDailyReportResponse(
+                from: #"{"dailySummary":"  ","categorySummaries":{"专注工作":"工作总结","离开":"离开总结"}}"#,
+                categories: ["专注工作", "离开"]
+            ) == nil
+        )
+    }
+
+    @Test func databaseCreatesAndUpsertsDailyReports() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let calendar = makeTestCalendar()
+        let dayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 11))!
+
+        try database.upsertDailyReport(
+            dayStart: dayStart,
+            dailySummaryText: "第一次日报",
+            categorySummaries: ["专注工作": "第一次分类总结"]
+        )
+        try database.upsertDailyReport(
+            dayStart: dayStart,
+            dailySummaryText: "第二次日报",
+            categorySummaries: ["专注工作": "第二次分类总结"]
+        )
+
+        let columns = try columnNames(in: "daily_reports", databaseURL: databaseURL)
+        let fetchedReport = try database.fetchDailyReport(for: dayStart)
+        let report = try #require(fetchedReport)
+
+        #expect(columns.contains("day_start"))
+        #expect(columns.contains("daily_summary_text"))
+        #expect(columns.contains("category_summaries_json"))
+        #expect(report.dailySummaryText == "第二次日报")
+        #expect(report.categorySummaries["专注工作"] == "第二次分类总结")
+    }
+
+    @Test func latestActivityDayStartIncludesAbsenceEvents() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let calendar = makeTestCalendar()
+        let dayOne = calendar.date(from: DateComponents(year: 2026, month: 3, day: 10, hour: 9))!
+        let dayTwo = calendar.date(from: DateComponents(year: 2026, month: 3, day: 11, hour: 10))!
+        let runID = try makeAnalysisRun(database: database)
+
+        try database.insertAnalysisResult(
+            runID: runID,
+            capturedAt: dayOne,
+            categoryName: "专注工作",
+            summaryText: "开发项目",
+            status: "succeeded",
+            errorMessage: nil,
+            durationMinutesSnapshot: 5
+        )
+        try database.recordAbsenceEvent(capturedAt: dayTwo, durationMinutes: 5)
+
+        let latestDayStart = try database.fetchLatestActivityDayStart(calendar: calendar)
+
+        #expect(latestDayStart == calendar.startOfDay(for: dayTwo))
+    }
+
+    @MainActor
+    @Test func dailyReportSummaryServiceUsesWorkContentModelAndMarksIncompleteDayTemporary() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let dayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
+        let captureTime = calendar.date(byAdding: .hour, value: 9, to: dayStart)!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .anthropic
+        store.apiBaseURL = "https://screenshot.invalid"
+        store.modelName = "screenshot-model"
+        store.workContentProvider = .openAI
+        store.workContentAPIBaseURL = "https://work-content.example.com"
+        store.workContentModelName = "work-content-model"
+        store.analysisSummaryInstruction = "请突出项目名"
+
+        let runID = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            runID: runID,
+            capturedAt: captureTime,
+            categoryName: "专注工作",
+            summaryText: "开发 DailyWorkSummarizer 日报功能",
+            status: "succeeded",
+            errorMessage: nil,
+            durationMinutesSnapshot: 30
+        )
+
+        let session = makeMockSession { request in
+            let requestBody = try #require(requestBodyData(from: request))
+            let body = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+            MockURLProtocol.lastRequestedModel = body["model"] as? String
+
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"dailySummary\\":\\"完成了 DailyWorkSummarizer 日报总结开发\\",\\"categorySummaries\\":{\\"专注工作\\":\\"实现了日报总结服务与报告页展示\\"}}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        let report = try await service.summarizeDay(dayStart)
+        let fetchedStoredReport = try database.fetchDailyReport(for: dayStart)
+        let storedReport = try #require(fetchedStoredReport)
+
+        #expect(MockURLProtocol.lastRequestedModel == "work-content-model")
+        #expect(report.isTemporary)
+        #expect(storedReport.isTemporary)
+        #expect(storedReport.displayDailySummaryText == "完成了 DailyWorkSummarizer 日报总结开发")
+        #expect(storedReport.displayCategorySummary(for: "专注工作") == "实现了日报总结服务与报告页展示")
+    }
+
+    @MainActor
+    @Test func dailyReportSummaryServiceSummarizesOnlyPendingDaysBeforeLatestActivityDay() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let dayOne = calendar.date(from: DateComponents(year: 2026, month: 3, day: 13))!
+        let dayTwo = calendar.date(from: DateComponents(year: 2026, month: 3, day: 14))!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentProvider = .openAI
+        store.workContentAPIBaseURL = "https://work-content.example.com"
+        store.workContentModelName = "daily-report-model"
+
+        let runID = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            runID: runID,
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: dayOne)!,
+            categoryName: "专注工作",
+            summaryText: "整理日报需求",
+            status: "succeeded",
+            errorMessage: nil,
+            durationMinutesSnapshot: 30
+        )
+        try database.insertAnalysisResult(
+            runID: runID,
+            capturedAt: calendar.date(byAdding: .hour, value: 10, to: dayTwo)!,
+            categoryName: "专注工作",
+            summaryText: "继续开发第二天功能",
+            status: "succeeded",
+            errorMessage: nil,
+            durationMinutesSnapshot: 30
+        )
+        try database.upsertDailyReport(
+            dayStart: dayOne,
+            dailySummaryText: "TEMP_旧的临时日报",
+            categorySummaries: ["专注工作": "TEMP_旧的临时分类总结"]
+        )
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"dailySummary\\":\\"完成了第一天的最终日报总结\\",\\"categorySummaries\\":{\\"专注工作\\":\\"完成了第一天的最终分类总结\\"}}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        await service.summarizeMissingDailyReportsIfNeeded()
+
+        let fetchedFirstDayReport = try database.fetchDailyReport(for: dayOne)
+        let firstDayReport = try #require(fetchedFirstDayReport)
+        let secondDayReport = try database.fetchDailyReport(for: dayTwo)
+
+        #expect(MockURLProtocol.requestCount == 1)
+        #expect(!firstDayReport.isTemporary)
+        #expect(firstDayReport.dailySummaryText == "完成了第一天的最终日报总结")
+        #expect(firstDayReport.categorySummaries["专注工作"] == "完成了第一天的最终分类总结")
+        #expect(secondDayReport == nil)
+    }
 }
 
 private func makeTemporaryDatabaseURL() -> URL {
@@ -398,4 +786,109 @@ private func fetchOptionalString(_ sql: String, databaseURL: URL) throws -> Stri
         return nil
     }
     return String(cString: text)
+}
+
+private func makeTestCalendar() -> Calendar {
+    var calendar = Calendar.reportCalendar(language: .simplifiedChinese)
+    calendar.timeZone = TimeZone(identifier: "America/Edmonton") ?? .current
+    return calendar
+}
+
+private func makeAnalysisRun(database: AppDatabase) throws -> Int64 {
+    try database.createAnalysisRun(
+        scheduledFor: Date(timeIntervalSince1970: 0),
+        provider: .openAI,
+        baseURL: "https://example.com",
+        modelName: "test-model",
+        promptSnapshot: "prompt",
+        categorySnapshotJSON: "[]",
+        totalItems: 1
+    )
+}
+
+private func makeMockSession(
+    handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
+) -> URLSession {
+    MockURLProtocol.requestHandler = handler
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [MockURLProtocol.self]
+    return URLSession(configuration: configuration)
+}
+
+private func makeHTTPResponse(url: URL, body: String) throws -> (HTTPURLResponse, Data) {
+    guard let response = HTTPURLResponse(
+        url: url,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "application/json"]
+    ) else {
+        throw URLError(.badServerResponse)
+    }
+    return (response, Data(body.utf8))
+}
+
+private func requestBodyData(from request: URLRequest) -> Data? {
+    if let body = request.httpBody {
+        return body
+    }
+
+    guard let stream = request.httpBodyStream else {
+        return nil
+    }
+
+    stream.open()
+    defer { stream.close() }
+
+    let bufferSize = 4096
+    var data = Data()
+    let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+    defer { buffer.deallocate() }
+
+    while stream.hasBytesAvailable {
+        let readCount = stream.read(buffer, maxLength: bufferSize)
+        guard readCount > 0 else {
+            break
+        }
+        data.append(buffer, count: readCount)
+    }
+
+    return data.isEmpty ? nil : data
+}
+
+private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
+    static var requestHandler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
+    static var requestCount = 0
+    static var lastRequestedModel: String?
+
+    static func reset() {
+        requestHandler = nil
+        requestCount = 0
+        lastRequestedModel = nil
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool {
+        true
+    }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        request
+    }
+
+    override func startLoading() {
+        guard let handler = Self.requestHandler else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }

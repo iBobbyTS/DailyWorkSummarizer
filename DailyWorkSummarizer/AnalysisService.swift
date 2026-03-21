@@ -55,6 +55,7 @@ final class AnalysisService {
     private let database: AppDatabase
     private let settingsStore: SettingsStore
     private let errorStore: AnalysisErrorStore
+    private let dailyReportSummaryService: DailyReportSummaryService
     private let session: URLSession
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
@@ -71,11 +72,13 @@ final class AnalysisService {
         database: AppDatabase,
         settingsStore: SettingsStore,
         errorStore: AnalysisErrorStore,
+        dailyReportSummaryService: DailyReportSummaryService,
         session: URLSession? = nil
     ) {
         self.database = database
         self.settingsStore = settingsStore
         self.errorStore = errorStore
+        self.dailyReportSummaryService = dailyReportSummaryService
         self.session = session ?? Self.makeIsolatedSession()
     }
 
@@ -253,6 +256,7 @@ final class AnalysisService {
 
         guard !pendingCaptures.isEmpty else {
             try? database.finishAnalysisRun(id: runID, status: "succeeded", successCount: 0, failureCount: 0)
+            await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded()
             return
         }
 
@@ -444,6 +448,7 @@ final class AnalysisService {
             averageItemDurationSeconds: measuredItemCount > 0 ? measuredDurationTotal / Double(measuredItemCount) : nil,
             errorMessage: failureCount > 0 ? localized(.analysisPartialFailures, language: snapshot.appLanguage) : nil
         )
+        await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded()
         await stopModelIfNeeded(for: snapshot)
     }
 
