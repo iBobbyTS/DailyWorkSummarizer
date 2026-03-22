@@ -578,7 +578,6 @@ struct ReportsView: View {
             (item.category, Self.palette[index % Self.palette.count])
         })
         let barChartItems = viewModel.chartItems.filter { $0.category != AppDefaults.absenceCategoryName }
-        let barChartEntries = Array(barChartItems.enumerated())
         let visibleLegendItems = viewModel.selectedVisualization == .barChart ? barChartItems : viewModel.chartItems
 
         return VStack(alignment: .leading, spacing: 16) {
@@ -665,9 +664,9 @@ struct ReportsView: View {
 
                 Group {
                     if viewModel.selectedVisualization == .barChart {
-                        Chart(barChartEntries, id: \.element.category) { index, item in
+                        Chart(Array(barChartItems.enumerated()), id: \.element.category) { index, item in
                             BarMark(
-                                x: .value(text(.reportCategoryAxis), index),
+                                x: .value(text(.reportCategoryAxis), displayCategory(item.category)),
                                 y: .value(text(.reportTotalHoursAxis), item.hours)
                             )
                             .foregroundStyle(Self.palette[index % Self.palette.count])
@@ -675,18 +674,6 @@ struct ReportsView: View {
                                 Text(item.hours.durationText(for: viewModel.selectedKind, language: language))
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                            }
-                        }
-                        .chartXAxis {
-                            AxisMarks(values: barChartEntries.map(\.offset)) { value in
-                                AxisGridLine()
-                                AxisTick()
-                                AxisValueLabel {
-                                    if let index = value.as(Int.self),
-                                       barChartItems.indices.contains(index) {
-                                        Text(displayCategory(barChartItems[index].category))
-                                    }
-                                }
                             }
                         }
                         .chartXAxisLabel(text(.reportCategoryAxis))
@@ -843,27 +830,10 @@ struct ReportsView: View {
         proxy: ChartProxy,
         items: [CategoryDuration]
     ) -> String? {
-        let positions = items.enumerated().compactMap { index, item -> (String, CGFloat)? in
-            guard let xPosition = proxy.position(forX: index) else {
-                return nil
-            }
-            return (item.category, xPosition)
-        }
-
-        guard let nearest = positions.min(by: { abs($0.1 - relativeX) < abs($1.1 - relativeX) }) else {
+        guard let displayName = proxy.value(atX: relativeX, as: String.self) else {
             return nil
         }
-
-        let sortedPositions = positions.map(\.1).sorted()
-        let minimumGap = zip(sortedPositions, sortedPositions.dropFirst())
-            .map { abs($1 - $0) }
-            .min() ?? 48
-        let threshold = max(18, minimumGap / 2)
-
-        guard abs(nearest.1 - relativeX) <= threshold else {
-            return nil
-        }
-        return nearest.0
+        return items.first { displayCategory($0.category) == displayName }?.category
     }
 
     private func clearHoveredCategory() {
