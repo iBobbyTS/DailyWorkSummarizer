@@ -66,6 +66,10 @@ final class SettingsStore: ObservableObject {
     @Published var provider: ModelProvider {
         didSet {
             userDefaults.set(provider.rawValue, forKey: Keys.provider)
+            let resolvedMethod = Self.resolvedImageAnalysisMethod(imageAnalysisMethod, for: provider)
+            if imageAnalysisMethod != resolvedMethod {
+                imageAnalysisMethod = resolvedMethod
+            }
             notifySettingsChanged()
         }
     }
@@ -103,9 +107,25 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var imageAnalysisMethod: ImageAnalysisMethod {
+        didSet {
+            let resolved = Self.resolvedImageAnalysisMethod(imageAnalysisMethod, for: provider)
+            if imageAnalysisMethod != resolved {
+                imageAnalysisMethod = resolved
+                return
+            }
+            userDefaults.set(imageAnalysisMethod.rawValue, forKey: Keys.imageAnalysisMethod)
+            notifySettingsChanged()
+        }
+    }
+
     @Published var workContentProvider: ModelProvider {
         didSet {
             userDefaults.set(workContentProvider.rawValue, forKey: Keys.workContentProvider)
+            let resolvedMethod = Self.resolvedImageAnalysisMethod(workContentImageAnalysisMethod, for: workContentProvider)
+            if workContentImageAnalysisMethod != resolvedMethod {
+                workContentImageAnalysisMethod = resolvedMethod
+            }
             notifySettingsChanged()
         }
     }
@@ -143,6 +163,18 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var workContentImageAnalysisMethod: ImageAnalysisMethod {
+        didSet {
+            let resolved = Self.resolvedImageAnalysisMethod(workContentImageAnalysisMethod, for: workContentProvider)
+            if workContentImageAnalysisMethod != resolved {
+                workContentImageAnalysisMethod = resolved
+                return
+            }
+            userDefaults.set(workContentImageAnalysisMethod.rawValue, forKey: Keys.workContentImageAnalysisMethod)
+            notifySettingsChanged()
+        }
+    }
+
     @Published private(set) var categoryRules: [CategoryRule]
     @Published private(set) var categoryRulesValidationMessage: String?
 
@@ -167,18 +199,34 @@ final class SettingsStore: ObservableObject {
         let savedAppLanguage = AppLanguage(rawValue: userDefaults.string(forKey: AppLanguage.userDefaultsKey) ?? "") ?? .defaultValue
         let savedAnalysisSummaryInstruction = userDefaults.string(forKey: Keys.analysisSummaryInstruction)
             ?? AppDefaults.defaultAnalysisSummaryInstruction(language: savedAppLanguage)
-        let savedProvider = ModelProvider(rawValue: userDefaults.string(forKey: Keys.provider) ?? "") ?? .openAI
+        let savedProvider = Self.resolvedProvider(
+            ModelProvider(rawValue: userDefaults.string(forKey: Keys.provider) ?? "") ?? .openAI,
+            language: savedAppLanguage
+        )
         let savedBaseURL = userDefaults.string(forKey: Keys.apiBaseURL) ?? ""
         let savedModelName = userDefaults.string(forKey: Keys.modelName) ?? ""
         let savedAPIKey = keychain.string(for: AppDefaults.apiKeyAccount)
         let savedLMStudioContextLength = userDefaults.object(forKey: Keys.lmStudioContextLength) as? Int ?? AppDefaults.lmStudioContextLength
-        let savedWorkContentProvider = ModelProvider(rawValue: userDefaults.string(forKey: Keys.workContentProvider) ?? "") ?? savedProvider
+        let savedImageAnalysisMethod = Self.resolvedImageAnalysisMethod(
+            ImageAnalysisMethod(rawValue: userDefaults.string(forKey: Keys.imageAnalysisMethod) ?? "")
+                ?? AppDefaults.defaultImageAnalysisMethod,
+            for: savedProvider
+        )
+        let savedWorkContentProvider = Self.resolvedProvider(
+            ModelProvider(rawValue: userDefaults.string(forKey: Keys.workContentProvider) ?? "") ?? savedProvider,
+            language: savedAppLanguage
+        )
         let savedWorkContentBaseURL = userDefaults.string(forKey: Keys.workContentAPIBaseURL) ?? savedBaseURL
         let savedWorkContentModelName = userDefaults.string(forKey: Keys.workContentModelName) ?? savedModelName
         let savedWorkContentAPIKey = keychain.string(for: AppDefaults.workContentAPIKeyAccount).isEmpty
             ? savedAPIKey
             : keychain.string(for: AppDefaults.workContentAPIKeyAccount)
         let savedWorkContentLMStudioContextLength = userDefaults.object(forKey: Keys.workContentLMStudioContextLength) as? Int ?? savedLMStudioContextLength
+        let savedWorkContentImageAnalysisMethod = Self.resolvedImageAnalysisMethod(
+            ImageAnalysisMethod(rawValue: userDefaults.string(forKey: Keys.workContentImageAnalysisMethod) ?? "")
+                ?? savedImageAnalysisMethod,
+            for: savedWorkContentProvider
+        )
         let savedRules = (try? database.fetchCategoryRules()) ?? []
 
         screenshotIntervalMinutes = max(1, min(60, savedInterval))
@@ -193,11 +241,13 @@ final class SettingsStore: ObservableObject {
         modelName = savedModelName
         apiKey = savedAPIKey
         lmStudioContextLength = max(4096, min(65536, savedLMStudioContextLength))
+        imageAnalysisMethod = savedImageAnalysisMethod
         workContentProvider = savedWorkContentProvider
         workContentAPIBaseURL = savedWorkContentBaseURL
         workContentModelName = savedWorkContentModelName
         workContentAPIKey = savedWorkContentAPIKey
         workContentLMStudioContextLength = max(4096, min(65536, savedWorkContentLMStudioContextLength))
+        workContentImageAnalysisMethod = savedWorkContentImageAnalysisMethod
         let initialRules = savedRules.isEmpty ? AppDefaults.defaultCategoryRules(language: savedAppLanguage) : savedRules
         categoryRules = Self.normalizedCategoryRules(initialRules, language: savedAppLanguage)
         categoryRulesValidationMessage = nil
@@ -220,14 +270,16 @@ final class SettingsStore: ObservableObject {
                 apiBaseURL: apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
                 modelName: modelName.trimmingCharacters(in: .whitespacesAndNewlines),
                 apiKey: apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
-                lmStudioContextLength: lmStudioContextLength
+                lmStudioContextLength: lmStudioContextLength,
+                imageAnalysisMethod: imageAnalysisMethod
             ),
             workContentAnalysisModelSettings: AnalysisModelSettings(
                 provider: workContentProvider,
                 apiBaseURL: workContentAPIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines),
                 modelName: workContentModelName.trimmingCharacters(in: .whitespacesAndNewlines),
                 apiKey: workContentAPIKey.trimmingCharacters(in: .whitespacesAndNewlines),
-                lmStudioContextLength: workContentLMStudioContextLength
+                lmStudioContextLength: workContentLMStudioContextLength,
+                imageAnalysisMethod: workContentImageAnalysisMethod
             ),
             categoryRules: categoryRules
         )
@@ -291,6 +343,7 @@ final class SettingsStore: ObservableObject {
         workContentModelName = modelName
         workContentAPIKey = apiKey
         workContentLMStudioContextLength = lmStudioContextLength
+        workContentImageAnalysisMethod = imageAnalysisMethod
     }
 
     func copyWorkContentModelToScreenshotAnalysis() {
@@ -299,6 +352,7 @@ final class SettingsStore: ObservableObject {
         modelName = workContentModelName
         apiKey = workContentAPIKey
         lmStudioContextLength = workContentLMStudioContextLength
+        imageAnalysisMethod = workContentImageAnalysisMethod
     }
 
     private func saveCategoryRules() {
@@ -339,6 +393,23 @@ final class SettingsStore: ObservableObject {
         return editableRules + [preservedRule]
     }
 
+    private static func resolvedProvider(_ provider: ModelProvider, language: AppLanguage) -> ModelProvider {
+        guard provider == .appleIntelligence else {
+            return provider
+        }
+
+        return AppleIntelligenceSupport.currentStatus(for: language).isSelectable
+            ? .appleIntelligence
+            : .openAI
+    }
+
+    private static func resolvedImageAnalysisMethod(
+        _ method: ImageAnalysisMethod,
+        for provider: ModelProvider
+    ) -> ImageAnalysisMethod {
+        provider == .appleIntelligence ? .ocr : method
+    }
+
     private func notifySettingsChanged() {
         NotificationCenter.default.post(name: .appSettingsDidChange, object: nil)
     }
@@ -354,9 +425,11 @@ final class SettingsStore: ObservableObject {
         static let apiBaseURL = "settings.apiBaseURL"
         static let modelName = "settings.modelName"
         static let lmStudioContextLength = "settings.lmStudioContextLength"
+        static let imageAnalysisMethod = "settings.imageAnalysisMethod"
         static let workContentProvider = "settings.workContent.provider"
         static let workContentAPIBaseURL = "settings.workContent.apiBaseURL"
         static let workContentModelName = "settings.workContent.modelName"
         static let workContentLMStudioContextLength = "settings.workContent.lmStudioContextLength"
+        static let workContentImageAnalysisMethod = "settings.workContent.imageAnalysisMethod"
     }
 }

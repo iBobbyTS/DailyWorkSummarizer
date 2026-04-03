@@ -1,3 +1,4 @@
+import FoundationModels
 import Foundation
 
 private struct ParsedDailyReportPayload: Decodable {
@@ -166,16 +167,18 @@ final class DailyReportSummaryService {
         let language = snapshot.appLanguage
         let settings = snapshot.workContentAnalysisModelSettings
 
-        guard !settings.apiBaseURL.isEmpty else {
-            throw DailyReportSummaryServiceError.invalidConfiguration(
-                localized(.analysisNeedsBaseURL, language: language)
-            )
-        }
+        if settings.provider.requiresRemoteConfiguration {
+            guard !settings.apiBaseURL.isEmpty else {
+                throw DailyReportSummaryServiceError.invalidConfiguration(
+                    localized(.analysisNeedsBaseURL, language: language)
+                )
+            }
 
-        guard !settings.modelName.isEmpty else {
-            throw DailyReportSummaryServiceError.invalidConfiguration(
-                localized(.analysisNeedsModelName, language: language)
-            )
+            guard !settings.modelName.isEmpty else {
+                throw DailyReportSummaryServiceError.invalidConfiguration(
+                    localized(.analysisNeedsModelName, language: language)
+                )
+            }
         }
 
         let activityItems = try database.fetchDailyReportActivityItems(for: dayStart)
@@ -262,6 +265,18 @@ final class DailyReportSummaryService {
         settings: AnalysisModelSettings,
         language: AppLanguage
     ) async throws -> String {
+        if settings.provider == .appleIntelligence {
+            try ensureAppleIntelligenceAvailable(language: language)
+            let session = LanguageModelSession(
+                model: SystemLanguageModel(useCase: .general)
+            )
+            let response = try await session.respond(
+                to: prompt,
+                options: GenerationOptions(maximumResponseTokens: 900)
+            )
+            return response.content
+        }
+
         guard let endpoint = settings.provider.requestURL(from: settings.apiBaseURL) else {
             throw DailyReportSummaryServiceError.invalidConfiguration(
                 localized(.analysisInvalidBaseURL, language: language)
@@ -301,6 +316,10 @@ final class DailyReportSummaryService {
                 prompt: prompt,
                 contextLength: settings.lmStudioContextLength
             )
+        case .appleIntelligence:
+            throw DailyReportSummaryServiceError.invalidConfiguration(
+                localized(.analysisInvalidBaseURL, language: language)
+            )
         }
 
         let (data, response) = try await session.data(for: request)
@@ -322,6 +341,10 @@ final class DailyReportSummaryService {
             return try parseAnthropicResponse(from: data)
         case .lmStudio:
             return try parseLMStudioResponse(from: data).content
+        case .appleIntelligence:
+            throw DailyReportSummaryServiceError.invalidResponse(
+                localized(.reportDailySummaryInvalidResponse, language: language)
+            )
         }
     }
 
@@ -551,5 +574,43 @@ final class DailyReportSummaryService {
 
     private func localized(_ key: L10n.Key, language: AppLanguage = .current) -> String {
         L10n.string(key, language: language)
+    }
+
+    private func localized(
+        _ key: L10n.Key,
+        arguments: [CVarArg],
+        language: AppLanguage = .current
+    ) -> String {
+        L10n.string(key, language: language, arguments: arguments)
+    }
+
+    private func ensureAppleIntelligenceAvailable(language: AppLanguage) throws {
+        guard let unavailableReason = AppleIntelligenceSupport.currentStatus(for: language).unavailableReason else {
+            return
+        }
+
+        throw DailyReportSummaryServiceError.invalidConfiguration(
+            localized(
+                .analysisAppleIntelligenceUnavailable,
+                arguments: [appleIntelligenceReasonText(for: unavailableReason, language: language)],
+                language: language
+            )
+        )
+    }
+
+    private func appleIntelligenceReasonText(
+        for reason: SystemLanguageModel.Availability.UnavailableReason,
+        language: AppLanguage
+    ) -> String {
+        switch reason {
+        case .deviceNotEligible:
+            return localized(.providerAppleIntelligenceDeviceNotEligible, language: language)
+        case .appleIntelligenceNotEnabled:
+            return localized(.providerAppleIntelligenceNotEnabled, language: language)
+        case .modelNotReady:
+            return localized(.providerAppleIntelligenceModelNotReady, language: language)
+        @unknown default:
+            return localized(.providerAppleIntelligenceModelNotReady, language: language)
+        }
     }
 }

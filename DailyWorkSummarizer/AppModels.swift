@@ -11,6 +11,7 @@ enum AppDefaults {
     static let screenshotFileExtension = "jpg"
     static let apiKeyAccount = "model-api-key.screenshot-analysis"
     static let workContentAPIKeyAccount = "model-api-key.work-content-analysis"
+    static let defaultImageAnalysisMethod: ImageAnalysisMethod = .multimodal
     static let absenceCategoryName = "离开"
     static let preservedOtherCategoryName = "PRESERVED_OTHER"
     nonisolated static let temporaryReportPrefix = "TEMP_"
@@ -60,10 +61,31 @@ enum AppDefaults {
     }
 }
 
+enum ImageAnalysisMethod: String, CaseIterable, Codable, Identifiable {
+    case ocr
+    case multimodal
+
+    var id: String { rawValue }
+
+    var title: String {
+        title(in: .current)
+    }
+
+    func title(in language: AppLanguage) -> String {
+        switch self {
+        case .ocr:
+            return L10n.string(.imageAnalysisMethodOCR, language: language)
+        case .multimodal:
+            return L10n.string(.imageAnalysisMethodMultimodal, language: language)
+        }
+    }
+}
+
 enum ModelProvider: String, CaseIterable, Codable, Identifiable {
     case openAI = "openai"
     case anthropic = "anthropic"
     case lmStudio = "lm_studio"
+    case appleIntelligence = "apple_intelligence"
 
     var id: String { rawValue }
 
@@ -79,6 +101,17 @@ enum ModelProvider: String, CaseIterable, Codable, Identifiable {
             return L10n.string(.providerAnthropicUntested, language: language)
         case .lmStudio:
             return "LM Studio API"
+        case .appleIntelligence:
+            return L10n.string(.providerAppleIntelligence, language: language)
+        }
+    }
+
+    var requiresRemoteConfiguration: Bool {
+        switch self {
+        case .openAI, .anthropic, .lmStudio:
+            return true
+        case .appleIntelligence:
+            return false
         }
     }
 
@@ -121,6 +154,8 @@ enum ModelProvider: String, CaseIterable, Codable, Identifiable {
             }
             components.path = components.path.hasSuffix("/") ? components.path + "api/v1/chat" : components.path + "/api/v1/chat"
             return components.url
+        case .appleIntelligence:
+            return nil
         }
     }
 }
@@ -247,6 +282,7 @@ struct AnalysisModelSettings: Equatable {
     let modelName: String
     let apiKey: String
     let lmStudioContextLength: Int
+    let imageAnalysisMethod: ImageAnalysisMethod
 }
 
 struct AppSettingsSnapshot {
@@ -282,6 +318,10 @@ struct AppSettingsSnapshot {
 
     var lmStudioContextLength: Int {
         screenshotAnalysisModelSettings.lmStudioContextLength
+    }
+
+    var imageAnalysisMethod: ImageAnalysisMethod {
+        screenshotAnalysisModelSettings.imageAnalysisMethod
     }
 
     var validCategoryRules: [CategoryRule] {
@@ -418,6 +458,38 @@ struct HeatmapEvent: Identifiable {
 struct AnalysisResponse {
     let category: String
     let summary: String
+}
+
+struct ModelRequestTiming {
+    let roundTripSeconds: TimeInterval?
+    let serverProcessingSeconds: TimeInterval?
+}
+
+struct LMStudioTiming {
+    let modelLoadTimeSeconds: TimeInterval?
+    let timeToFirstTokenSeconds: TimeInterval?
+    let totalOutputTokens: Int?
+    let tokensPerSecond: Double?
+
+    var outputTimeSeconds: TimeInterval? {
+        guard let totalOutputTokens,
+              let tokensPerSecond,
+              totalOutputTokens > 0,
+              tokensPerSecond > 0 else {
+            return nil
+        }
+        return Double(totalOutputTokens) / tokensPerSecond
+    }
+}
+
+struct ModelTestResult {
+    let provider: ModelProvider
+    let imageAnalysisMethod: ImageAnalysisMethod
+    let response: AnalysisResponse
+    let requestTiming: ModelRequestTiming?
+    let lmStudioTiming: LMStudioTiming?
+    let ocrText: String?
+    let reasoningText: String?
 }
 
 extension Array where Element == CategoryRule {

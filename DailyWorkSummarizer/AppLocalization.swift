@@ -13,11 +13,15 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     }
 
     var localizedName: String {
+        displayName(in: .current)
+    }
+
+    func displayName(in language: AppLanguage) -> String {
         switch self {
         case .simplifiedChinese:
-            return "简体中文"
+            return language == .simplifiedChinese ? "简体中文" : "Simplified Chinese"
         case .english:
-            return "English"
+            return language == .simplifiedChinese ? "英文" : "English"
         }
     }
 
@@ -70,6 +74,7 @@ enum L10n {
         case settingsModelAPIKey
         case settingsModelAPIKeyPlaceholder
         case settingsModelContextLength
+        case settingsModelImageAnalysisMethod
         case settingsModelOfficialUntested
         case settingsModelCategoriesTitle
         case settingsAnalysisCategoryTitle
@@ -97,6 +102,15 @@ enum L10n {
         case settingsModelTestResult
         case settingsModelWaitingForModel
         case settingsModelNoTempScreenshot
+        case settingsModelTimingRequest
+        case settingsModelTimingServerProcessing
+        case settingsModelTimingModelLoad
+        case settingsModelTimingTTFT
+        case settingsModelTimingOutput
+        case settingsModelTimingUnavailable
+        case settingsModelOCRText
+        case settingsModelOCRTextEmpty
+        case settingsModelReasoningProcess
         case settingsGeneralTitle
         case settingsLanguage
         case settingsReportTitle
@@ -129,6 +143,15 @@ enum L10n {
         case errorsClearAll
         case providerOpenAIUntested
         case providerAnthropicUntested
+        case providerAppleIntelligence
+        case providerAppleIntelligenceDeviceNotEligible
+        case providerAppleIntelligenceNotEnabled
+        case providerAppleIntelligenceModelNotReady
+        case providerAppleIntelligenceUnsupportedLanguage
+        case settingsAppleIntelligenceSupportedLanguages
+        case settingsAppleIntelligenceOCROnly
+        case imageAnalysisMethodOCR
+        case imageAnalysisMethodMultimodal
         case captureScopeActiveDisplay
         case reportKindDay
         case reportKindWeek
@@ -175,6 +198,10 @@ enum L10n {
         case analysisRetrySupplement
         case analysisLengthTruncated
         case analysisInvalidCategoryWithText
+        case analysisInvalidStructuredResponseWithText
+        case analysisAppleIntelligenceDecodingFailure
+        case analysisUnderlyingDetailsHeader
+        case analysisResponseUnavailable
         case analysisOpenAIFormatInvalid
         case analysisOpenAINoText
         case analysisAnthropicFormatInvalid
@@ -182,6 +209,9 @@ enum L10n {
         case analysisLMStudioFormatInvalid
         case analysisLMStudioNoText
         case analysisNoResponseData
+        case analysisAppleIntelligenceUnavailable
+        case analysisAppleIntelligenceNoOCRTextSummary
+        case analysisOCRNoTextSummary
         case screenshotPermissionDenied
         case screenshotPreviewUnreadable
         case screenshotCommandFailed
@@ -215,6 +245,7 @@ enum L10n {
             .settingsModelAPIKey: "API 秘钥",
             .settingsModelAPIKeyPlaceholder: "请输入 API Key（可留空）",
             .settingsModelContextLength: "上下文长度",
+            .settingsModelImageAnalysisMethod: "图像分析方法",
             .settingsModelOfficialUntested: "官方 API 未经过测试",
             .settingsModelCategoriesTitle: "分析分类",
             .settingsAnalysisCategoryTitle: "类别",
@@ -242,6 +273,15 @@ enum L10n {
             .settingsModelTestResult: "测试结果",
             .settingsModelWaitingForModel: "正在分析，可能需要等待模型加载",
             .settingsModelNoTempScreenshot: "测试模型时未生成临时截图",
+            .settingsModelTimingRequest: "请求耗时",
+            .settingsModelTimingServerProcessing: "服务端处理耗时",
+            .settingsModelTimingModelLoad: "模型加载耗时",
+            .settingsModelTimingTTFT: "首 Token 耗时",
+            .settingsModelTimingOutput: "输出耗时",
+            .settingsModelTimingUnavailable: "未返回（模型可能已预加载）",
+            .settingsModelOCRText: "OCR 内容",
+            .settingsModelOCRTextEmpty: "未识别到文字",
+            .settingsModelReasoningProcess: "思考过程",
             .settingsGeneralTitle: "通用设置",
             .settingsLanguage: "语言",
             .settingsReportTitle: "报告设置",
@@ -274,6 +314,15 @@ enum L10n {
             .errorsClearAll: "清空所有错误",
             .providerOpenAIUntested: "OpenAI（未测试）",
             .providerAnthropicUntested: "Anthropic（未测试）",
+            .providerAppleIntelligence: "Apple Intelligence",
+            .providerAppleIntelligenceDeviceNotEligible: "设备不支持",
+            .providerAppleIntelligenceNotEnabled: "未启用",
+            .providerAppleIntelligenceModelNotReady: "模型未就绪",
+            .providerAppleIntelligenceUnsupportedLanguage: "不支持%@",
+            .settingsAppleIntelligenceSupportedLanguages: "Apple Intelligence 仅支持 %@ 语言。",
+            .settingsAppleIntelligenceOCROnly: "Apple Intelligence 不支持图像理解，仅支持 OCR 后分析文字。",
+            .imageAnalysisMethodOCR: "OCR（大模型仅做语言分析）",
+            .imageAnalysisMethodMultimodal: "多模态（使用包含视觉能力的大模型）",
             .captureScopeActiveDisplay: "当前活跃的屏幕",
             .reportKindDay: "日报",
             .reportKindWeek: "周报",
@@ -320,6 +369,10 @@ enum L10n {
             .analysisRetrySupplement: "补充要求：直接输出完整 JSON，不要过度思考",
             .analysisLengthTruncated: "模型输出因长度截断，未能生成完整的 JSON 分析结果",
             .analysisInvalidCategoryWithText: "模型返回无法解析为有效的 JSON 分析结果",
+            .analysisInvalidStructuredResponseWithText: "模型返回不符合预期的结构化分析结果",
+            .analysisAppleIntelligenceDecodingFailure: "Apple Intelligence 返回的结构化结果无法完成解析",
+            .analysisUnderlyingDetailsHeader: "底层错误详情：",
+            .analysisResponseUnavailable: "未捕获到模型返回内容",
             .analysisOpenAIFormatInvalid: "OpenAI 兼容接口返回格式不正确",
             .analysisOpenAINoText: "OpenAI 兼容接口没有返回可读文本",
             .analysisAnthropicFormatInvalid: "Anthropic 兼容接口返回格式不正确",
@@ -327,6 +380,9 @@ enum L10n {
             .analysisLMStudioFormatInvalid: "LM Studio API 返回格式不正确",
             .analysisLMStudioNoText: "LM Studio API 没有返回可读文本",
             .analysisNoResponseData: "模型接口没有返回数据",
+            .analysisAppleIntelligenceUnavailable: "Apple Intelligence 当前不可用：%@",
+            .analysisAppleIntelligenceNoOCRTextSummary: "截图中未识别到足够文字，已按 OCR 结果为空处理。",
+            .analysisOCRNoTextSummary: "截图中未识别到足够文字，已按 OCR 结果为空处理。",
             .screenshotPermissionDenied: "没有获得屏幕录制权限",
             .screenshotPreviewUnreadable: "测试截图完成，但无法读取预览图像",
             .screenshotCommandFailed: "系统 screencapture 命令执行失败",
@@ -358,6 +414,7 @@ enum L10n {
             .settingsModelAPIKey: "API key",
             .settingsModelAPIKeyPlaceholder: "Enter API key (optional)",
             .settingsModelContextLength: "Context length",
+            .settingsModelImageAnalysisMethod: "Image analysis method",
             .settingsModelOfficialUntested: "Official APIs have not been tested",
             .settingsModelCategoriesTitle: "Analysis categories",
             .settingsAnalysisCategoryTitle: "Category",
@@ -385,6 +442,15 @@ enum L10n {
             .settingsModelTestResult: "Test Result",
             .settingsModelWaitingForModel: "Analyzing. The model may still be loading",
             .settingsModelNoTempScreenshot: "No temporary screenshot was created for model testing",
+            .settingsModelTimingRequest: "Request time",
+            .settingsModelTimingServerProcessing: "Server processing time",
+            .settingsModelTimingModelLoad: "Model load time",
+            .settingsModelTimingTTFT: "Time to first token",
+            .settingsModelTimingOutput: "Output time",
+            .settingsModelTimingUnavailable: "Not returned (the model may already be preloaded)",
+            .settingsModelOCRText: "OCR text",
+            .settingsModelOCRTextEmpty: "No text was recognized",
+            .settingsModelReasoningProcess: "Reasoning",
             .settingsGeneralTitle: "General Settings",
             .settingsLanguage: "Language",
             .settingsReportTitle: "Report Settings",
@@ -417,6 +483,15 @@ enum L10n {
             .errorsClearAll: "Clear All Errors",
             .providerOpenAIUntested: "OpenAI (Untested)",
             .providerAnthropicUntested: "Anthropic (Untested)",
+            .providerAppleIntelligence: "Apple Intelligence",
+            .providerAppleIntelligenceDeviceNotEligible: "Unsupported Device",
+            .providerAppleIntelligenceNotEnabled: "Not Enabled",
+            .providerAppleIntelligenceModelNotReady: "Model Not Ready",
+            .providerAppleIntelligenceUnsupportedLanguage: "Unsupported %@",
+            .settingsAppleIntelligenceSupportedLanguages: "Apple Intelligence only supports %@.",
+            .settingsAppleIntelligenceOCROnly: "Apple Intelligence does not support direct image understanding. It only supports OCR-first text analysis.",
+            .imageAnalysisMethodOCR: "OCR (LLM text-only analysis)",
+            .imageAnalysisMethodMultimodal: "Multimodal (vision-capable LLM)",
             .captureScopeActiveDisplay: "Current active display",
             .reportKindDay: "Day",
             .reportKindWeek: "Week",
@@ -463,6 +538,10 @@ enum L10n {
             .analysisRetrySupplement: "Additional requirement: return complete JSON directly and do not overthink it",
             .analysisLengthTruncated: "The model output was truncated before a complete JSON analysis result could be returned",
             .analysisInvalidCategoryWithText: "The model response could not be parsed into a valid JSON analysis result",
+            .analysisInvalidStructuredResponseWithText: "The model response did not match the expected structured analysis result",
+            .analysisAppleIntelligenceDecodingFailure: "Apple Intelligence returned a structured result that could not be decoded",
+            .analysisUnderlyingDetailsHeader: "Underlying error details:",
+            .analysisResponseUnavailable: "No model response content was captured",
             .analysisOpenAIFormatInvalid: "The OpenAI-compatible API response format is invalid",
             .analysisOpenAINoText: "The OpenAI-compatible API did not return readable text",
             .analysisAnthropicFormatInvalid: "The Anthropic-compatible API response format is invalid",
@@ -470,6 +549,9 @@ enum L10n {
             .analysisLMStudioFormatInvalid: "The LM Studio API response format is invalid",
             .analysisLMStudioNoText: "The LM Studio API did not return readable text",
             .analysisNoResponseData: "The model API returned no data",
+            .analysisAppleIntelligenceUnavailable: "Apple Intelligence is currently unavailable: %@",
+            .analysisAppleIntelligenceNoOCRTextSummary: "Not enough text was recognized in the screenshot, so it was analyzed as OCR-empty content.",
+            .analysisOCRNoTextSummary: "Not enough text was recognized in the screenshot, so it was analyzed as OCR-empty content.",
             .screenshotPermissionDenied: "Screen recording permission was not granted",
             .screenshotPreviewUnreadable: "The screenshot test finished, but the preview image could not be loaded",
             .screenshotCommandFailed: "The system screencapture command failed",
@@ -661,6 +743,107 @@ enum L10n {
             1. The returned `category` must exactly match one of the candidate names
             2. Return JSON with these fields: {"category": chosen category, "summary": short description of the screenshot}
             3. Do not return Markdown, explanations, reasoning, or any extra text
+            """
+        }
+    }
+
+    static func appleIntelligenceAnalysisPrompt(
+        with rules: [CategoryRule],
+        summaryInstruction: String,
+        recognizedText: String,
+        language: AppLanguage = .current
+    ) -> String {
+        ocrAnalysisPrompt(
+            with: rules,
+            summaryInstruction: summaryInstruction,
+            recognizedText: recognizedText,
+            language: language,
+            outputMode: .structuredSchema
+        )
+    }
+
+    static func apiOCRAnalysisPrompt(
+        with rules: [CategoryRule],
+        summaryInstruction: String,
+        recognizedText: String,
+        language: AppLanguage = .current
+    ) -> String {
+        ocrAnalysisPrompt(
+            with: rules,
+            summaryInstruction: summaryInstruction,
+            recognizedText: recognizedText,
+            language: language,
+            outputMode: .json
+        )
+    }
+
+    private enum OCRPromptOutputMode {
+        case json
+        case structuredSchema
+    }
+
+    private static func ocrAnalysisPrompt(
+        with rules: [CategoryRule],
+        summaryInstruction: String,
+        recognizedText: String,
+        language: AppLanguage,
+        outputMode: OCRPromptOutputMode
+    ) -> String {
+        let separator = language == .simplifiedChinese ? "：" : ": "
+        let list = rules.map { rule in
+            "\(rule.name)\(separator)\(rule.description)"
+        }
+        .joined(separator: "\n")
+        let trimmedInstruction = summaryInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedInstruction = trimmedInstruction.isEmpty
+            ? AppDefaults.defaultAnalysisSummaryInstruction(language: language)
+            : trimmedInstruction
+        let trimmedText = String(recognizedText.prefix(6000))
+
+        switch language {
+        case .simplifiedChinese:
+            return """
+            你是一个工作桌面截图分类助手，请严格从下面的候选类别中选择唯一一个最匹配的类别。然后对工作内容进行一个简短的描述。
+            你无法直接查看原始截图，只能根据 OCR 识别出的文字进行判断。不要过度思考，只关注主要内容，不要编造 OCR 中没有出现的视觉细节。
+
+            候选类别：
+            \(list)
+
+            描述要求：
+            \(resolvedInstruction)
+
+            输出要求：
+            1. 返回的 category 必须与候选类别完全一致
+            2. summary 必须是对截图主要工作内容的简短描述
+            3. 如果信息不足，请给出最保守的判断；若候选类别中有 PRESERVED_OTHER，可优先考虑它
+            4. \(outputMode == .structuredSchema
+                ? "按提供的结构化 schema 返回，不要额外输出解释、Markdown 或思考过程"
+                : "返回格式：包含以下字段的 JSON {\"category\": 分析得出的类别, \"summary\": 对截图简短的描述}，不要额外输出解释、Markdown 或思考过程")
+
+            OCR 文字：
+            \(trimmedText)
+            """
+        case .english:
+            return """
+            You are a desktop screenshot classifier for daily work summaries. Choose exactly one best-matching category from the candidates below, then write a short description of the work.
+            You cannot view the original screenshot directly. You can only reason from the OCR text below. Do not overthink it, and do not invent visual details that do not appear in the OCR output.
+
+            Candidate categories:
+            \(list)
+
+            Description requirements:
+            \(resolvedInstruction)
+
+            Output requirements:
+            1. The returned category must exactly match one of the candidate names
+            2. The summary must be a short description of the main work shown in the screenshot
+            3. If the information is insufficient, make the most conservative choice. Prefer PRESERVED_OTHER when it is available
+            4. \(outputMode == .structuredSchema
+                ? "Return only the structured result defined by the provided schema, with no explanations, Markdown, or reasoning"
+                : "Return JSON with these fields: {\"category\": chosen category, \"summary\": short description of the screenshot}. Do not return explanations, Markdown, or reasoning")
+
+            OCR text:
+            \(trimmedText)
             """
         }
     }

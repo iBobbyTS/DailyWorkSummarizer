@@ -1,4 +1,5 @@
 import AppKit
+import FoundationModels
 import SwiftUI
 
 struct SettingsView: View {
@@ -19,6 +20,7 @@ struct SettingsView: View {
         static let contextFieldWidth: CGFloat = 84
         static let percentageFieldRatio: CGFloat = 0.7
         static let servicePickerWidth: CGFloat = 220
+        static let imageAnalysisMethodPickerWidth: CGFloat = 320
         static let reportPickerWidth: CGFloat = 160
         static let plainIntegerFormatter: NumberFormatter = {
             let formatter = NumberFormatter()
@@ -39,7 +41,7 @@ struct SettingsView: View {
     @State private var previewError: String?
     @State private var previewCountdownText: String?
     @State private var isCapturingPreview = false
-    @State private var modelTestResult: AnalysisResponse?
+    @State private var modelTestResult: ModelTestResult?
     @State private var modelTestError: String?
     @State private var modelTestCountdownText: String?
     @State private var isTestingModel = false
@@ -47,6 +49,10 @@ struct SettingsView: View {
 
     private var language: AppLanguage {
         settingsStore.appLanguage
+    }
+
+    private var appleIntelligenceStatus: AppleIntelligenceStatus {
+        AppleIntelligenceSupport.currentStatus(for: language)
     }
 
     private var analysisTimeBinding: Binding<Date> {
@@ -109,6 +115,7 @@ struct SettingsView: View {
 
                 modelConfigurationSection(
                     provider: $settingsStore.provider,
+                    imageAnalysisMethod: $settingsStore.imageAnalysisMethod,
                     apiBaseURL: $settingsStore.apiBaseURL,
                     modelName: $settingsStore.modelName,
                     apiKey: $settingsStore.apiKey,
@@ -140,6 +147,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
                 modelConfigurationSection(
                     provider: $settingsStore.workContentProvider,
+                    imageAnalysisMethod: $settingsStore.workContentImageAnalysisMethod,
                     apiBaseURL: $settingsStore.workContentAPIBaseURL,
                     modelName: $settingsStore.workContentModelName,
                     apiKey: $settingsStore.workContentAPIKey,
@@ -317,6 +325,7 @@ struct SettingsView: View {
 
     private func modelConfigurationSection(
         provider: Binding<ModelProvider>,
+        imageAnalysisMethod: Binding<ImageAnalysisMethod>,
         apiBaseURL: Binding<String>,
         modelName: Binding<String>,
         apiKey: Binding<String>,
@@ -335,7 +344,9 @@ struct SettingsView: View {
                         Spacer(minLength: 0)
                         Picker("", selection: provider) {
                             ForEach(ModelProvider.allCases) { option in
-                                Text(option.title(in: language)).tag(option)
+                                Text(providerOptionTitle(for: option))
+                                    .tag(option)
+                                    .disabled(!isProviderSelectable(option))
                             }
                         }
                         .pickerStyle(.menu)
@@ -348,39 +359,60 @@ struct SettingsView: View {
 
                 Divider()
 
-                proportionalFieldRow(text(.settingsModelBaseURL)) { fieldWidth in
-                    TextField(provider.wrappedValue == .lmStudio ? "http://127.0.0.1:1234" : "http://127.0.0.1:8000", text: apiBaseURL)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: fieldWidth)
+                proportionalFieldRow(text(.settingsModelImageAnalysisMethod)) { fieldWidth in
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        Picker("", selection: imageAnalysisMethod) {
+                            ForEach(ImageAnalysisMethod.allCases) { option in
+                                Text(option.title(in: language)).tag(option)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .fixedSize()
+                        .disabled(provider.wrappedValue == .appleIntelligence)
+                        .frame(width: Layout.imageAnalysisMethodPickerWidth, alignment: .trailing)
+                    }
+                    .frame(width: fieldWidth, alignment: .trailing)
                 }
 
-                Divider()
-
-                proportionalFieldRow(text(.settingsModelName)) { fieldWidth in
-                    TextField(text(.settingsModelNamePlaceholder), text: modelName)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: fieldWidth)
-                }
-
-                Divider()
-
-                proportionalFieldRow(text(.settingsModelAPIKey)) { fieldWidth in
-                    SecureField(text(.settingsModelAPIKeyPlaceholder), text: apiKey)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: fieldWidth)
-                }
-
-                if provider.wrappedValue == .lmStudio {
+                if provider.wrappedValue.requiresRemoteConfiguration {
                     Divider()
 
-                    proportionalFieldRow(text(.settingsModelContextLength), fieldWidth: Layout.contextFieldWidth) { fieldWidth in
-                        TextField(
-                            "4096 - 65536",
-                            value: lmStudioContextLength,
-                            formatter: Layout.plainIntegerFormatter
-                        )
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: fieldWidth)
+                    proportionalFieldRow(text(.settingsModelBaseURL)) { fieldWidth in
+                        TextField(provider.wrappedValue == .lmStudio ? "http://127.0.0.1:1234" : "http://127.0.0.1:8000", text: apiBaseURL)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: fieldWidth)
+                    }
+
+                    Divider()
+
+                    proportionalFieldRow(text(.settingsModelName)) { fieldWidth in
+                        TextField(text(.settingsModelNamePlaceholder), text: modelName)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: fieldWidth)
+                    }
+
+                    Divider()
+
+                    proportionalFieldRow(text(.settingsModelAPIKey)) { fieldWidth in
+                        SecureField(text(.settingsModelAPIKeyPlaceholder), text: apiKey)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: fieldWidth)
+                    }
+
+                    if provider.wrappedValue == .lmStudio {
+                        Divider()
+
+                        proportionalFieldRow(text(.settingsModelContextLength), fieldWidth: Layout.contextFieldWidth) { fieldWidth in
+                            TextField(
+                                "4096 - 65536",
+                                value: lmStudioContextLength,
+                                formatter: Layout.plainIntegerFormatter
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: fieldWidth)
+                        }
                     }
                 }
             }
@@ -389,8 +421,8 @@ struct SettingsView: View {
                     .fill(Color.gray.opacity(0.08))
             )
 
-            if provider.wrappedValue != .lmStudio {
-                Text(text(.settingsModelOfficialUntested))
+            ForEach(providerFooterMessages(for: provider.wrappedValue), id: \.self) { message in
+                Text(message)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -535,8 +567,61 @@ struct SettingsView: View {
                         .font(.headline)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(labeledValue(text(.settingsAnalysisResultCategory), modelTestResult.category))
-                        Text(labeledValue(text(.settingsAnalysisResultSummary), modelTestResult.summary))
+                        Text(labeledValue(text(.settingsAnalysisResultCategory), modelTestResult.response.category))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(labeledValue(text(.settingsAnalysisResultSummary), modelTestResult.response.summary))
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        ForEach(modelTestTimingLines(for: modelTestResult), id: \.self) { line in
+                            Text(line)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    if modelTestResult.imageAnalysisMethod == .ocr {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(text(.settingsModelOCRText))
+                                .font(.subheadline.weight(.medium))
+
+                            ScrollView {
+                                Text(ocrTextDisplay(for: modelTestResult))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                                    .padding(12)
+                            }
+                            .frame(minHeight: 120, maxHeight: 220)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.gray.opacity(0.08))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.gray.opacity(0.14), lineWidth: 1)
+                            )
+                        }
+                    }
+
+                    if let reasoningText = reasoningTextDisplay(for: modelTestResult) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(text(.settingsModelReasoningProcess))
+                                .font(.subheadline.weight(.medium))
+
+                            ScrollView {
+                                Text(reasoningText)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                                    .padding(12)
+                            }
+                            .frame(minHeight: 120, maxHeight: 220)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.gray.opacity(0.08))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(Color.gray.opacity(0.14), lineWidth: 1)
+                            )
+                        }
                     }
                 }
             }
@@ -604,7 +689,7 @@ struct SettingsView: View {
                         Spacer(minLength: 0)
                         Picker("", selection: $settingsStore.appLanguage) {
                             ForEach(AppLanguage.allCases) { option in
-                                Text(option.localizedName).tag(option)
+                                Text(option.displayName(in: language)).tag(option)
                             }
                         }
                         .pickerStyle(.menu)
@@ -695,6 +780,73 @@ struct SettingsView: View {
     private func labeledValue(_ label: String, _ value: String) -> String {
         let separator = language == .simplifiedChinese ? "：" : ": "
         return "\(label)\(separator)\(value)"
+    }
+
+    private func modelTestTimingLines(for result: ModelTestResult) -> [String] {
+        switch result.provider {
+        case .lmStudio:
+            var lines: [String] = [
+                labeledValue(
+                    text(.settingsModelTimingModelLoad),
+                    result.lmStudioTiming?.modelLoadTimeSeconds.map(formattedDuration)
+                        ?? text(.settingsModelTimingUnavailable)
+                )
+            ]
+
+            if let ttft = result.lmStudioTiming?.timeToFirstTokenSeconds {
+                lines.append(labeledValue(text(.settingsModelTimingTTFT), formattedDuration(ttft)))
+            }
+
+            if let outputTime = result.lmStudioTiming?.outputTimeSeconds {
+                lines.append(labeledValue(text(.settingsModelTimingOutput), formattedDuration(outputTime)))
+            }
+
+            if let roundTrip = result.requestTiming?.roundTripSeconds {
+                lines.append(labeledValue(text(.settingsModelTimingRequest), formattedDuration(roundTrip)))
+            }
+
+            return lines
+        case .openAI:
+            if let serverProcessing = result.requestTiming?.serverProcessingSeconds {
+                return [labeledValue(text(.settingsModelTimingServerProcessing), formattedDuration(serverProcessing))]
+            }
+            if let roundTrip = result.requestTiming?.roundTripSeconds {
+                return [labeledValue(text(.settingsModelTimingRequest), formattedDuration(roundTrip))]
+            }
+            return []
+        case .anthropic:
+            if let roundTrip = result.requestTiming?.roundTripSeconds {
+                return [labeledValue(text(.settingsModelTimingRequest), formattedDuration(roundTrip))]
+            }
+            return []
+        case .appleIntelligence:
+            return []
+        }
+    }
+
+    private func ocrTextDisplay(for result: ModelTestResult) -> String {
+        let trimmed = result.ocrText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? text(.settingsModelOCRTextEmpty) : trimmed
+    }
+
+    private func reasoningTextDisplay(for result: ModelTestResult) -> String? {
+        let trimmed = result.reasoningText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func formattedDuration(_ seconds: TimeInterval) -> String {
+        if seconds < 1 {
+            let milliseconds = seconds * 1_000
+            if language == .simplifiedChinese {
+                return String(format: "%.0f 毫秒", milliseconds)
+            }
+            return String(format: "%.0f ms", milliseconds)
+        }
+
+        if language == .simplifiedChinese {
+            return String(format: "%.2f 秒", seconds)
+        }
+        return String(format: "%.2f s", seconds)
     }
 
     private func copyConfirmationMessage(for destination: ModelCopyDestination) -> String {
@@ -815,6 +967,85 @@ struct SettingsView: View {
             return true
         }
         return index >= max(settingsStore.categoryRules.count - 2, 0)
+    }
+
+    private func providerOptionTitle(for provider: ModelProvider) -> String {
+        let baseTitle = provider.title(in: language)
+        guard provider == .appleIntelligence,
+              let suffix = appleIntelligencePickerSuffix() else {
+            return baseTitle
+        }
+
+        let open = language == .simplifiedChinese ? "（" : " ("
+        let close = language == .simplifiedChinese ? "）" : ")"
+        return "\(baseTitle)\(open)\(suffix)\(close)"
+    }
+
+    private func appleIntelligencePickerSuffix() -> String? {
+        if let unavailableReason = appleIntelligenceStatus.unavailableReason {
+            return appleIntelligenceReasonText(for: unavailableReason)
+        }
+
+        guard !appleIntelligenceStatus.currentLanguageSupported else {
+            return nil
+        }
+
+        return text(
+            .providerAppleIntelligenceUnsupportedLanguage,
+            arguments: [language.displayName(in: language)]
+        )
+    }
+
+    private func appleIntelligenceReasonText(
+        for reason: SystemLanguageModel.Availability.UnavailableReason
+    ) -> String {
+        switch reason {
+        case .deviceNotEligible:
+            return text(.providerAppleIntelligenceDeviceNotEligible)
+        case .appleIntelligenceNotEnabled:
+            return text(.providerAppleIntelligenceNotEnabled)
+        case .modelNotReady:
+            return text(.providerAppleIntelligenceModelNotReady)
+        @unknown default:
+            return text(.providerAppleIntelligenceModelNotReady)
+        }
+    }
+
+    private func isProviderSelectable(_ provider: ModelProvider) -> Bool {
+        guard provider == .appleIntelligence else {
+            return true
+        }
+
+        return appleIntelligenceStatus.isSelectable
+    }
+
+    private func providerFooterMessages(for provider: ModelProvider) -> [String] {
+        switch provider {
+        case .openAI, .anthropic:
+            return [text(.settingsModelOfficialUntested)]
+        case .lmStudio:
+            return []
+        case .appleIntelligence:
+            var messages: [String] = []
+
+            if !appleIntelligenceStatus.currentLanguageSupported {
+                let supportedLanguages = appleIntelligenceStatus.supportedAppLanguages
+                let supportedLanguageList = supportedLanguages.isEmpty
+                    ? (language == .simplifiedChinese ? "无" : "none")
+                    : supportedLanguages
+                        .map { $0.displayName(in: language) }
+                        .joined(separator: language == .simplifiedChinese ? "、" : ", ")
+                messages.append(
+                    text(
+                        .settingsAppleIntelligenceSupportedLanguages,
+                        arguments: [supportedLanguageList]
+                    )
+                )
+            }
+
+            messages.append(text(.settingsAppleIntelligenceOCROnly))
+            return messages
+        }
     }
 
     private func removePreviewFile() {
