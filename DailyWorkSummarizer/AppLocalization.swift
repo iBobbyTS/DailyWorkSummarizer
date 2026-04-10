@@ -125,7 +125,8 @@ enum L10n {
         case menuTurnOnAutoAnalysis
         case menuAnalyzeNowStart
         case menuAnalyzeNowPause
-        case menuAnalyzeNowPausing
+        case menuAnalyzeNowPausingStoppingGeneration
+        case menuAnalyzeNowPausingUnloadingModel
         case menuCurrentStatus
         case menuSettings
         case menuReports
@@ -136,7 +137,8 @@ enum L10n {
         case windowErrors
         case alertDatabaseInitFailed
         case menuLastAverageDuration
-        case menuSummaryPausing
+        case menuSummaryPausingStoppingGeneration
+        case menuSummaryPausingUnloadingModel
         case menuSummaryAnalyzing
         case menuSummaryPending
         case menuNextCaptureAt
@@ -299,9 +301,10 @@ enum L10n {
             .menuShowErrorsCount: "显示%d个错误",
             .menuTurnOffAutoAnalysis: "关闭定时分析",
             .menuTurnOnAutoAnalysis: "开启定时分析",
-            .menuAnalyzeNowStart: "开始分析",
+            .menuAnalyzeNowStart: "立即分析",
             .menuAnalyzeNowPause: "暂停分析",
-            .menuAnalyzeNowPausing: "正在暂停",
+            .menuAnalyzeNowPausingStoppingGeneration: "正在暂停（正在停止生成）",
+            .menuAnalyzeNowPausingUnloadingModel: "正在暂停（正在卸载模型）",
             .menuCurrentStatus: "当前状态",
             .menuSettings: "设置",
             .menuReports: "查看报告",
@@ -312,7 +315,8 @@ enum L10n {
             .windowErrors: "查看错误",
             .alertDatabaseInitFailed: "初始化数据库失败",
             .menuLastAverageDuration: "上次分析平均每张耗时%@秒",
-            .menuSummaryPausing: "正在暂停从 %@ 开始的截屏分析（%d/%d）",
+            .menuSummaryPausingStoppingGeneration: "正在暂停从 %@ 开始的截屏分析（正在停止生成，%d/%d）",
+            .menuSummaryPausingUnloadingModel: "正在暂停从 %@ 开始的截屏分析（正在卸载模型，%d/%d）",
             .menuSummaryAnalyzing: "正在分析从 %@ 开始的截屏（%d/%d）",
             .menuSummaryPending: "当前截图从 %@ 开始，共 %d 张",
             .menuNextCaptureAt: "下一次会在%@进行截图",
@@ -473,9 +477,10 @@ enum L10n {
             .menuShowErrorsCount: "Show %d Errors",
             .menuTurnOffAutoAnalysis: "Turn Off Scheduled Analysis",
             .menuTurnOnAutoAnalysis: "Turn On Scheduled Analysis",
-            .menuAnalyzeNowStart: "Start Analysis",
+            .menuAnalyzeNowStart: "Analyze Now",
             .menuAnalyzeNowPause: "Pause Analysis",
-            .menuAnalyzeNowPausing: "Stopping",
+            .menuAnalyzeNowPausingStoppingGeneration: "Stopping (Stopping Generation)",
+            .menuAnalyzeNowPausingUnloadingModel: "Stopping (Unloading Model)",
             .menuCurrentStatus: "Current Status",
             .menuSettings: "Settings",
             .menuReports: "View Reports",
@@ -486,7 +491,8 @@ enum L10n {
             .windowErrors: "Errors",
             .alertDatabaseInitFailed: "Failed to initialize database",
             .menuLastAverageDuration: "Last run averaged %@ sec per screenshot",
-            .menuSummaryPausing: "Stopping screenshot analysis started at %@ (%d/%d)",
+            .menuSummaryPausingStoppingGeneration: "Stopping screenshot analysis started at %@ (stopping generation, %d/%d)",
+            .menuSummaryPausingUnloadingModel: "Stopping screenshot analysis started at %@ (unloading model, %d/%d)",
             .menuSummaryAnalyzing: "Analyzing screenshots starting at %@ (%d/%d)",
             .menuSummaryPending: "Pending screenshots since %@, %d total",
             .menuNextCaptureAt: "Next screenshot at %@",

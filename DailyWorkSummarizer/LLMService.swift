@@ -37,6 +37,7 @@ struct LLMServiceResponse {
     let requestTiming: ModelRequestTiming?
     let lmStudioTiming: LMStudioTiming?
     let reasoningText: String?
+    let modelInstanceID: String?
     let tokenUsage: LLMTokenUsage?
 }
 
@@ -145,13 +146,14 @@ final class LLMService: @unchecked Sendable {
                 requestParameters: [
                     LLMParameterDescriptor(name: "Authorization", detail: "Optional Bearer token header when the local server requires authentication."),
                     LLMParameterDescriptor(name: "model", detail: "Loaded model or selected variant name."),
-                    LLMParameterDescriptor(name: "input", detail: "Text-only requests use a plain string; multimodal requests use v1 input items with message and image entries."),
+                    LLMParameterDescriptor(name: "input", detail: "Text-only requests use a plain string; multimodal requests use v1 input items with text and image entries, with automatic fallback to the older message discriminator when the server requires it."),
                     LLMParameterDescriptor(name: "store", detail: "Always false in this app so request history is not persisted."),
                     LLMParameterDescriptor(name: "context_length", detail: "Configured prompt context size for the LM Studio v1 chat endpoint."),
                 ],
                 responseParameters: [
                     LLMParameterDescriptor(name: "output[].type", detail: "Distinguishes message content from reasoning content."),
                     LLMParameterDescriptor(name: "output[].content", detail: "Assistant message text and optional reasoning text blocks."),
+                    LLMParameterDescriptor(name: "model_instance_id", detail: "LM Studio model instance identifier echoed by some servers."),
                     LLMParameterDescriptor(name: "stats", detail: "Timing and token stats including model load time, TTFT, output tokens, and tokens per second."),
                     LLMParameterDescriptor(name: "response_id", detail: "Only available when store is not false; this app intentionally does not request it."),
                 ]
@@ -224,6 +226,7 @@ final class LLMService: @unchecked Sendable {
                 requestTiming: nil,
                 lmStudioTiming: nil,
                 reasoningText: nil,
+                modelInstanceID: nil,
                 tokenUsage: nil
             )
         }
@@ -270,6 +273,7 @@ final class LLMService: @unchecked Sendable {
             requestTiming: nil,
             lmStudioTiming: nil,
             reasoningText: nil,
+            modelInstanceID: nil,
             tokenUsage: nil
         )
     }
@@ -311,17 +315,22 @@ final class LLMService: @unchecked Sendable {
             if !request.settings.apiKey.isEmpty {
                 urlRequest.setValue("Bearer \(request.settings.apiKey)", forHTTPHeaderField: "Authorization")
             }
-            urlRequest.httpBody = try LMStudioAPI.buildChatRequestBody(
-                modelName: request.settings.modelName,
-                prompt: request.prompt,
-                imageData: request.imageData,
-                contextLength: request.settings.lmStudioContextLength
-            )
         case .appleIntelligence:
             throw LLMServiceError.invalidRemoteConfiguration
         }
 
-        let requestResult = try await performDataRequest(for: urlRequest)
+        let requestResult: DataRequestResult
+        switch request.settings.provider {
+        case .lmStudio:
+            requestResult = try await performLMStudioRequest(
+                request: request,
+                urlRequest: urlRequest
+            )
+        case .openAI, .anthropic:
+            requestResult = try await performDataRequest(for: urlRequest)
+        case .appleIntelligence:
+            throw LLMServiceError.invalidRemoteConfiguration
+        }
         guard let httpResponse = requestResult.response as? HTTPURLResponse else {
             throw LLMServiceError.invalidHTTPResponse
         }
@@ -345,6 +354,7 @@ final class LLMService: @unchecked Sendable {
                 ),
                 lmStudioTiming: nil,
                 reasoningText: nil,
+                modelInstanceID: nil,
                 tokenUsage: payload.tokenUsage
             )
         case .anthropic:
@@ -360,6 +370,7 @@ final class LLMService: @unchecked Sendable {
                 ),
                 lmStudioTiming: nil,
                 reasoningText: nil,
+                modelInstanceID: nil,
                 tokenUsage: payload.tokenUsage
             )
         case .lmStudio:
@@ -380,11 +391,53 @@ final class LLMService: @unchecked Sendable {
                 ),
                 lmStudioTiming: payload.timing,
                 reasoningText: payload.reasoningText,
+                modelInstanceID: payload.modelInstanceID,
                 tokenUsage: payload.tokenUsage
             )
         case .appleIntelligence:
             throw LLMServiceError.invalidRemoteConfiguration
         }
+    }
+
+    private func performLMStudioRequest(
+        request: LLMServiceRequest,
+        urlRequest baseRequest: URLRequest
+    ) async throws -> DataRequestResult {
+        var attemptedStyle = LMStudioMultimodalTextInputStyle.text
+        var urlRequest = baseRequest
+        urlRequest.httpBody = try LMStudioAPI.buildChatRequestBody(
+            modelName: request.settings.modelName,
+            prompt: request.prompt,
+            imageData: request.imageData,
+            contextLength: request.settings.lmStudioContextLength,
+            multimodalTextInputStyle: attemptedStyle
+        )
+
+        var requestResult = try await performDataRequest(for: urlRequest)
+        guard request.imageData != nil,
+              let httpResponse = requestResult.response as? HTTPURLResponse else {
+            return requestResult
+        }
+
+        let rawBody = String(decoding: requestResult.data, as: UTF8.self)
+        guard let fallbackStyle = LMStudioAPI.fallbackMultimodalTextInputStyle(
+            statusCode: httpResponse.statusCode,
+            responseBody: rawBody,
+            attemptedStyle: attemptedStyle
+        ) else {
+            return requestResult
+        }
+
+        attemptedStyle = fallbackStyle
+        urlRequest.httpBody = try LMStudioAPI.buildChatRequestBody(
+            modelName: request.settings.modelName,
+            prompt: request.prompt,
+            imageData: request.imageData,
+            contextLength: request.settings.lmStudioContextLength,
+            multimodalTextInputStyle: attemptedStyle
+        )
+        requestResult = try await performDataRequest(for: urlRequest)
+        return requestResult
     }
 
     private func buildOpenAIRequestBody(

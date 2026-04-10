@@ -1,6 +1,21 @@
 import Foundation
 
+enum LMStudioMultimodalTextInputStyle: String {
+    case text
+    case message
+
+    var alternate: LMStudioMultimodalTextInputStyle {
+        switch self {
+        case .text:
+            return .message
+        case .message:
+            return .text
+        }
+    }
+}
+
 struct LMStudioChatResponse {
+    let modelInstanceID: String?
     let messageText: String?
     let reasoningText: String?
     let timing: LMStudioTiming?
@@ -22,14 +37,15 @@ enum LMStudioAPI {
         modelName: String,
         prompt: String,
         imageData: Data?,
-        contextLength: Int
+        contextLength: Int,
+        multimodalTextInputStyle: LMStudioMultimodalTextInputStyle = .text
     ) throws -> Data {
         let input: Any
         if let imageData {
             let imageBase64 = imageData.base64EncodedString()
             input = [
                 [
-                    "type": "message",
+                    "type": multimodalTextInputStyle.rawValue,
                     "content": prompt,
                 ],
                 [
@@ -50,6 +66,34 @@ enum LMStudioAPI {
         return try JSONSerialization.data(withJSONObject: body)
     }
 
+    static func fallbackMultimodalTextInputStyle(
+        statusCode: Int,
+        responseBody: String,
+        attemptedStyle: LMStudioMultimodalTextInputStyle
+    ) -> LMStudioMultimodalTextInputStyle? {
+        guard statusCode == 400 else {
+            return nil
+        }
+
+        let errorPayload = parseErrorPayload(from: responseBody)
+        guard errorPayload.code == "invalid_union",
+              errorPayload.param == "input" else {
+            return nil
+        }
+
+        let message = errorPayload.message
+        if message.contains("Expected 'text' | 'image'") {
+            return attemptedStyle == .text ? nil : .text
+        }
+        if message.contains("Expected 'message' | 'image'") {
+            return attemptedStyle == .message ? nil : .message
+        }
+        if message.contains("Invalid discriminator value") {
+            return attemptedStyle.alternate
+        }
+        return nil
+    }
+
     static func parseChatResponse(from data: Data) -> LMStudioChatResponse? {
         guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let output = payload["output"] as? [[String: Any]] else {
@@ -57,11 +101,21 @@ enum LMStudioAPI {
         }
 
         return LMStudioChatResponse(
+            modelInstanceID: payload["model_instance_id"] as? String,
             messageText: joinedText(from: output, type: "message"),
             reasoningText: joinedText(from: output, type: "reasoning"),
             timing: parseTiming(from: payload["stats"] as? [String: Any]),
             tokenUsage: parseTokenUsage(from: payload["stats"] as? [String: Any])
         )
+    }
+
+    static func modelsCount(from data: Data) -> Int? {
+        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = payload["models"] as? [[String: Any]] else {
+            return nil
+        }
+
+        return models.count
     }
 
     static func modelsURL(from baseURLString: String) -> URL? {
@@ -147,5 +201,19 @@ enum LMStudioAPI {
         default:
             return nil
         }
+    }
+
+    private static func parseErrorPayload(from body: String) -> (message: String, code: String?, param: String?) {
+        guard let data = body.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let error = payload["error"] as? [String: Any] else {
+            return (body, nil, nil)
+        }
+
+        return (
+            error["message"] as? String ?? body,
+            error["code"] as? String,
+            error["param"] as? String
+        )
     }
 }

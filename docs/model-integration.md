@@ -131,10 +131,14 @@ Important constraint:
 
 - Remote configuration required.
 - Text-only requests send `input` as a plain string.
-- Multimodal screenshot requests send `input` as LM Studio v1 input items with one `"message"` item plus one `"image"` item.
+- Multimodal screenshot requests prefer LM Studio v1 input items with one `"text"` item plus one `"image"` item.
+- Some LM Studio builds still validate the multimodal text item as `"message"` instead of `"text"`. The app detects the documented `invalid_union` input error and retries once with the alternate discriminator so both server variants keep working.
 - The app passes a configurable `context_length`.
 - The app always sets `store: false`, so LM Studio does not persist request history and the app does not continue prior chats with `previous_response_id`.
 - Timing diagnostics are surfaced more explicitly than for other providers.
+- On a user-initiated pause, the app first cancels the active generation request and only starts the unload call after the request has finished cancelling.
+- The unload step remains asynchronous so the UI stays responsive, but the pause state does not return to idle until the unload attempt finishes.
+- LM Studio pause and unload diagnostics are also written into `app_logs` with source `lm_studio` so the log window can be used for local debugging.
 - Request parameters used by the app:
   - `Authorization`
   - `model`
@@ -142,6 +146,7 @@ Important constraint:
   - `store`
   - `context_length`
 - Response fields normalized by the app:
+  - `model_instance_id`
   - `output[].type`
   - `output[].content`
   - `stats`

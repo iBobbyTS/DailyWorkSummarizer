@@ -78,6 +78,8 @@
   先看 `SettingsStore.snapshot`，再看调用方是否拿的是截图分析配置还是工作内容分析配置。
 - 要排查暂停、卸载或 provider 异常：
   先打开菜单里的“显示日志”，再结合 `app_logs` 表确认错误和调试事件是否真的落库。
+- 用户手动暂停分析：
+  先看 `AnalysisRuntimeState.stoppingStage`，LM Studio 正确顺序应该是先取消当前生成，再在取消完成后调用 unload；调试时优先筛选 `source = lm_studio` 的日志。
 
 改动时容易漏的点：
 
@@ -85,5 +87,6 @@
 - 新增设置字段后，除了 `SettingsStore` 和 `SettingsView`，还要同步看测试里的手工初始化。
 - 文案或提示词改动通常同时落在 `AppLocalization.swift` 和对应 service。
 - LM Studio 请求格式或解析逻辑改动时，优先改 `LMStudioAPI.swift`，不要在两个 service 里各自复制一份。
+- LM Studio `/api/v1/chat` 的多模态文本项在不同版本里可能出现 `"text"` 和 `"message"` 两种 discriminator；项目里统一通过 `LMStudioAPI.fallbackMultimodalTextInputStyle` 做一次兼容重试，不要把这种重试散落到业务层。
 - OpenAI / Anthropic / Apple Intelligence 的请求或解析行为改动时，优先改 `LLMService.swift`，并同步更新 `docs/model-integration.md`。
 - 分析错误和调试日志相关改动时，要同时检查 `AppLogStore`、`MenuBarApp`、`AnalysisErrorsView.swift`、`docs/data-and-testing.md`。

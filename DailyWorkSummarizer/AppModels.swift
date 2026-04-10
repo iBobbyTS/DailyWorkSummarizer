@@ -404,16 +404,41 @@ struct ScreenshotFileRecord: Identifiable {
     var id: String { url.lastPathComponent }
 }
 
+enum AnalysisStoppingStage {
+    case stoppingGeneration
+    case unloadingModel
+
+    var analyzeNowLocalizationKey: L10n.Key {
+        switch self {
+        case .stoppingGeneration:
+            return .menuAnalyzeNowPausingStoppingGeneration
+        case .unloadingModel:
+            return .menuAnalyzeNowPausingUnloadingModel
+        }
+    }
+
+    var statusSummaryLocalizationKey: L10n.Key {
+        switch self {
+        case .stoppingGeneration:
+            return .menuSummaryPausingStoppingGeneration
+        case .unloadingModel:
+            return .menuSummaryPausingUnloadingModel
+        }
+    }
+}
+
 struct AnalysisRuntimeState {
     let isRunning: Bool
-    let isStopping: Bool
+    let stoppingStage: AnalysisStoppingStage?
     let startedAt: Date?
     let completedCount: Int
     let totalCount: Int
 
+    var isStopping: Bool { stoppingStage != nil }
+
     static let idle = AnalysisRuntimeState(
         isRunning: false,
-        isStopping: false,
+        stoppingStage: nil,
         startedAt: nil,
         completedCount: 0,
         totalCount: 0

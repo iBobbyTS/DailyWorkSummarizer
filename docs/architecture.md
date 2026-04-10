@@ -46,6 +46,7 @@ The app is centered around a small set of long-lived services created at launch 
   - runs local OCR first and sends text to a model, or
   - sends the screenshot image to a remote multimodal endpoint.
 - `LLMService` translates the request into the provider-specific wire format and normalizes the response back into a shared result model.
+- When the user pauses analysis while LM Studio is active, `AnalysisService` first waits for the in-flight generation request to stop and then issues the unload request.
 - Parsed results are written to `analysis_results`.
 - After a run completes, the service updates run status and may trigger daily-summary backfill.
 

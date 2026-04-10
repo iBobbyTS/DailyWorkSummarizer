@@ -52,7 +52,7 @@ struct DailyWorkSummarizerTests {
         #expect(body["context_length"] as? Int == 12000)
     }
 
-    @Test func lmStudioMultimodalChatRequestUsesMessageAndImageInputItems() async throws {
+    @Test func lmStudioMultimodalChatRequestUsesTextAndImageInputItems() async throws {
         let bodyData = try LMStudioAPI.buildChatRequestBody(
             modelName: "qwen3.5-vl",
             prompt: "请根据图片分析当前工作",
@@ -63,10 +63,72 @@ struct DailyWorkSummarizerTests {
         let input = try #require(body["input"] as? [[String: Any]])
 
         #expect(input.count == 2)
-        #expect(input[0]["type"] as? String == "message")
+        #expect(input[0]["type"] as? String == "text")
         #expect(input[0]["content"] as? String == "请根据图片分析当前工作")
         #expect(input[1]["type"] as? String == "image")
         #expect((input[1]["data_url"] as? String)?.hasPrefix("data:image/jpeg;base64,") == true)
+    }
+
+    @Test func lmStudioMultimodalChatRequestSupportsLegacyMessageInputItems() async throws {
+        let bodyData = try LMStudioAPI.buildChatRequestBody(
+            modelName: "qwen3.5-vl",
+            prompt: "请根据图片分析当前工作",
+            imageData: Data([0xFF, 0xD8, 0xFF]),
+            contextLength: 8000,
+            multimodalTextInputStyle: .message
+        )
+        let body = try #require(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
+        let input = try #require(body["input"] as? [[String: Any]])
+
+        #expect(input.count == 2)
+        #expect(input[0]["type"] as? String == "message")
+        #expect(input[0]["content"] as? String == "请根据图片分析当前工作")
+        #expect(input[1]["type"] as? String == "image")
+    }
+
+    @Test func lmStudioMultimodalFallbackStyleRecognizesBothServerVariants() async throws {
+        let textExpectedBody = """
+        {
+          "error": {
+            "message": "Invalid discriminator value. Expected 'text' | 'image'",
+            "type": "invalid_request",
+            "code": "invalid_union",
+            "param": "input"
+          }
+        }
+        """
+        let messageExpectedBody = """
+        {
+          "error": {
+            "message": "Invalid discriminator value. Expected 'message' | 'image'",
+            "type": "invalid_request",
+            "code": "invalid_union",
+            "param": "input"
+          }
+        }
+        """
+
+        #expect(
+            LMStudioAPI.fallbackMultimodalTextInputStyle(
+                statusCode: 400,
+                responseBody: textExpectedBody,
+                attemptedStyle: .message
+            ) == .text
+        )
+        #expect(
+            LMStudioAPI.fallbackMultimodalTextInputStyle(
+                statusCode: 400,
+                responseBody: messageExpectedBody,
+                attemptedStyle: .text
+            ) == .message
+        )
+        #expect(
+            LMStudioAPI.fallbackMultimodalTextInputStyle(
+                statusCode: 400,
+                responseBody: textExpectedBody,
+                attemptedStyle: .text
+            ) == nil
+        )
     }
 
     @Test func lmStudioChatResponseParsingCapturesReasoningAndTiming() async throws {
@@ -96,6 +158,7 @@ struct DailyWorkSummarizerTests {
 
         let response = try #require(LMStudioAPI.parseChatResponse(from: Data(payload.utf8)))
 
+        #expect(response.modelInstanceID == "qwen3.5-0.8b")
         #expect(response.content == #"{"category":"软件开发","summary":"开发设置页"}"#)
         #expect(response.reasoningText == "Thinking Process:\n\n1. Inspect OCR text")
         #expect(abs((response.timing?.modelLoadTimeSeconds ?? 0) - 0.484) < 0.000_1)
@@ -141,6 +204,7 @@ struct DailyWorkSummarizerTests {
         """
 
         #expect(modelsURL?.absoluteString == "http://127.0.0.1:1234/api/v1/models")
+        #expect(LMStudioAPI.modelsCount(from: Data(payload.utf8)) == 1)
         #expect(
             LMStudioAPI.extractLoadedInstanceID(
                 from: Data(payload.utf8),
@@ -331,6 +395,7 @@ struct DailyWorkSummarizerTests {
 
             let payload = """
             {
+              "model_instance_id": "lm-instance-001",
               "output": [
                 {
                   "type": "reasoning",
@@ -373,12 +438,90 @@ struct DailyWorkSummarizerTests {
         )
 
         #expect(response.text == #"{"category":"专注工作","summary":"整理 provider 封装"}"#)
+        #expect(response.modelInstanceID == "lm-instance-001")
         #expect(response.reasoningText == "Thinking Process:\n\n1. Review OCR content")
         #expect(response.tokenUsage?.inputTokens == 91)
         #expect(response.tokenUsage?.outputTokens == 23)
         #expect(response.tokenUsage?.reasoningTokens == 7)
         #expect(abs((response.lmStudioTiming?.timeToFirstTokenSeconds ?? 0) - 0.42) < 0.000_1)
         #expect(abs((response.lmStudioTiming?.modelLoadTimeSeconds ?? 0) - 0.18) < 0.000_1)
+    }
+
+    @Test func llmServiceLMStudioMultimodalFallsBackToLegacyMessageDiscriminator() async throws {
+        let settings = makeModelSettings(
+            provider: .lmStudio,
+            apiBaseURL: "http://127.0.0.1:1234",
+            modelName: "qwen3.5-vl",
+            apiKey: "lmstudio-key"
+        )
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        let prompt = "请根据图片总结当前工作"
+
+        defer { MockURLProtocol.reset() }
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+
+            let requestBody = try #require(requestBodyData(from: request))
+            let body = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+            let input = try #require(body["input"] as? [[String: Any]])
+
+            #expect(body["model"] as? String == "qwen3.5-vl")
+            #expect(input.count == 2)
+            #expect(input[0]["content"] as? String == prompt)
+            #expect(input[1]["type"] as? String == "image")
+
+            if MockURLProtocol.requestCount == 1 {
+                #expect(input[0]["type"] as? String == "text")
+                return try makeHTTPResponse(
+                    url: try #require(request.url),
+                    body: """
+                    {
+                      "error": {
+                        "message": "Invalid discriminator value. Expected 'message' | 'image'",
+                        "type": "invalid_request",
+                        "code": "invalid_union",
+                        "param": "input"
+                      }
+                    }
+                    """,
+                    statusCode: 400
+                )
+            }
+
+            #expect(MockURLProtocol.requestCount == 2)
+            #expect(input[0]["type"] as? String == "message")
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: """
+                {
+                  "output": [
+                    {
+                      "type": "message",
+                      "content": "{\\"category\\":\\"专注工作\\",\\"summary\\":\\"兼容旧版 LM Studio 多模态输入格式\\"}"
+                    }
+                  ]
+                }
+                """
+            )
+        }
+
+        let service = LLMService(session: session)
+        let response = try await service.send(
+            LLMServiceRequest(
+                settings: settings,
+                appLanguage: .simplifiedChinese,
+                prompt: prompt,
+                imageData: imageData,
+                maximumResponseTokens: 300,
+                timeoutInterval: 120,
+                appleUseCase: .general,
+                appleSchema: nil
+            )
+        )
+
+        #expect(MockURLProtocol.requestCount == 2)
+        #expect(response.text == #"{"category":"专注工作","summary":"兼容旧版 LM Studio 多模态输入格式"}"#)
     }
 
     @Test func nextAnalysisDateFallsToTomorrowWhenTodayIsMissed() async throws {
@@ -477,6 +620,32 @@ struct DailyWorkSummarizerTests {
     @Test func pauseAfterFiveConsecutiveFailures() async throws {
         #expect(!AnalysisService.shouldPauseAfterConsecutiveFailures(4))
         #expect(AnalysisService.shouldPauseAfterConsecutiveFailures(5))
+    }
+
+    @Test func lmStudioPauseTransitionsToUnloadStageAfterGenerationStops() async throws {
+        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .lmStudio) == .unloadingModel)
+        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .openAI) == nil)
+        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .anthropic) == nil)
+        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .appleIntelligence) == nil)
+    }
+
+    @Test func pausingStagesUseDistinctMenuLabels() async throws {
+        #expect(
+            L10n.string(.menuAnalyzeNowPausingStoppingGeneration, language: .simplifiedChinese)
+                == "正在暂停（正在停止生成）"
+        )
+        #expect(
+            L10n.string(.menuAnalyzeNowPausingUnloadingModel, language: .simplifiedChinese)
+                == "正在暂停（正在卸载模型）"
+        )
+        #expect(
+            L10n.string(.menuAnalyzeNowPausingStoppingGeneration, language: .english)
+                == "Stopping (Stopping Generation)"
+        )
+        #expect(
+            L10n.string(.menuAnalyzeNowPausingUnloadingModel, language: .english)
+                == "Stopping (Unloading Model)"
+        )
     }
 
     @Test func runtimeErrorRecordingFiltersOutNonAPIErrors() async throws {

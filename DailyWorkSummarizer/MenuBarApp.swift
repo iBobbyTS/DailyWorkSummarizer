@@ -336,8 +336,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if analysisState.isRunning {
             let startedAt = analysisState.startedAt ?? pendingScreenshots.first?.capturedAt ?? Date()
             if analysisState.isStopping {
+                let stoppingStage = analysisState.stoppingStage ?? .stoppingGeneration
                 statusSummaryItem.title = text(
-                    .menuSummaryPausing,
+                    stoppingStage.statusSummaryLocalizationKey,
                     arguments: [
                         statusDateFormatter(language: language).string(from: startedAt),
                         analysisState.completedCount,
@@ -345,7 +346,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     ],
                     language: language
                 )
-                analyzeNowItem.title = text(.menuAnalyzeNowPausing, language: language)
+                analyzeNowItem.title = text(stoppingStage.analyzeNowLocalizationKey, language: language)
                 analyzeNowItem.isEnabled = false
             } else {
                 statusSummaryItem.title = text(

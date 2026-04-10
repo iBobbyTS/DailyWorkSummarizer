@@ -26,7 +26,7 @@ The app stores runtime data under Application Support:
 - `daily_reports`
   Generated daily summaries and per-category summary payloads.
 - `app_logs`
-  Persistent runtime log entries for analysis errors and later debugging events.
+  Persistent runtime log entries for analysis errors and later debugging events, including LM Studio pause and unload traces under source `lm_studio`.
 
 ## Persistence model
 

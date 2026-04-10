@@ -70,6 +70,7 @@ final class AnalysisService {
     private var wakeObserver: NSObjectProtocol?
     private var runningTask: Task<Void, Never>?
     private var activeRunSettings: AppSettingsSnapshot?
+    private var lastLMStudioModelInstanceID: String?
     private var runtimeState: AnalysisRuntimeState = .idle {
         didSet {
             NotificationCenter.default.post(name: .analysisStatusDidChange, object: nil)
@@ -123,18 +124,25 @@ final class AnalysisService {
 
     func cancelCurrentRun() {
         guard runtimeState.isRunning, !runtimeState.isStopping else { return }
+        if activeRunSettings?.provider == .lmStudio {
+            recordLMStudioLog(
+                chinese: "用户点击了暂停分析。",
+                english: "User requested to pause analysis."
+            )
+        }
         updateRuntimeState(
             startedAt: runtimeState.startedAt,
             completedCount: runtimeState.completedCount,
             totalCount: runtimeState.totalCount,
-            isStopping: true
+            stoppingStage: .stoppingGeneration
         )
         runningTask?.cancel()
         llmService.cancelActiveRemoteRequest()
-        if let activeRunSettings {
-            Task { [weak self] in
-                await self?.stopModelIfNeeded(for: activeRunSettings)
-            }
+        if activeRunSettings?.provider == .lmStudio {
+            recordLMStudioLog(
+                chinese: "已向当前 LM Studio 请求发送取消。",
+                english: "Sent cancellation to the active LM Studio request."
+            )
         }
     }
 
@@ -153,6 +161,7 @@ final class AnalysisService {
 
     func testCurrentSettings(with imageFileURL: URL) async throws -> ModelTestResult {
         let snapshot = settingsStore.snapshot
+        lastLMStudioModelInstanceID = nil
 
         guard !snapshot.validCategoryRules.isEmpty else {
             throw AnalysisServiceError.invalidConfiguration(localized(.analysisNeedsCategoryRule, language: snapshot.appLanguage))
@@ -239,6 +248,7 @@ final class AnalysisService {
 
     private func runAnalysis(scheduledFor: Date) async {
         let snapshot = settingsStore.snapshot
+        lastLMStudioModelInstanceID = nil
         activeRunSettings = snapshot
         let prompt = buildPrompt(
             with: snapshot.validCategoryRules,
@@ -267,7 +277,7 @@ final class AnalysisService {
             startedAt: pendingCaptures.first?.capturedAt,
             completedCount: 0,
             totalCount: pendingCaptures.count,
-            isStopping: false
+            stoppingStage: nil
         )
         defer {
             activeRunSettings = nil
@@ -323,9 +333,20 @@ final class AnalysisService {
         var wasPausedAfterFailures = false
         var measuredDurationTotal: TimeInterval = 0
         var measuredItemCount = 0
+        var didLogLMStudioCancellationObservation = false
+
+        func recordLMStudioCancellationObservationIfNeeded() {
+            guard snapshot.provider == .lmStudio, !didLogLMStudioCancellationObservation else { return }
+            didLogLMStudioCancellationObservation = true
+            recordLMStudioLog(
+                chinese: "分析循环检测到取消，准备进入 LM Studio 清理阶段。",
+                english: "Analysis loop observed cancellation and is entering LM Studio cleanup."
+            )
+        }
 
         for (index, capture) in pendingCaptures.enumerated() {
             if Task.isCancelled {
+                recordLMStudioCancellationObservationIfNeeded()
                 wasCancelled = true
                 break
             }
@@ -386,6 +407,7 @@ final class AnalysisService {
                 NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
             } catch {
                 if error is CancellationError || Task.isCancelled {
+                    recordLMStudioCancellationObservationIfNeeded()
                     wasCancelled = true
                     break
                 }
@@ -434,6 +456,14 @@ final class AnalysisService {
                 averageItemDurationSeconds: measuredItemCount > 0 ? measuredDurationTotal / Double(measuredItemCount) : nil,
                 errorMessage: localized(.analysisCancelledByUser, language: snapshot.appLanguage)
             )
+            if let unloadingStage = Self.stoppingStageAfterGenerationStops(for: snapshot.provider) {
+                updateRuntimeState(
+                    startedAt: pendingCaptures.first?.capturedAt,
+                    completedCount: completedCount,
+                    totalCount: pendingCaptures.count,
+                    stoppingStage: unloadingStage
+                )
+            }
             await stopModelIfNeeded(for: snapshot)
             return
         }
@@ -613,6 +643,16 @@ final class AnalysisService {
 
         guard let text = llmResponse.text else {
             throw AnalysisServiceError.invalidResponse(localized(.analysisInvalidCategoryWithText, language: settings.appLanguage))
+        }
+
+        if settings.provider == .lmStudio,
+           let modelInstanceID = llmResponse.modelInstanceID,
+           !modelInstanceID.isEmpty {
+            lastLMStudioModelInstanceID = modelInstanceID
+            recordLMStudioLog(
+                chinese: "LM Studio chat 返回 model_instance_id=\(modelInstanceID)。",
+                english: "LM Studio chat returned model_instance_id=\(modelInstanceID)."
+            )
         }
 
         guard let response = Self.extractAnalysisResponse(from: text, validRules: settings.validCategoryRules) else {
@@ -898,11 +938,11 @@ final class AnalysisService {
         startedAt: Date?,
         completedCount: Int,
         totalCount: Int,
-        isStopping: Bool? = nil
+        stoppingStage: AnalysisStoppingStage? = nil
     ) {
         runtimeState = AnalysisRuntimeState(
             isRunning: true,
-            isStopping: isStopping ?? runtimeState.isStopping,
+            stoppingStage: stoppingStage ?? runtimeState.stoppingStage,
             startedAt: startedAt,
             completedCount: completedCount,
             totalCount: totalCount
@@ -951,6 +991,17 @@ final class AnalysisService {
     }
 
     private func stopModelIfNeeded(for settings: AppSettingsSnapshot) async {
+        if settings.provider == .lmStudio {
+            let lastInstanceID = lastLMStudioModelInstanceID ?? "未记录"
+            recordLMStudioLog(
+                chinese: "进入 LM Studio 清理阶段，Task.isCancelled=\(Task.isCancelled)，最近一次 chat 的 model_instance_id=\(lastInstanceID)。",
+                english: "Entering LM Studio cleanup. Task.isCancelled=\(Task.isCancelled), last chat model_instance_id=\(lastInstanceID)."
+            )
+            recordLMStudioLog(
+                chinese: "再次向当前 LM Studio 请求发送取消。",
+                english: "Sending cancellation to the current LM Studio request again."
+            )
+        }
         llmService.cancelActiveRemoteRequest()
 
         guard settings.provider == .lmStudio,
@@ -959,22 +1010,83 @@ final class AnalysisService {
         }
 
         do {
+            recordLMStudioLog(
+                chinese: "开始请求 LM Studio /api/v1/models。",
+                english: "Requesting LM Studio /api/v1/models."
+            )
             let listRequest = makeJSONRequest(url: modelsURL, method: "GET", apiKey: settings.apiKey)
             let result = try await performDataRequest(for: listRequest)
-            guard let httpResponse = result.response as? HTTPURLResponse,
-                  (200..<300).contains(httpResponse.statusCode) else {
+            guard let httpResponse = result.response as? HTTPURLResponse else {
+                recordLMStudioLog(
+                    chinese: "LM Studio /api/v1/models 未返回有效的 HTTP 响应。",
+                    english: "LM Studio /api/v1/models did not return a valid HTTP response."
+                )
                 return
             }
 
-            guard let instanceID = LMStudioAPI.extractLoadedInstanceID(from: result.data, modelName: settings.modelName) else {
+            let listResponseBody = Self.truncatedDebugText(String(decoding: result.data, as: UTF8.self))
+            guard (200..<300).contains(httpResponse.statusCode) else {
+                recordLMStudioLog(
+                    chinese: "LM Studio /api/v1/models 返回 \(httpResponse.statusCode)，响应：\(listResponseBody)",
+                    english: "LM Studio /api/v1/models returned \(httpResponse.statusCode). Body: \(listResponseBody)"
+                )
                 return
             }
+
+            let modelsCount = LMStudioAPI.modelsCount(from: result.data) ?? 0
+            recordLMStudioLog(
+                chinese: "LM Studio /api/v1/models 成功，返回 \(modelsCount) 个模型。",
+                english: "LM Studio /api/v1/models succeeded and returned \(modelsCount) models."
+            )
+
+            guard let instanceID = LMStudioAPI.extractLoadedInstanceID(from: result.data, modelName: settings.modelName) else {
+                let lastInstanceID = lastLMStudioModelInstanceID ?? "未记录"
+                recordLMStudioLog(
+                    chinese: "未能为 modelName=\(settings.modelName) 匹配到已加载实例。最近一次 chat 的 model_instance_id=\(lastInstanceID)。",
+                    english: "Could not match a loaded instance for modelName=\(settings.modelName). Last chat model_instance_id=\(lastInstanceID)."
+                )
+                return
+            }
+
+            recordLMStudioLog(
+                chinese: "已匹配待卸载实例 \(instanceID)（modelName=\(settings.modelName)）。",
+                english: "Matched loaded instance \(instanceID) for modelName=\(settings.modelName)."
+            )
 
             let unloadURL = modelsURL.appendingPathComponent("unload")
             var unloadRequest = makeJSONRequest(url: unloadURL, method: "POST", apiKey: settings.apiKey)
             unloadRequest.httpBody = try JSONSerialization.data(withJSONObject: ["instance_id": instanceID])
-            _ = try await performDataRequest(for: unloadRequest)
+            recordLMStudioLog(
+                chinese: "开始请求 LM Studio /api/v1/models/unload，instance_id=\(instanceID)。",
+                english: "Requesting LM Studio /api/v1/models/unload with instance_id=\(instanceID)."
+            )
+            let unloadResult = try await performDataRequest(for: unloadRequest)
+            guard let unloadHTTPResponse = unloadResult.response as? HTTPURLResponse else {
+                recordLMStudioLog(
+                    chinese: "LM Studio unload 未返回有效的 HTTP 响应。",
+                    english: "LM Studio unload did not return a valid HTTP response."
+                )
+                return
+            }
+
+            let unloadResponseBody = Self.truncatedDebugText(String(decoding: unloadResult.data, as: UTF8.self))
+            guard (200..<300).contains(unloadHTTPResponse.statusCode) else {
+                recordLMStudioLog(
+                    chinese: "LM Studio unload 返回 \(unloadHTTPResponse.statusCode)，响应：\(unloadResponseBody)",
+                    english: "LM Studio unload returned \(unloadHTTPResponse.statusCode). Body: \(unloadResponseBody)"
+                )
+                return
+            }
+
+            recordLMStudioLog(
+                chinese: "LM Studio unload 成功，instance_id=\(instanceID)。",
+                english: "LM Studio unload succeeded for instance_id=\(instanceID)."
+            )
         } catch {
+            recordLMStudioLog(
+                chinese: "LM Studio 清理阶段发生错误：\(error.localizedDescription)",
+                english: "LM Studio cleanup failed: \(error.localizedDescription)"
+            )
             return
         }
     }
@@ -993,6 +1105,15 @@ final class AnalysisService {
 
     nonisolated static func shouldPauseAfterConsecutiveFailures(_ failureCount: Int, threshold: Int = 5) -> Bool {
         failureCount >= threshold
+    }
+
+    nonisolated static func stoppingStageAfterGenerationStops(for provider: ModelProvider) -> AnalysisStoppingStage? {
+        switch provider {
+        case .lmStudio:
+            return .unloadingModel
+        case .openAI, .anthropic, .appleIntelligence:
+            return nil
+        }
     }
 
     nonisolated static func shouldRecordRuntimeError(_ error: Error) -> Bool {
@@ -1043,12 +1164,41 @@ final class AnalysisService {
         }
     }
 
+    nonisolated private static func truncatedDebugText(_ text: String, limit: Int = 400) -> String {
+        let collapsed = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !collapsed.isEmpty else {
+            return "(empty)"
+        }
+
+        guard collapsed.count > limit else {
+            return collapsed
+        }
+
+        return String(collapsed.prefix(limit)) + "..."
+    }
+
     private func localized(_ key: L10n.Key, language: AppLanguage? = nil) -> String {
         L10n.string(key, language: language ?? settingsStore.appLanguage)
     }
 
     private func localized(_ key: L10n.Key, arguments: [CVarArg], language: AppLanguage? = nil) -> String {
         L10n.string(key, language: language ?? settingsStore.appLanguage, arguments: arguments)
+    }
+
+    private func recordLMStudioLog(chinese: String, english: String) {
+        let message: String
+        switch settingsStore.appLanguage {
+        case .simplifiedChinese:
+            message = chinese
+        case .english:
+            message = english
+        }
+
+        logStore.add(level: .log, source: .lmStudio, message: message)
     }
 
     private func invalidAnalysisResponseMessage(
