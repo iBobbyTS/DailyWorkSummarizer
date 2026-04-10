@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AppLogsView: View {
@@ -69,6 +70,10 @@ struct AppLogsView: View {
 
             HStack {
                 Spacer()
+                Button(text(.logsCopyAll)) {
+                    copyAllLogs()
+                }
+                .disabled(filteredEntries.isEmpty)
                 Button(text(.logsClearAll)) {
                     logStore.removeAll()
                 }
@@ -99,5 +104,15 @@ struct AppLogsView: View {
 
     private func text(_ key: L10n.Key) -> String {
         L10n.string(key, language: language)
+    }
+
+    private func copyAllLogs() {
+        let content = filteredEntries
+            .map { $0.exportText(in: language) }
+            .joined(separator: "\n")
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(content, forType: .string)
     }
 }

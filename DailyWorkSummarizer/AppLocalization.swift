@@ -144,7 +144,10 @@ enum L10n {
         case menuNextCaptureAt
         case logsEmptyTitle
         case logsEmptyDescription
+        case logsCopyAll
         case logsClearAll
+        case logsLevelError
+        case logsLevelLog
         case errorsEmptyTitle
         case errorsEmptyDescription
         case errorsClearAll
@@ -322,7 +325,10 @@ enum L10n {
             .menuNextCaptureAt: "下一次会在%@进行截图",
             .logsEmptyTitle: "当前没有日志",
             .logsEmptyDescription: "这里会显示分析错误，以及后续模型调试日志。",
+            .logsCopyAll: "全部复制",
             .logsClearAll: "清空所有日志",
+            .logsLevelError: "错误",
+            .logsLevelLog: "日志",
             .errorsEmptyTitle: "当前没有错误",
             .errorsEmptyDescription: "后续分析出错时，会在这里显示最新的大模型返回错误。",
             .errorsClearAll: "清空所有错误",
@@ -498,7 +504,10 @@ enum L10n {
             .menuNextCaptureAt: "Next screenshot at %@",
             .logsEmptyTitle: "No Logs",
             .logsEmptyDescription: "Analysis errors and later model-debugging logs will appear here.",
+            .logsCopyAll: "Copy All",
             .logsClearAll: "Clear All Logs",
+            .logsLevelError: "Error",
+            .logsLevelLog: "Log",
             .errorsEmptyTitle: "No Errors",
             .errorsEmptyDescription: "New model errors will appear here when analysis fails.",
             .errorsClearAll: "Clear All Errors",
@@ -606,7 +615,18 @@ enum L10n {
     }
 
     static func timestampFormatter(language: AppLanguage = .current) -> DateFormatter {
-        dateFormatter(template: "yMdHms", language: language, timeZone: .current)
+        let formatter = DateFormatter()
+        formatter.locale = language.locale
+        formatter.timeZone = .current
+
+        switch language {
+        case .simplifiedChinese:
+            formatter.dateFormat = "yyyy/M/d HH:mm:ss.SSS"
+        case .english:
+            formatter.dateFormat = "M/d/yyyy, HH:mm:ss.SSS"
+        }
+
+        return formatter
     }
 
     static func reportDayFormatter(language: AppLanguage = .current) -> DateFormatter {

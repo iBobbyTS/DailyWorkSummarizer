@@ -1135,10 +1135,31 @@ struct DailyWorkSummarizerTests {
         #expect(L10n.string(.menuShowLogs, language: .simplifiedChinese) == "显示日志")
         #expect(L10n.string(.menuShowLogs, language: .english) == "Show Logs")
         #expect(L10n.string(.logsEmptyTitle, language: .simplifiedChinese) == "当前没有日志")
+        #expect(L10n.string(.logsCopyAll, language: .simplifiedChinese) == "全部复制")
         #expect(L10n.string(.logsClearAll, language: .english) == "Clear All Logs")
         #expect(AppLogFilter.all.title(in: .simplifiedChinese) == "全部")
+        #expect(AppLogFilter.error.title(in: .simplifiedChinese) == "错误")
+        #expect(AppLogFilter.log.title(in: .simplifiedChinese) == "日志")
         #expect(AppLogFilter.error.title(in: .english) == "Error")
         #expect(AppLogFilter.log.title(in: .english) == "Log")
+    }
+
+    @Test func appLogExportTextIncludesMillisecondsAndLocalizedLevel() async throws {
+        let entry = AppLogEntry(
+            createdAt: Date(timeIntervalSince1970: 1_744_257_296.123),
+            level: .error,
+            source: .lmStudio,
+            message: "LM Studio unload 成功"
+        )
+
+        let chineseText = entry.exportText(in: .simplifiedChinese)
+        let englishText = entry.exportText(in: .english)
+
+        #expect(chineseText.contains("[错误]"))
+        #expect(chineseText.contains("LM Studio unload 成功"))
+        #expect(chineseText.contains(".123"))
+        #expect(englishText.contains("[Error]"))
+        #expect(englishText.contains(".123"))
     }
 
     @Test func latestActivityDayStartIncludesAbsenceEvents() async throws {

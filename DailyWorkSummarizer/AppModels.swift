@@ -452,15 +452,11 @@ enum AppLogLevel: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     func title(in language: AppLanguage) -> String {
-        switch (self, language) {
-        case (.error, .simplifiedChinese):
-            return "Error"
-        case (.error, .english):
-            return "Error"
-        case (.log, .simplifiedChinese):
-            return "Log"
-        case (.log, .english):
-            return "Log"
+        switch self {
+        case .error:
+            return L10n.string(.logsLevelError, language: language)
+        case .log:
+            return L10n.string(.logsLevelLog, language: language)
         }
     }
 }
@@ -494,14 +490,10 @@ enum AppLogFilter: String, CaseIterable, Identifiable {
             return "全部"
         case (.all, .english):
             return "All"
-        case (.error, .simplifiedChinese):
-            return "Error"
-        case (.error, .english):
-            return "Error"
-        case (.log, .simplifiedChinese):
-            return "Log"
-        case (.log, .english):
-            return "Log"
+        case (.error, _):
+            return L10n.string(.logsLevelError, language: language)
+        case (.log, _):
+            return L10n.string(.logsLevelLog, language: language)
         }
     }
 }
@@ -525,6 +517,11 @@ struct AppLogEntry: Identifiable, Hashable {
         self.level = level
         self.source = source
         self.message = message
+    }
+
+    func exportText(in language: AppLanguage) -> String {
+        let timestamp = L10n.timestampFormatter(language: language).string(from: createdAt)
+        return "\(timestamp) [\(level.title(in: language))] \(message)"
     }
 }
 
