@@ -119,6 +119,7 @@ enum L10n {
         case statusAccessibilityDescription
         case menuNoPending
         case menuOpenScreenshotsFolder
+        case menuShowLogs
         case menuShowErrorsCount
         case menuTurnOffAutoAnalysis
         case menuTurnOnAutoAnalysis
@@ -131,6 +132,7 @@ enum L10n {
         case menuQuit
         case windowSettings
         case windowReports
+        case windowLogs
         case windowErrors
         case alertDatabaseInitFailed
         case menuLastAverageDuration
@@ -138,6 +140,9 @@ enum L10n {
         case menuSummaryAnalyzing
         case menuSummaryPending
         case menuNextCaptureAt
+        case logsEmptyTitle
+        case logsEmptyDescription
+        case logsClearAll
         case errorsEmptyTitle
         case errorsEmptyDescription
         case errorsClearAll
@@ -290,6 +295,7 @@ enum L10n {
             .statusAccessibilityDescription: "每日工作总结",
             .menuNoPending: "当前没有待分析的截图",
             .menuOpenScreenshotsFolder: "打开截图文件夹",
+            .menuShowLogs: "显示日志",
             .menuShowErrorsCount: "显示%d个错误",
             .menuTurnOffAutoAnalysis: "关闭定时分析",
             .menuTurnOnAutoAnalysis: "开启定时分析",
@@ -302,6 +308,7 @@ enum L10n {
             .menuQuit: "退出",
             .windowSettings: "设置",
             .windowReports: "查看报告",
+            .windowLogs: "查看日志",
             .windowErrors: "查看错误",
             .alertDatabaseInitFailed: "初始化数据库失败",
             .menuLastAverageDuration: "上次分析平均每张耗时%@秒",
@@ -309,6 +316,9 @@ enum L10n {
             .menuSummaryAnalyzing: "正在分析从 %@ 开始的截屏（%d/%d）",
             .menuSummaryPending: "当前截图从 %@ 开始，共 %d 张",
             .menuNextCaptureAt: "下一次会在%@进行截图",
+            .logsEmptyTitle: "当前没有日志",
+            .logsEmptyDescription: "这里会显示分析错误，以及后续模型调试日志。",
+            .logsClearAll: "清空所有日志",
             .errorsEmptyTitle: "当前没有错误",
             .errorsEmptyDescription: "后续分析出错时，会在这里显示最新的大模型返回错误。",
             .errorsClearAll: "清空所有错误",
@@ -459,6 +469,7 @@ enum L10n {
             .statusAccessibilityDescription: "Daily Work Summarizer",
             .menuNoPending: "No screenshots pending analysis",
             .menuOpenScreenshotsFolder: "Open Screenshots Folder",
+            .menuShowLogs: "Show Logs",
             .menuShowErrorsCount: "Show %d Errors",
             .menuTurnOffAutoAnalysis: "Turn Off Scheduled Analysis",
             .menuTurnOnAutoAnalysis: "Turn On Scheduled Analysis",
@@ -471,6 +482,7 @@ enum L10n {
             .menuQuit: "Quit",
             .windowSettings: "Settings",
             .windowReports: "Reports",
+            .windowLogs: "Logs",
             .windowErrors: "Errors",
             .alertDatabaseInitFailed: "Failed to initialize database",
             .menuLastAverageDuration: "Last run averaged %@ sec per screenshot",
@@ -478,6 +490,9 @@ enum L10n {
             .menuSummaryAnalyzing: "Analyzing screenshots starting at %@ (%d/%d)",
             .menuSummaryPending: "Pending screenshots since %@, %d total",
             .menuNextCaptureAt: "Next screenshot at %@",
+            .logsEmptyTitle: "No Logs",
+            .logsEmptyDescription: "Analysis errors and later model-debugging logs will appear here.",
+            .logsClearAll: "Clear All Logs",
             .errorsEmptyTitle: "No Errors",
             .errorsEmptyDescription: "New model errors will appear here when analysis fails.",
             .errorsClearAll: "Clear All Errors",

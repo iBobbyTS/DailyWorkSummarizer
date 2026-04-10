@@ -62,7 +62,7 @@ final class AnalysisService {
     }
     private let database: AppDatabase
     private let settingsStore: SettingsStore
-    private let errorStore: AnalysisErrorStore
+    private let logStore: AppLogStore
     private let dailyReportSummaryService: DailyReportSummaryService
     private let session: URLSession
     private let llmService: LLMService
@@ -79,13 +79,13 @@ final class AnalysisService {
     init(
         database: AppDatabase,
         settingsStore: SettingsStore,
-        errorStore: AnalysisErrorStore,
+        logStore: AppLogStore,
         dailyReportSummaryService: DailyReportSummaryService,
         session: URLSession? = nil
     ) {
         self.database = database
         self.settingsStore = settingsStore
-        self.errorStore = errorStore
+        self.logStore = logStore
         self.dailyReportSummaryService = dailyReportSummaryService
         let resolvedSession = session ?? Self.makeIsolatedSession()
         self.session = resolvedSession
@@ -186,7 +186,7 @@ final class AnalysisService {
             )
         } catch {
             if Self.shouldRecordRuntimeError(error) {
-                errorStore.add(error.localizedDescription)
+                logStore.add(level: .error, source: .analysis, message: error.localizedDescription)
             }
             throw error
         }
@@ -392,7 +392,7 @@ final class AnalysisService {
 
                 let message = error.localizedDescription
                 if Self.shouldRecordRuntimeError(error) {
-                    errorStore.add(message)
+                    logStore.add(level: .error, source: .analysis, message: message)
                 }
                 try? database.insertAnalysisResult(
                     runID: runID,

@@ -25,12 +25,15 @@ The app stores runtime data under Application Support:
   Idle or away intervals recorded without screenshots.
 - `daily_reports`
   Generated daily summaries and per-category summary payloads.
+- `app_logs`
+  Persistent runtime log entries for analysis errors and later debugging events.
 
 ## Persistence model
 
 ### SQLite
 
 SQLite is the source of truth for captured work history, analysis outputs, and generated daily reports.
+It also stores lightweight runtime logs in `app_logs`, capped to the latest 1000 entries.
 
 ### UserDefaults
 
@@ -121,9 +124,15 @@ sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summar
   "select id,datetime(day_start,'unixepoch','localtime'),substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
 ```
 
+Recent runtime logs:
+
+```sh
+sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" \
+  "select datetime(created_at,'unixepoch','localtime'),level,source,substr(message,1,160) from app_logs order by created_at desc limit 50;"
+```
+
 Recent screenshots:
 
 ```sh
 ls -lah "$HOME/Library/Application Support/DailyWorkSummarizer/screenshots" | tail
 ```
-

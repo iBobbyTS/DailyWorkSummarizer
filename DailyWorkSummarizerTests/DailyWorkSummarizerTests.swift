@@ -888,6 +888,90 @@ struct DailyWorkSummarizerTests {
         #expect(report.categorySummaries["专注工作"] == "第二次分类总结")
     }
 
+    @Test func databaseCreatesAndFetchesAppLogs() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let entry = AppLogEntry(
+            createdAt: Date(timeIntervalSince1970: 120),
+            level: .error,
+            source: .analysis,
+            message: "模型返回格式错误"
+        )
+
+        try database.insertAppLog(entry)
+
+        let columns = try columnNames(in: "app_logs", databaseURL: databaseURL)
+        let logs = try database.fetchAppLogs()
+
+        #expect(columns == ["id", "created_at", "level", "source", "message"])
+        #expect(logs.count == 1)
+        #expect(logs.first?.id == entry.id)
+        #expect(logs.first?.level == .error)
+        #expect(logs.first?.source == .analysis)
+        #expect(logs.first?.message == "模型返回格式错误")
+    }
+
+    @Test func appLogStorePersistsAcrossReloadAndPrunesOldEntries() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = AppLogStore(database: database, maxEntries: 3)
+
+        store.add(level: .error, source: .analysis, message: "first", createdAt: Date(timeIntervalSince1970: 1))
+        store.add(level: .log, source: .analysis, message: "second", createdAt: Date(timeIntervalSince1970: 2))
+        store.add(level: .error, source: .analysis, message: "third", createdAt: Date(timeIntervalSince1970: 3))
+        store.add(level: .log, source: .analysis, message: "fourth", createdAt: Date(timeIntervalSince1970: 4))
+
+        #expect(store.entries.count == 3)
+        #expect(store.entries.map(\.message) == ["fourth", "third", "second"])
+
+        let reloadedStore = AppLogStore(database: database, maxEntries: 3)
+        #expect(reloadedStore.entries.count == 3)
+        #expect(reloadedStore.entries.map(\.message) == ["fourth", "third", "second"])
+    }
+
+    @Test func appLogStoreRemoveAndClearPersistToDatabase() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = AppLogStore(database: database)
+
+        store.add(level: .error, source: .analysis, message: "first", createdAt: Date(timeIntervalSince1970: 1))
+        store.add(level: .log, source: .analysis, message: "second", createdAt: Date(timeIntervalSince1970: 2))
+
+        let removedID = try #require(store.entries.last?.id)
+        store.remove(id: removedID)
+
+        let remainingAfterRemove = try database.fetchAppLogs()
+        #expect(remainingAfterRemove.count == 1)
+        #expect(remainingAfterRemove.first?.message == "second")
+
+        store.removeAll()
+        #expect(store.entries.isEmpty)
+        #expect(try database.fetchAppLogs().isEmpty)
+    }
+
+    @Test func appLogFilterAndMenuLocalizationReflectLogUI() async throws {
+        #expect(AppLogFilter.all.includes(level: .error))
+        #expect(AppLogFilter.all.includes(level: .log))
+        #expect(AppLogFilter.error.includes(level: .error))
+        #expect(!AppLogFilter.error.includes(level: .log))
+        #expect(AppLogFilter.log.includes(level: .log))
+        #expect(!AppLogFilter.log.includes(level: .error))
+
+        #expect(L10n.string(.menuShowLogs, language: .simplifiedChinese) == "显示日志")
+        #expect(L10n.string(.menuShowLogs, language: .english) == "Show Logs")
+        #expect(L10n.string(.logsEmptyTitle, language: .simplifiedChinese) == "当前没有日志")
+        #expect(L10n.string(.logsClearAll, language: .english) == "Clear All Logs")
+        #expect(AppLogFilter.all.title(in: .simplifiedChinese) == "全部")
+        #expect(AppLogFilter.error.title(in: .english) == "Error")
+        #expect(AppLogFilter.log.title(in: .english) == "Log")
+    }
+
     @Test func latestActivityDayStartIncludesAbsenceEvents() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: databaseURL) }

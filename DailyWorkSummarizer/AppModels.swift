@@ -6,6 +6,7 @@ enum AppDefaults {
     static let analysisTimeMinutes = 18 * 60 + 30
     static let automaticAnalysisEnabled = true
     static let autoAnalysisRequiresCharger = false
+    nonisolated static let maxLogEntries = 1000
     static let lmStudioContextLength = 6000
     static let maxPageSize = 31
     static let screenshotFileExtension = "jpg"
@@ -419,14 +420,85 @@ struct AnalysisRuntimeState {
     )
 }
 
-struct AnalysisErrorEntry: Identifiable, Hashable {
+enum AppLogLevel: String, Codable, CaseIterable, Identifiable {
+    case error
+    case log
+
+    var id: String { rawValue }
+
+    func title(in language: AppLanguage) -> String {
+        switch (self, language) {
+        case (.error, .simplifiedChinese):
+            return "Error"
+        case (.error, .english):
+            return "Error"
+        case (.log, .simplifiedChinese):
+            return "Log"
+        case (.log, .english):
+            return "Log"
+        }
+    }
+}
+
+enum AppLogSource: String, Codable {
+    case analysis = "analysis"
+    case lmStudio = "lm_studio"
+}
+
+enum AppLogFilter: String, CaseIterable, Identifiable {
+    case all
+    case error
+    case log
+
+    var id: String { rawValue }
+
+    func includes(level: AppLogLevel) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .error:
+            return level == .error
+        case .log:
+            return level == .log
+        }
+    }
+
+    func title(in language: AppLanguage) -> String {
+        switch (self, language) {
+        case (.all, .simplifiedChinese):
+            return "全部"
+        case (.all, .english):
+            return "All"
+        case (.error, .simplifiedChinese):
+            return "Error"
+        case (.error, .english):
+            return "Error"
+        case (.log, .simplifiedChinese):
+            return "Log"
+        case (.log, .english):
+            return "Log"
+        }
+    }
+}
+
+struct AppLogEntry: Identifiable, Hashable {
     let id: UUID
     let createdAt: Date
+    let level: AppLogLevel
+    let source: AppLogSource
     let message: String
 
-    init(id: UUID = UUID(), createdAt: Date = Date(), message: String) {
+    init(
+        id: UUID = UUID(),
+        createdAt: Date = Date(),
+        level: AppLogLevel,
+        source: AppLogSource,
+        message: String
+    ) {
         self.id = id
         self.createdAt = createdAt
+        self.level = level
+        self.source = source
         self.message = message
     }
 }
@@ -577,5 +649,5 @@ extension Notification.Name {
     static let appDatabaseDidChange = Notification.Name("DailyWorkSummarizer.AppDatabaseDidChange")
     static let screenshotFilesDidChange = Notification.Name("DailyWorkSummarizer.ScreenshotFilesDidChange")
     static let analysisStatusDidChange = Notification.Name("DailyWorkSummarizer.AnalysisStatusDidChange")
-    static let analysisErrorsDidChange = Notification.Name("DailyWorkSummarizer.AnalysisErrorsDidChange")
+    static let appLogsDidChange = Notification.Name("DailyWorkSummarizer.AppLogsDidChange")
 }

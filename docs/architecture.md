@@ -18,8 +18,8 @@ The app is centered around a small set of long-lived services created at launch 
   Shared provider adapter for OpenAI, Anthropic, LM Studio, and Apple Intelligence.
 - `ReportsViewModel`
   Report range construction, chart data, heatmap data, and daily report presentation.
-- `AnalysisErrorStore`
-  Lightweight in-memory runtime error list for UI display.
+- `AppLogStore`
+  SQLite-backed runtime log list used by the menu-bar log window.
 
 ## High-level flow
 
@@ -29,7 +29,7 @@ The app is centered around a small set of long-lived services created at launch 
 - The app opens or creates the SQLite database.
 - Settings are loaded from UserDefaults and Keychain.
 - Services are created and started.
-- The menu bar UI reflects pending screenshots, active analysis state, and errors.
+- The menu bar UI reflects pending screenshots, active analysis state, and the log viewer entry point.
 
 ### 2. Capture flow
 
@@ -82,6 +82,7 @@ This separation allows the app to use different providers, credentials, or model
 - UI-facing observable objects subscribe to those notifications and reload derived state.
 - `SettingsStore` is the authoritative source for user-editable configuration at runtime.
 - Services consume immutable snapshots when starting work to avoid mid-run drift.
+- `AppLogStore` is the authoritative source for runtime log entries shown in the UI; it reloads from SQLite after each mutation and emits `appLogsDidChange`.
 
 ## Architectural constraints
 
@@ -90,3 +91,4 @@ This separation allows the app to use different providers, credentials, or model
 - The app relies on OS facilities for screen capture, OCR, Keychain access, and Apple Intelligence availability.
 - The current codebase favors direct service composition over protocol-heavy abstraction.
 - Provider-specific HTTP payloads are centralized in `LLMService.swift`, with LM Studio v1 request helpers isolated in `LMStudioAPI.swift`.
+- Runtime debugging logs are persisted in SQLite rather than kept only in memory, so the log window survives relaunches and supports later instrumentation.

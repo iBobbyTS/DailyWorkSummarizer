@@ -17,6 +17,7 @@
 - `DailyWorkSummarizer/LMStudioAPI.swift`
 - `DailyWorkSummarizer/AppSettings.swift`
 - `DailyWorkSummarizer/AppModels.swift`
+- `DailyWorkSummarizer/AnalysisErrorStore.swift`
 - `DailyWorkSummarizer/SettingsView.swift`
 - `DailyWorkSummarizer/AppLocalization.swift`
 
@@ -32,6 +33,8 @@
    这里处理日报汇总、按天补生成、模型请求和解析。
 5. 看 `LLMService.swift`
    这里统一封装 OpenAI、Anthropic、LM Studio、Apple Intelligence 的请求构造、响应归一化、超时、取消和 provider 能力说明。
+6. 看 `AnalysisErrorStore.swift`
+   这里现在是持久化 `AppLogStore`，负责把分析错误和调试日志写进 SQLite，再同步到菜单栏日志窗口。
 
 截图分析的关键入口：
 
@@ -54,6 +57,7 @@
 - `LLMService.providerContract(for:)`
 - `LLMService.send(_:)`
 - `LMStudioAPI.parseChatResponse(from:)`
+- `AppLogStore.add(level:source:message:)`
 
 当前行为边界：
 
@@ -72,6 +76,8 @@
   先看 `extractAnalysisResponse` / `extractDailyReportResponse`，再补单测覆盖新的输出包裹格式。
 - 设置改了但运行时没生效：
   先看 `SettingsStore.snapshot`，再看调用方是否拿的是截图分析配置还是工作内容分析配置。
+- 要排查暂停、卸载或 provider 异常：
+  先打开菜单里的“显示日志”，再结合 `app_logs` 表确认错误和调试事件是否真的落库。
 
 改动时容易漏的点：
 
@@ -80,3 +86,4 @@
 - 文案或提示词改动通常同时落在 `AppLocalization.swift` 和对应 service。
 - LM Studio 请求格式或解析逻辑改动时，优先改 `LMStudioAPI.swift`，不要在两个 service 里各自复制一份。
 - OpenAI / Anthropic / Apple Intelligence 的请求或解析行为改动时，优先改 `LLMService.swift`，并同步更新 `docs/model-integration.md`。
+- 分析错误和调试日志相关改动时，要同时检查 `AppLogStore`、`MenuBarApp`、`AnalysisErrorsView.swift`、`docs/data-and-testing.md`。

@@ -232,6 +232,95 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
+    func fetchAppLogs(limit: Int? = nil) throws -> [AppLogEntry] {
+        try queue.sync {
+            let limitClause = if let limit {
+                "LIMIT \(limit)"
+            } else {
+                ""
+            }
+            let statement = try prepareStatement("""
+                SELECT id, created_at, level, source, message
+                FROM app_logs
+                ORDER BY created_at DESC, id DESC
+                \(limitClause);
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            var entries: [AppLogEntry] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let idString = string(at: 0, from: statement)
+                let createdAt = sqlite3_column_double(statement, 1)
+                let levelString = string(at: 2, from: statement)
+                let sourceString = string(at: 3, from: statement)
+                let message = string(at: 4, from: statement)
+
+                guard let id = UUID(uuidString: idString),
+                      let level = AppLogLevel(rawValue: levelString),
+                      let source = AppLogSource(rawValue: sourceString) else {
+                    continue
+                }
+
+                entries.append(
+                    AppLogEntry(
+                        id: id,
+                        createdAt: Date(timeIntervalSince1970: createdAt),
+                        level: level,
+                        source: source,
+                        message: message
+                    )
+                )
+            }
+            return entries
+        }
+    }
+
+    func insertAppLog(_ entry: AppLogEntry, maxEntries: Int = AppDefaults.maxLogEntries) throws {
+        try queue.sync {
+            let statement = try prepareStatement("""
+                INSERT INTO app_logs (
+                    id,
+                    created_at,
+                    level,
+                    source,
+                    message
+                )
+                VALUES (?, ?, ?, ?, ?);
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            bind(entry.id.uuidString, at: 1, to: statement)
+            sqlite3_bind_double(statement, 2, entry.createdAt.timeIntervalSince1970)
+            bind(entry.level.rawValue, at: 3, to: statement)
+            bind(entry.source.rawValue, at: 4, to: statement)
+            bind(entry.message, at: 5, to: statement)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
+            }
+
+            try pruneAppLogsIfNeeded(maxEntries: maxEntries)
+        }
+    }
+
+    func deleteAppLog(id: UUID) throws {
+        try queue.sync {
+            let statement = try prepareStatement("DELETE FROM app_logs WHERE id = ?;")
+            defer { sqlite3_finalize(statement) }
+
+            bind(id.uuidString, at: 1, to: statement)
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
+            }
+        }
+    }
+
+    func deleteAllAppLogs() throws {
+        try queue.sync {
+            try executeLocked("DELETE FROM app_logs;")
+        }
+    }
+
     func recordAbsenceEvent(capturedAt: Date, durationMinutes: Int) throws {
         try queue.sync {
             let statement = try prepareStatement("""
@@ -553,10 +642,21 @@ final class AppDatabase: @unchecked Sendable {
             );
         """)
 
+        try execute("""
+            CREATE TABLE IF NOT EXISTS app_logs (
+                id TEXT PRIMARY KEY,
+                created_at DOUBLE NOT NULL,
+                level TEXT NOT NULL,
+                source TEXT NOT NULL,
+                message TEXT NOT NULL
+            );
+        """)
+
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_captured_at ON analysis_results (captured_at DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_category_name ON analysis_results (category_name, captured_at DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_absence_events_captured_at ON absence_events (captured_at DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_daily_reports_day_start ON daily_reports (day_start DESC);")
+        try execute("CREATE INDEX IF NOT EXISTS idx_app_logs_created_at ON app_logs (created_at DESC);")
         try migrateAnalysisRunsIfNeeded()
         try migrateAnalysisResultsIfNeeded()
         try migrateDailyReportsIfNeeded()
@@ -821,5 +921,22 @@ final class AppDatabase: @unchecked Sendable {
             return [:]
         }
         return decoded
+    }
+
+    private func pruneAppLogsIfNeeded(maxEntries: Int) throws {
+        guard maxEntries > 0 else {
+            try executeLocked("DELETE FROM app_logs;")
+            return
+        }
+
+        try executeLocked("""
+            DELETE FROM app_logs
+            WHERE id NOT IN (
+                SELECT id
+                FROM app_logs
+                ORDER BY created_at DESC, id DESC
+                LIMIT \(maxEntries)
+            );
+        """)
     }
 }
