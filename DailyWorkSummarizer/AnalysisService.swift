@@ -47,17 +47,6 @@ private struct ParsedAnalysisPayload: Decodable {
 
 @MainActor
 final class AnalysisService {
-    private struct OpenAIResponsePayload {
-        let content: String
-        let finishReason: String?
-    }
-
-    private struct LMStudioResponsePayload {
-        let content: String
-        let timing: LMStudioTiming?
-        let reasoningText: String?
-    }
-
     private struct DataRequestResult {
         let data: Data
         let response: URLResponse
@@ -76,10 +65,10 @@ final class AnalysisService {
     private let errorStore: AnalysisErrorStore
     private let dailyReportSummaryService: DailyReportSummaryService
     private let session: URLSession
+    private let llmService: LLMService
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var runningTask: Task<Void, Never>?
-    private var activeRequestTask: URLSessionDataTask?
     private var activeRunSettings: AppSettingsSnapshot?
     private var runtimeState: AnalysisRuntimeState = .idle {
         didSet {
@@ -98,7 +87,9 @@ final class AnalysisService {
         self.settingsStore = settingsStore
         self.errorStore = errorStore
         self.dailyReportSummaryService = dailyReportSummaryService
-        self.session = session ?? Self.makeIsolatedSession()
+        let resolvedSession = session ?? Self.makeIsolatedSession()
+        self.session = resolvedSession
+        self.llmService = LLMService(session: resolvedSession)
     }
 
     deinit {
@@ -139,7 +130,7 @@ final class AnalysisService {
             isStopping: true
         )
         runningTask?.cancel()
-        activeRequestTask?.cancel()
+        llmService.cancelActiveRemoteRequest()
         if let activeRunSettings {
             Task { [weak self] in
                 await self?.stopModelIfNeeded(for: activeRunSettings)
@@ -280,7 +271,6 @@ final class AnalysisService {
         )
         defer {
             activeRunSettings = nil
-            activeRequestTask = nil
             runtimeState = .idle
         }
 
@@ -574,10 +564,6 @@ final class AnalysisService {
             )
         }
 
-        guard let endpoint = settings.provider.requestURL(from: settings.apiBaseURL) else {
-            throw AnalysisServiceError.invalidConfiguration(localized(.analysisInvalidBaseURL, language: settings.appLanguage))
-        }
-
         let requestPrompt: String
         let requestImageData: Data?
         let ocrText: String?
@@ -607,97 +593,30 @@ final class AnalysisService {
             ocrText = nil
         }
 
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 120
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("close", forHTTPHeaderField: "Connection")
-
-        switch settings.provider {
-        case .openAI:
-            if !settings.apiKey.isEmpty {
-                request.setValue("Bearer \(settings.apiKey)", forHTTPHeaderField: "Authorization")
-            }
-            request.httpBody = try buildOpenAIRequestBody(
-                imageData: requestImageData,
-                modelName: settings.modelName,
-                prompt: requestPrompt
+        let llmResponse: LLMServiceResponse
+        do {
+            llmResponse = try await llmService.send(
+                LLMServiceRequest(
+                    settings: settings.screenshotAnalysisModelSettings,
+                    appLanguage: settings.appLanguage,
+                    prompt: requestPrompt,
+                    imageData: requestImageData,
+                    maximumResponseTokens: 300,
+                    timeoutInterval: 120,
+                    appleUseCase: .general,
+                    appleSchema: nil
+                )
             )
-        case .anthropic:
-            if !settings.apiKey.isEmpty {
-                request.setValue(settings.apiKey, forHTTPHeaderField: "x-api-key")
-            }
-            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-            request.httpBody = try buildAnthropicRequestBody(
-                imageData: requestImageData,
-                modelName: settings.modelName,
-                prompt: requestPrompt
-            )
-        case .lmStudio:
-            if !settings.apiKey.isEmpty {
-                request.setValue("Bearer \(settings.apiKey)", forHTTPHeaderField: "Authorization")
-            }
-            request.httpBody = try buildLMStudioRequestBody(
-                imageData: requestImageData,
-                modelName: settings.modelName,
-                prompt: requestPrompt,
-                contextLength: settings.lmStudioContextLength
-            )
-        case .appleIntelligence:
-            throw AnalysisServiceError.invalidConfiguration(localized(.analysisInvalidBaseURL, language: settings.appLanguage))
+        } catch let error as LLMServiceError {
+            throw mapLLMServiceError(error, language: settings.appLanguage)
         }
 
-        let requestResult = try await performDataRequest(for: request)
-        guard let httpResponse = requestResult.response as? HTTPURLResponse else {
-            throw AnalysisServiceError.invalidResponse(localized(.analysisInvalidHTTPResponse, language: settings.appLanguage))
-        }
-
-        let rawBody = String(decoding: requestResult.data, as: UTF8.self)
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw AnalysisServiceError.httpError(statusCode: httpResponse.statusCode, body: rawBody)
-        }
-
-        let text: String
-        let finishReason: String?
-        let requestTiming: ModelRequestTiming?
-        let lmStudioTiming: LMStudioTiming?
-        let reasoningText: String?
-        switch settings.provider {
-        case .openAI:
-            let payload = try parseOpenAIResponse(from: requestResult.data)
-            text = payload.content
-            finishReason = payload.finishReason
-            requestTiming = ModelRequestTiming(
-                roundTripSeconds: requestResult.roundTripSeconds,
-                serverProcessingSeconds: openAIProcessingSeconds(from: httpResponse)
-            )
-            lmStudioTiming = nil
-            reasoningText = nil
-        case .anthropic:
-            text = try parseAnthropicResponse(from: requestResult.data)
-            finishReason = nil
-            requestTiming = ModelRequestTiming(
-                roundTripSeconds: requestResult.roundTripSeconds,
-                serverProcessingSeconds: nil
-            )
-            lmStudioTiming = nil
-            reasoningText = nil
-        case .lmStudio:
-            let payload = try parseLMStudioResponse(from: requestResult.data)
-            text = payload.content
-            finishReason = nil
-            requestTiming = ModelRequestTiming(
-                roundTripSeconds: requestResult.roundTripSeconds,
-                serverProcessingSeconds: nil
-            )
-            lmStudioTiming = payload.timing
-            reasoningText = payload.reasoningText
-        case .appleIntelligence:
+        guard let text = llmResponse.text else {
             throw AnalysisServiceError.invalidResponse(localized(.analysisInvalidCategoryWithText, language: settings.appLanguage))
         }
 
         guard let response = Self.extractAnalysisResponse(from: text, validRules: settings.validCategoryRules) else {
-            if finishReason == "length", allowLengthRetry {
+            if llmResponse.finishReason == "length", allowLengthRetry {
                 let retryPrompt = prompt + "\n\n" + localized(.analysisRetrySupplement, language: settings.appLanguage)
                 return try await analyzeImageAttemptDetailed(
                     at: fileURL,
@@ -706,7 +625,7 @@ final class AnalysisService {
                     allowLengthRetry: false
                 )
             }
-            if finishReason == "length" {
+            if llmResponse.finishReason == "length" {
                 throw AnalysisServiceError.lengthTruncated(localized(.analysisLengthTruncated, language: settings.appLanguage))
             }
             throw AnalysisServiceError.invalidResponse(
@@ -720,108 +639,11 @@ final class AnalysisService {
 
         return AnalysisExecutionResult(
             response: response,
-            requestTiming: requestTiming,
-            lmStudioTiming: lmStudioTiming,
+            requestTiming: llmResponse.requestTiming,
+            lmStudioTiming: llmResponse.lmStudioTiming,
             ocrText: ocrText,
-            reasoningText: reasoningText
+            reasoningText: llmResponse.reasoningText
         )
-    }
-
-    private func buildOpenAIRequestBody(imageData: Data?, modelName: String, prompt: String) throws -> Data {
-        let content: Any
-        if let imageData {
-            let imageBase64 = imageData.base64EncodedString()
-            content = [
-                ["type": "text", "text": prompt],
-                [
-                    "type": "image_url",
-                    "image_url": [
-                        "url": "data:image/jpeg;base64,\(imageBase64)"
-                    ]
-                ],
-            ]
-        } else {
-            content = prompt
-        }
-
-        let body: [String: Any] = [
-            "model": modelName,
-            "messages": [
-                [
-                    "role": "user",
-                    "content": content
-                ]
-            ],
-            "max_tokens": 300,
-        ]
-        return try JSONSerialization.data(withJSONObject: body)
-    }
-
-    private func buildAnthropicRequestBody(imageData: Data?, modelName: String, prompt: String) throws -> Data {
-        var content: [[String: Any]] = []
-        if let imageData {
-            let imageBase64 = imageData.base64EncodedString()
-            content.append(
-                [
-                    "type": "image",
-                    "source": [
-                        "type": "base64",
-                        "media_type": "image/jpeg",
-                        "data": imageBase64,
-                    ]
-                ]
-            )
-        }
-        content.append(
-            [
-                "type": "text",
-                "text": prompt,
-            ]
-        )
-
-        let body: [String: Any] = [
-            "model": modelName,
-            "max_tokens": 300,
-            "messages": [
-                [
-                    "role": "user",
-                    "content": content
-                ]
-            ],
-        ]
-        return try JSONSerialization.data(withJSONObject: body)
-    }
-
-    private func buildLMStudioRequestBody(
-        imageData: Data?,
-        modelName: String,
-        prompt: String,
-        contextLength: Int
-    ) throws -> Data {
-        var input: [[String: Any]] = [
-            [
-                "type": "text",
-                "content": prompt,
-            ]
-        ]
-        if let imageData {
-            let imageBase64 = imageData.base64EncodedString()
-            input.append(
-                [
-                    "type": "image",
-                    "data_url": "data:image/jpeg;base64,\(imageBase64)"
-                ]
-            )
-        }
-
-        let body: [String: Any] = [
-            "model": modelName,
-            "input": input,
-            "store": false,
-            "context_length": contextLength,
-        ]
-
-        return try JSONSerialization.data(withJSONObject: body)
     }
 
     private func analyzeImageWithAppleIntelligence(
@@ -830,8 +652,6 @@ final class AnalysisService {
         summaryInstruction: String,
         language: AppLanguage
     ) async throws -> AnalysisResponse {
-        try ensureAppleIntelligenceAvailable(language: language)
-
         guard !recognizedText.isEmpty else {
             return fallbackAppleIntelligenceResponse(validRules: validRules, language: language)
         }
@@ -843,47 +663,39 @@ final class AnalysisService {
             language: language
         )
         let schema = appleIntelligenceAnalysisSchema(validRules: validRules, language: language)
-        let session = LanguageModelSession(
-            model: SystemLanguageModel(useCase: .contentTagging)
-        )
-        let stream = session.streamResponse(
-            to: applePrompt,
-            schema: schema,
-            options: GenerationOptions(maximumResponseTokens: 300)
-        )
-        var lastRawContent: GeneratedContent?
-
+        let llmResponse: LLMServiceResponse
         do {
-            for try await snapshot in stream {
-                lastRawContent = snapshot.rawContent
-            }
-        } catch LanguageModelSession.GenerationError.decodingFailure(let context) {
-            throw AnalysisServiceError.invalidResponse(
-                appleIntelligenceDecodingFailureMessage(
-                    details: context.debugDescription,
-                    rawText: capturedAppleIntelligenceResponseText(
-                        lastRawContent: lastRawContent,
-                        session: session
+            llmResponse = try await llmService.send(
+                LLMServiceRequest(
+                    settings: AnalysisModelSettings(
+                        provider: .appleIntelligence,
+                        apiBaseURL: "",
+                        modelName: "",
+                        apiKey: "",
+                        lmStudioContextLength: AppDefaults.lmStudioContextLength,
+                        imageAnalysisMethod: .ocr
                     ),
-                    language: language
+                    appLanguage: language,
+                    prompt: applePrompt,
+                    imageData: nil,
+                    maximumResponseTokens: 300,
+                    timeoutInterval: 120,
+                    appleUseCase: .contentTagging,
+                    appleSchema: schema
                 )
             )
-        } catch {
-            throw error
+        } catch let error as LLMServiceError {
+            throw mapLLMServiceError(error, language: language)
         }
 
-        let rawContent = lastRawContent ?? capturedAppleIntelligenceGeneratedContent(from: session)
-        guard let rawContent,
+        guard let rawContent = llmResponse.structuredContent,
               let parsedResponse = Self.extractGuidedAnalysisResponse(
             from: rawContent,
             validRules: validRules
         ) else {
             throw AnalysisServiceError.invalidResponse(
                 invalidAnalysisResponseMessage(
-                    rawText: capturedAppleIntelligenceResponseText(
-                        lastRawContent: lastRawContent,
-                        session: session
-                    ) ?? localized(.analysisResponseUnavailable, language: language),
+                    rawText: llmResponse.rawStructuredText ?? localized(.analysisResponseUnavailable, language: language),
                     baseKey: .analysisInvalidStructuredResponseWithText,
                     language: language
                 )
@@ -997,120 +809,6 @@ final class AnalysisService {
         )
     }
 
-    private func capturedAppleIntelligenceResponseText(
-        lastRawContent: GeneratedContent?,
-        session: LanguageModelSession
-    ) -> String? {
-        if let jsonString = lastRawContent?.jsonString.trimmingCharacters(in: .whitespacesAndNewlines),
-           !jsonString.isEmpty {
-            return jsonString
-        }
-
-        if let content = capturedAppleIntelligenceGeneratedContent(from: session)?.jsonString
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !content.isEmpty {
-            return content
-        }
-
-        return nil
-    }
-
-    private func capturedAppleIntelligenceGeneratedContent(from session: LanguageModelSession) -> GeneratedContent? {
-        for entry in session.transcript.reversed() {
-            guard case .response(let response) = entry else {
-                continue
-            }
-
-            for segment in response.segments.reversed() {
-                switch segment {
-                case .structure(let structured):
-                    return structured.content
-                case .text:
-                    continue
-                @unknown default:
-                    continue
-                }
-            }
-        }
-
-        return nil
-    }
-
-    private func parseOpenAIResponse(from data: Data) throws -> OpenAIResponsePayload {
-        guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = payload["choices"] as? [[String: Any]],
-              let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any] else {
-            throw AnalysisServiceError.invalidResponse(localized(.analysisOpenAIFormatInvalid))
-        }
-
-        let finishReason = firstChoice["finish_reason"] as? String
-
-        if let content = message["content"] as? String {
-            return OpenAIResponsePayload(content: content, finishReason: finishReason)
-        }
-
-        if let contentBlocks = message["content"] as? [[String: Any]] {
-            let text = contentBlocks.compactMap { block in
-                block["text"] as? String
-            }.joined(separator: "\n")
-            if !text.isEmpty {
-                return OpenAIResponsePayload(content: text, finishReason: finishReason)
-            }
-        }
-
-        throw AnalysisServiceError.invalidResponse(localized(.analysisOpenAINoText))
-    }
-
-    private func parseAnthropicResponse(from data: Data) throws -> String {
-        guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let content = payload["content"] as? [[String: Any]] else {
-            throw AnalysisServiceError.invalidResponse(localized(.analysisAnthropicFormatInvalid))
-        }
-
-        let text = content.compactMap { block in
-            block["text"] as? String
-        }.joined(separator: "\n")
-
-        guard !text.isEmpty else {
-            throw AnalysisServiceError.invalidResponse(localized(.analysisAnthropicNoText))
-        }
-
-        return text
-    }
-
-    private func parseLMStudioResponse(from data: Data) throws -> LMStudioResponsePayload {
-        guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let output = payload["output"] as? [[String: Any]] else {
-            throw AnalysisServiceError.invalidResponse(localized(.analysisLMStudioFormatInvalid))
-        }
-
-        let messageText = output
-            .filter { ($0["type"] as? String) == "message" }
-            .compactMap { $0["content"] as? String }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-
-        let reasoningText = output
-            .filter { ($0["type"] as? String) == "reasoning" }
-            .compactMap { $0["content"] as? String }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-
-        let text = messageText.isEmpty ? reasoningText : messageText
-
-        guard !text.isEmpty else {
-            throw AnalysisServiceError.invalidResponse(localized(.analysisLMStudioNoText))
-        }
-
-        let timing = parseLMStudioTiming(from: payload["stats"] as? [String: Any])
-        return LMStudioResponsePayload(
-            content: text,
-            timing: timing,
-            reasoningText: reasoningText.isEmpty ? nil : reasoningText
-        )
-    }
-
     nonisolated static func extractAnalysisResponse(from rawText: String, validRules: [CategoryRule]) -> AnalysisResponse? {
         let validCategories = Set(validRules.map(\.name))
         let candidates = responseCandidates(from: rawText)
@@ -1219,14 +917,7 @@ final class AnalysisService {
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let startedAt = DispatchTime.now().uptimeNanoseconds
-                let completion: @Sendable (Data?, URLResponse?, Error?) -> Void = { [weak self, taskBox] data, response, error in
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        if self.activeRequestTask === taskBox.task {
-                            self.activeRequestTask = nil
-                        }
-                    }
-
+                let completion: @Sendable (Data?, URLResponse?, Error?) -> Void = { data, response, error in
                     if let error {
                         continuation.resume(throwing: error)
                         return
@@ -1250,7 +941,6 @@ final class AnalysisService {
 
                 let dataTask = session.dataTask(with: request, completionHandler: completion)
                 taskBox.task = dataTask
-                activeRequestTask = dataTask
                 dataTask.resume()
             }
         } onCancel: {
@@ -1261,11 +951,10 @@ final class AnalysisService {
     }
 
     private func stopModelIfNeeded(for settings: AppSettingsSnapshot) async {
-        activeRequestTask?.cancel()
-        activeRequestTask = nil
+        llmService.cancelActiveRemoteRequest()
 
         guard settings.provider == .lmStudio,
-              let modelsURL = lmStudioModelsURL(from: settings.apiBaseURL) else {
+              let modelsURL = LMStudioAPI.modelsURL(from: settings.apiBaseURL) else {
             return
         }
 
@@ -1277,7 +966,7 @@ final class AnalysisService {
                 return
             }
 
-            guard let instanceID = extractLMStudioInstanceID(from: result.data, modelName: settings.modelName) else {
+            guard let instanceID = LMStudioAPI.extractLoadedInstanceID(from: result.data, modelName: settings.modelName) else {
                 return
             }
 
@@ -1354,80 +1043,6 @@ final class AnalysisService {
         }
     }
 
-    private func lmStudioModelsURL(from baseURLString: String) -> URL? {
-        guard let chatURL = ModelProvider.lmStudio.requestURL(from: baseURLString) else {
-            return nil
-        }
-        return chatURL.deletingLastPathComponent().appendingPathComponent("models")
-    }
-
-    private func extractLMStudioInstanceID(from data: Data, modelName: String) -> String? {
-        guard let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let models = payload["models"] as? [[String: Any]] else {
-            return nil
-        }
-
-        for model in models {
-            let key = model["key"] as? String
-            let selectedVariant = model["selected_variant"] as? String
-            guard key == modelName || selectedVariant == modelName else {
-                continue
-            }
-
-            let loadedInstances = model["loaded_instances"] as? [[String: Any]] ?? []
-            if let instanceID = loadedInstances.compactMap({
-                ($0["identifier"] as? String) ?? ($0["id"] as? String)
-            }).first {
-                return instanceID
-            }
-        }
-
-        return nil
-    }
-
-    private func parseLMStudioTiming(from stats: [String: Any]?) -> LMStudioTiming? {
-        guard let stats else { return nil }
-
-        return LMStudioTiming(
-            modelLoadTimeSeconds: Self.doubleValue(from: stats["model_load_time_seconds"]),
-            timeToFirstTokenSeconds: Self.doubleValue(from: stats["time_to_first_token_seconds"]),
-            totalOutputTokens: Self.intValue(from: stats["total_output_tokens"]),
-            tokensPerSecond: Self.doubleValue(from: stats["tokens_per_second"])
-        )
-    }
-
-    private func openAIProcessingSeconds(from response: HTTPURLResponse) -> TimeInterval? {
-        guard let rawValue = response.value(forHTTPHeaderField: "openai-processing-ms")?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-              let milliseconds = Double(rawValue) else {
-            return nil
-        }
-
-        return milliseconds / 1_000
-    }
-
-    nonisolated private static func doubleValue(from value: Any?) -> Double? {
-        switch value {
-        case let number as NSNumber:
-            return number.doubleValue
-        case let string as String:
-            return Double(string)
-        default:
-            return nil
-        }
-    }
-
-    nonisolated private static func intValue(from value: Any?) -> Int? {
-        switch value {
-        case let number as NSNumber:
-            return number.intValue
-        case let string as String:
-            return Int(string)
-        default:
-            return nil
-        }
-    }
-
     private func localized(_ key: L10n.Key, language: AppLanguage? = nil) -> String {
         L10n.string(key, language: language ?? settingsStore.appLanguage)
     }
@@ -1479,33 +1094,65 @@ final class AnalysisService {
             )
     }
 
-    private func ensureAppleIntelligenceAvailable(language: AppLanguage) throws {
-        guard let unavailableReason = AppleIntelligenceSupport.currentStatus(for: language).unavailableReason else {
-            return
-        }
-
-        throw AnalysisServiceError.invalidConfiguration(
-            localized(
-                .analysisAppleIntelligenceUnavailable,
-                arguments: [appleIntelligenceReasonText(for: unavailableReason, language: language)],
-                language: language
+    private func mapLLMServiceError(
+        _ error: LLMServiceError,
+        language: AppLanguage
+    ) -> AnalysisServiceError {
+        switch error {
+        case .invalidRemoteConfiguration:
+            return .invalidConfiguration(localized(.analysisInvalidBaseURL, language: language))
+        case .invalidHTTPResponse:
+            return .invalidResponse(localized(.analysisInvalidHTTPResponse, language: language))
+        case .missingResponseData:
+            return .invalidResponse(localized(.analysisNoResponseData, language: language))
+        case .httpError(let statusCode, let body):
+            return .httpError(statusCode: statusCode, body: body)
+        case .invalidResponseFormat(let provider):
+            return .invalidResponse(localized(formatInvalidKey(for: provider), language: language))
+        case .missingText(let provider):
+            return .invalidResponse(localized(noTextKey(for: provider), language: language))
+        case .appleIntelligenceUnavailable(let reason):
+            return .invalidConfiguration(
+                localized(
+                    .analysisAppleIntelligenceUnavailable,
+                    arguments: [reason.localizedDescription(language: language)],
+                    language: language
+                )
             )
-        )
+        case .appleStructuredDecodingFailure(let details, let rawText):
+            return .invalidResponse(
+                appleIntelligenceDecodingFailureMessage(
+                    details: details,
+                    rawText: rawText,
+                    language: language
+                )
+            )
+        }
     }
 
-    private func appleIntelligenceReasonText(
-        for reason: SystemLanguageModel.Availability.UnavailableReason,
-        language: AppLanguage
-    ) -> String {
-        switch reason {
-        case .deviceNotEligible:
-            return localized(.providerAppleIntelligenceDeviceNotEligible, language: language)
-        case .appleIntelligenceNotEnabled:
-            return localized(.providerAppleIntelligenceNotEnabled, language: language)
-        case .modelNotReady:
-            return localized(.providerAppleIntelligenceModelNotReady, language: language)
-        @unknown default:
-            return localized(.providerAppleIntelligenceModelNotReady, language: language)
+    private func formatInvalidKey(for provider: ModelProvider) -> L10n.Key {
+        switch provider {
+        case .openAI:
+            return .analysisOpenAIFormatInvalid
+        case .anthropic:
+            return .analysisAnthropicFormatInvalid
+        case .lmStudio:
+            return .analysisLMStudioFormatInvalid
+        case .appleIntelligence:
+            return .analysisInvalidStructuredResponseWithText
+        }
+    }
+
+    private func noTextKey(for provider: ModelProvider) -> L10n.Key {
+        switch provider {
+        case .openAI:
+            return .analysisOpenAINoText
+        case .anthropic:
+            return .analysisAnthropicNoText
+        case .lmStudio:
+            return .analysisLMStudioNoText
+        case .appleIntelligence:
+            return .analysisResponseUnavailable
         }
     }
 }

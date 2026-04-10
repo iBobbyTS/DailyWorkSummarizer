@@ -33,3 +33,18 @@ enum AppleIntelligenceSupport {
         )
     }
 }
+
+extension SystemLanguageModel.Availability.UnavailableReason {
+    func localizedDescription(language: AppLanguage) -> String {
+        switch self {
+        case .deviceNotEligible:
+            return L10n.string(.providerAppleIntelligenceDeviceNotEligible, language: language)
+        case .appleIntelligenceNotEnabled:
+            return L10n.string(.providerAppleIntelligenceNotEnabled, language: language)
+        case .modelNotReady:
+            return L10n.string(.providerAppleIntelligenceModelNotReady, language: language)
+        @unknown default:
+            return L10n.string(.providerAppleIntelligenceModelNotReady, language: language)
+        }
+    }
+}

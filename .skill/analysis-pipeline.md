@@ -13,6 +13,8 @@
 - `DailyWorkSummarizer/ScreenshotService.swift`
 - `DailyWorkSummarizer/AnalysisService.swift`
 - `DailyWorkSummarizer/DailyReportSummaryService.swift`
+- `DailyWorkSummarizer/LLMService.swift`
+- `DailyWorkSummarizer/LMStudioAPI.swift`
 - `DailyWorkSummarizer/AppSettings.swift`
 - `DailyWorkSummarizer/AppModels.swift`
 - `DailyWorkSummarizer/SettingsView.swift`
@@ -28,15 +30,16 @@
    这里处理截图分析、OCR、多模态请求、Apple Intelligence、重试、解析和测试面板输出。
 4. 看 `DailyReportSummaryService.swift`
    这里处理日报汇总、按天补生成、模型请求和解析。
+5. 看 `LLMService.swift`
+   这里统一封装 OpenAI、Anthropic、LM Studio、Apple Intelligence 的请求构造、响应归一化、超时、取消和 provider 能力说明。
 
 截图分析的关键入口：
 
 - `testCurrentSettings(with:)`
 - `analyzeImageAttemptDetailed(at:settings:prompt:allowLengthRetry:)`
 - `recognizedText(from:language:)`
-- `buildOpenAIRequestBody`
-- `buildAnthropicRequestBody`
-- `buildLMStudioRequestBody`
+- `LLMService.send(_:)`
+- `LMStudioAPI.buildChatRequestBody`
 - `extractAnalysisResponse`
 
 日报汇总的关键入口：
@@ -45,6 +48,12 @@
 - `summarizeDay(_:)`
 - `requestSummary(prompt:settings:language:)`
 - `extractDailyReportResponse`
+
+共享 provider 入口：
+
+- `LLMService.providerContract(for:)`
+- `LLMService.send(_:)`
+- `LMStudioAPI.parseChatResponse(from:)`
 
 当前行为边界：
 
@@ -69,4 +78,5 @@
 - provider 或模型配置字段一旦变化，要同时检查截图分析和工作内容分析两套设置。
 - 新增设置字段后，除了 `SettingsStore` 和 `SettingsView`，还要同步看测试里的手工初始化。
 - 文案或提示词改动通常同时落在 `AppLocalization.swift` 和对应 service。
-
+- LM Studio 请求格式或解析逻辑改动时，优先改 `LMStudioAPI.swift`，不要在两个 service 里各自复制一份。
+- OpenAI / Anthropic / Apple Intelligence 的请求或解析行为改动时，优先改 `LLMService.swift`，并同步更新 `docs/model-integration.md`。

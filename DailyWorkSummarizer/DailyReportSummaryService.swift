@@ -70,17 +70,9 @@ private actor AsyncLock {
 }
 
 final class DailyReportSummaryService {
-    private struct OpenAIResponsePayload {
-        let content: String
-    }
-
-    private struct LMStudioResponsePayload {
-        let content: String
-    }
-
     private let database: AppDatabase
     private let settingsStore: SettingsStore
-    private let session: URLSession
+    private let llmService: LLMService
     private let lock = AsyncLock()
 
     init(
@@ -90,7 +82,8 @@ final class DailyReportSummaryService {
     ) {
         self.database = database
         self.settingsStore = settingsStore
-        self.session = session ?? Self.makeSession()
+        let resolvedSession = session ?? Self.makeSession()
+        self.llmService = LLMService(session: resolvedSession)
     }
 
     func summarizeMissingDailyReportsIfNeeded() async {
@@ -265,199 +258,28 @@ final class DailyReportSummaryService {
         settings: AnalysisModelSettings,
         language: AppLanguage
     ) async throws -> String {
-        if settings.provider == .appleIntelligence {
-            try ensureAppleIntelligenceAvailable(language: language)
-            let session = LanguageModelSession(
-                model: SystemLanguageModel(useCase: .general)
+        do {
+            let response = try await llmService.send(
+                LLMServiceRequest(
+                    settings: settings,
+                    appLanguage: language,
+                    prompt: prompt,
+                    imageData: nil,
+                    maximumResponseTokens: 900,
+                    timeoutInterval: 120,
+                    appleUseCase: .general,
+                    appleSchema: nil
+                )
             )
-            let response = try await session.respond(
-                to: prompt,
-                options: GenerationOptions(maximumResponseTokens: 900)
-            )
-            return response.content
-        }
-
-        guard let endpoint = settings.provider.requestURL(from: settings.apiBaseURL) else {
-            throw DailyReportSummaryServiceError.invalidConfiguration(
-                localized(.analysisInvalidBaseURL, language: language)
-            )
-        }
-
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 120
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("close", forHTTPHeaderField: "Connection")
-
-        switch settings.provider {
-        case .openAI:
-            if !settings.apiKey.isEmpty {
-                request.setValue("Bearer \(settings.apiKey)", forHTTPHeaderField: "Authorization")
+            guard let text = response.text else {
+                throw DailyReportSummaryServiceError.invalidResponse(
+                    localized(.reportDailySummaryInvalidResponse, language: language)
+                )
             }
-            request.httpBody = try buildOpenAIRequestBody(
-                modelName: settings.modelName,
-                prompt: prompt
-            )
-        case .anthropic:
-            if !settings.apiKey.isEmpty {
-                request.setValue(settings.apiKey, forHTTPHeaderField: "x-api-key")
-            }
-            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-            request.httpBody = try buildAnthropicRequestBody(
-                modelName: settings.modelName,
-                prompt: prompt
-            )
-        case .lmStudio:
-            if !settings.apiKey.isEmpty {
-                request.setValue("Bearer \(settings.apiKey)", forHTTPHeaderField: "Authorization")
-            }
-            request.httpBody = try buildLMStudioRequestBody(
-                modelName: settings.modelName,
-                prompt: prompt,
-                contextLength: settings.lmStudioContextLength
-            )
-        case .appleIntelligence:
-            throw DailyReportSummaryServiceError.invalidConfiguration(
-                localized(.analysisInvalidBaseURL, language: language)
-            )
+            return text
+        } catch let error as LLMServiceError {
+            throw mapLLMServiceError(error, language: language)
         }
-
-        let (data, response) = try await session.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw DailyReportSummaryServiceError.invalidResponse(
-                localized(.analysisInvalidHTTPResponse, language: language)
-            )
-        }
-
-        let rawBody = String(decoding: data, as: UTF8.self)
-        guard (200..<300).contains(httpResponse.statusCode) else {
-            throw DailyReportSummaryServiceError.httpError(statusCode: httpResponse.statusCode, body: rawBody)
-        }
-
-        switch settings.provider {
-        case .openAI:
-            return try parseOpenAIResponse(from: data).content
-        case .anthropic:
-            return try parseAnthropicResponse(from: data)
-        case .lmStudio:
-            return try parseLMStudioResponse(from: data).content
-        case .appleIntelligence:
-            throw DailyReportSummaryServiceError.invalidResponse(
-                localized(.reportDailySummaryInvalidResponse, language: language)
-            )
-        }
-    }
-
-    private func buildOpenAIRequestBody(modelName: String, prompt: String) throws -> Data {
-        let body: [String: Any] = [
-            "model": modelName,
-            "messages": [
-                [
-                    "role": "user",
-                    "content": prompt,
-                ]
-            ],
-            "max_tokens": 900,
-        ]
-        return try JSONSerialization.data(withJSONObject: body)
-    }
-
-    private func buildAnthropicRequestBody(modelName: String, prompt: String) throws -> Data {
-        let body: [String: Any] = [
-            "model": modelName,
-            "max_tokens": 900,
-            "messages": [
-                [
-                    "role": "user",
-                    "content": [
-                        [
-                            "type": "text",
-                            "text": prompt,
-                        ]
-                    ]
-                ]
-            ],
-        ]
-        return try JSONSerialization.data(withJSONObject: body)
-    }
-
-    private func buildLMStudioRequestBody(
-        modelName: String,
-        prompt: String,
-        contextLength: Int
-    ) throws -> Data {
-        let body: [String: Any] = [
-            "model": modelName,
-            "input": [
-                [
-                    "type": "text",
-                    "content": prompt,
-                ]
-            ],
-            "store": false,
-            "context_length": contextLength,
-        ]
-        return try JSONSerialization.data(withJSONObject: body)
-    }
-
-    private func parseOpenAIResponse(from data: Data) throws -> OpenAIResponsePayload {
-        guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = payload["choices"] as? [[String: Any]],
-              let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any] else {
-            throw DailyReportSummaryServiceError.invalidResponse(localized(.analysisOpenAIFormatInvalid))
-        }
-
-        if let content = message["content"] as? String, !content.isEmpty {
-            return OpenAIResponsePayload(content: content)
-        }
-
-        if let contentBlocks = message["content"] as? [[String: Any]] {
-            let text = contentBlocks.compactMap { $0["text"] as? String }.joined(separator: "\n")
-            if !text.isEmpty {
-                return OpenAIResponsePayload(content: text)
-            }
-        }
-
-        throw DailyReportSummaryServiceError.invalidResponse(localized(.analysisOpenAINoText))
-    }
-
-    private func parseAnthropicResponse(from data: Data) throws -> String {
-        guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let content = payload["content"] as? [[String: Any]] else {
-            throw DailyReportSummaryServiceError.invalidResponse(localized(.analysisAnthropicFormatInvalid))
-        }
-
-        let text = content.compactMap { $0["text"] as? String }.joined(separator: "\n")
-        guard !text.isEmpty else {
-            throw DailyReportSummaryServiceError.invalidResponse(localized(.analysisAnthropicNoText))
-        }
-        return text
-    }
-
-    private func parseLMStudioResponse(from data: Data) throws -> LMStudioResponsePayload {
-        guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let output = payload["output"] as? [[String: Any]] else {
-            throw DailyReportSummaryServiceError.invalidResponse(localized(.analysisLMStudioFormatInvalid))
-        }
-
-        let messageText = output
-            .filter { ($0["type"] as? String) == "message" }
-            .compactMap { $0["content"] as? String }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-        let reasoningText = output
-            .filter { ($0["type"] as? String) == "reasoning" }
-            .compactMap { $0["content"] as? String }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
-        let text = messageText.isEmpty ? reasoningText : messageText
-
-        guard !text.isEmpty else {
-            throw DailyReportSummaryServiceError.invalidResponse(localized(.analysisLMStudioNoText))
-        }
-
-        return LMStudioResponsePayload(content: text)
     }
 
     nonisolated static func extractDailyReportResponse(
@@ -584,33 +406,69 @@ final class DailyReportSummaryService {
         L10n.string(key, language: language, arguments: arguments)
     }
 
-    private func ensureAppleIntelligenceAvailable(language: AppLanguage) throws {
-        guard let unavailableReason = AppleIntelligenceSupport.currentStatus(for: language).unavailableReason else {
-            return
-        }
-
-        throw DailyReportSummaryServiceError.invalidConfiguration(
-            localized(
-                .analysisAppleIntelligenceUnavailable,
-                arguments: [appleIntelligenceReasonText(for: unavailableReason, language: language)],
-                language: language
+    private func mapLLMServiceError(
+        _ error: LLMServiceError,
+        language: AppLanguage
+    ) -> DailyReportSummaryServiceError {
+        switch error {
+        case .invalidRemoteConfiguration:
+            return .invalidConfiguration(localized(.analysisInvalidBaseURL, language: language))
+        case .invalidHTTPResponse:
+            return .invalidResponse(localized(.analysisInvalidHTTPResponse, language: language))
+        case .missingResponseData:
+            return .invalidResponse(localized(.analysisNoResponseData, language: language))
+        case .httpError(let statusCode, let body):
+            return .httpError(statusCode: statusCode, body: body)
+        case .invalidResponseFormat(let provider):
+            return .invalidResponse(localized(formatInvalidKey(for: provider), language: language))
+        case .missingText(let provider):
+            return .invalidResponse(localized(noTextKey(for: provider), language: language))
+        case .appleIntelligenceUnavailable(let reason):
+            return .invalidConfiguration(
+                localized(
+                    .analysisAppleIntelligenceUnavailable,
+                    arguments: [reason.localizedDescription(language: language)],
+                    language: language
+                )
             )
-        )
+        case .appleStructuredDecodingFailure(let details, let rawText):
+            let responseText = rawText?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedResponse = responseText?.isEmpty == false
+                ? responseText!
+                : localized(.analysisResponseUnavailable, language: language)
+            return .invalidResponse(
+                L10n.string(.analysisAppleIntelligenceDecodingFailure, language: language)
+                    + "\n"
+                    + details
+                    + "\n"
+                    + resolvedResponse
+            )
+        }
     }
 
-    private func appleIntelligenceReasonText(
-        for reason: SystemLanguageModel.Availability.UnavailableReason,
-        language: AppLanguage
-    ) -> String {
-        switch reason {
-        case .deviceNotEligible:
-            return localized(.providerAppleIntelligenceDeviceNotEligible, language: language)
-        case .appleIntelligenceNotEnabled:
-            return localized(.providerAppleIntelligenceNotEnabled, language: language)
-        case .modelNotReady:
-            return localized(.providerAppleIntelligenceModelNotReady, language: language)
-        @unknown default:
-            return localized(.providerAppleIntelligenceModelNotReady, language: language)
+    private func formatInvalidKey(for provider: ModelProvider) -> L10n.Key {
+        switch provider {
+        case .openAI:
+            return .analysisOpenAIFormatInvalid
+        case .anthropic:
+            return .analysisAnthropicFormatInvalid
+        case .lmStudio:
+            return .analysisLMStudioFormatInvalid
+        case .appleIntelligence:
+            return .reportDailySummaryInvalidResponse
+        }
+    }
+
+    private func noTextKey(for provider: ModelProvider) -> L10n.Key {
+        switch provider {
+        case .openAI:
+            return .analysisOpenAINoText
+        case .anthropic:
+            return .analysisAnthropicNoText
+        case .lmStudio:
+            return .analysisLMStudioNoText
+        case .appleIntelligence:
+            return .reportDailySummaryInvalidResponse
         }
     }
 }
