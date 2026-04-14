@@ -111,6 +111,10 @@ final class ReportsViewModel: ObservableObject {
     }
 
     func categorySummary(for category: String) -> (text: String, isTemporary: Bool)? {
+        guard category != AppDefaults.absenceCategoryName else {
+            return nil
+        }
+
         guard let selectedDailyReport,
               let text = selectedDailyReport.displayCategorySummary(for: category) else {
             return nil

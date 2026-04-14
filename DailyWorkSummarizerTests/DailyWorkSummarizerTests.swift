@@ -1264,6 +1264,129 @@ struct DailyWorkSummarizerTests {
     }
 
     @MainActor
+    @Test func dailyReportSummaryServiceExcludesAbsenceFromPromptAndCategorySummaries() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let dayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
+        let workTime = calendar.date(byAdding: .hour, value: 9, to: dayStart)!
+        let absenceTime = calendar.date(byAdding: .hour, value: 10, to: dayStart)!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentProvider = .openAI
+        store.workContentAPIBaseURL = "https://work-content.example.com"
+        store.workContentModelName = "daily-report-model"
+
+        let runID = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            runID: runID,
+            capturedAt: workTime,
+            categoryName: "专注工作",
+            summaryText: "实现日报过滤逻辑",
+            status: "succeeded",
+            errorMessage: nil,
+            durationMinutesSnapshot: 30
+        )
+        try database.recordAbsenceEvent(capturedAt: absenceTime, durationMinutes: 15)
+
+        let session = makeMockSession { request in
+            let requestBody = try #require(requestBodyData(from: request))
+            let body = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+            let messages = try #require(body["messages"] as? [[String: Any]])
+            let prompt = try #require(messages.first?["content"] as? String)
+
+            #expect(prompt.contains("专注工作"))
+            #expect(prompt.contains("实现日报过滤逻辑"))
+            #expect(!prompt.contains(AppDefaults.absenceCategoryName))
+            #expect(!prompt.contains("该时间段没有截图"))
+
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"dailySummary\\":\\"完成了日报过滤逻辑\\",\\"categorySummaries\\":{\\"专注工作\\":\\"实现了日报过滤逻辑\\"}}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        let report = try await service.summarizeDay(dayStart)
+
+        #expect(report.categorySummaries["专注工作"] == "TEMP_实现了日报过滤逻辑")
+        #expect(report.categorySummaries[AppDefaults.absenceCategoryName] == nil)
+    }
+
+    @MainActor
+    @Test func dailyReportSummaryServiceSkipsAbsenceOnlyDays() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let dayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
+        let absenceTime = calendar.date(byAdding: .hour, value: 10, to: dayStart)!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentProvider = .openAI
+        store.workContentAPIBaseURL = "https://work-content.example.com"
+        store.workContentModelName = "daily-report-model"
+        try database.recordAbsenceEvent(capturedAt: absenceTime, durationMinutes: 15)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: #"{"choices":[{"message":{"content":"{}"},"finish_reason":"stop"}]}"#
+            )
+        }
+
+        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        var didSkipForNoActivity = false
+        do {
+            _ = try await service.summarizeDay(dayStart)
+        } catch DailyReportSummaryServiceError.noActivity(_) {
+            didSkipForNoActivity = true
+        } catch {
+            #expect(Bool(false), "Expected noActivity, got \(error)")
+        }
+
+        #expect(didSkipForNoActivity)
+        #expect(MockURLProtocol.requestCount == 0)
+        let storedReport = try database.fetchDailyReport(for: dayStart)
+        #expect(storedReport == nil)
+    }
+
+    @MainActor
     @Test func dailyReportSummaryServiceSummarizesOnlyPendingDaysBeforeLatestActivityDay() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"

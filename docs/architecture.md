@@ -53,6 +53,7 @@ The app is centered around a small set of long-lived services created at launch 
 ### 4. Daily summary flow
 
 - `DailyReportSummaryService` fetches analyzed activity items for a target day.
+- Away or inactive intervals recorded in `absence_events` are excluded from daily-summary generation and per-category summaries.
 - It builds a text timeline prompt from category, duration, and per-item summary data.
 - The summary is generated through the configured work-content model profile via `LLMService`.
 - Results are stored in `daily_reports`.

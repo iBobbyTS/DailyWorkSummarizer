@@ -22,9 +22,9 @@ The app stores runtime data under Application Support:
 - `analysis_results`
   Per-item output for screenshots, including category, summary, duration snapshot, and error fields.
 - `absence_events`
-  Idle or away intervals recorded without screenshots.
+  Idle or away intervals recorded without screenshots. These records remain available for time reporting, but are excluded from daily-summary model prompts and per-category summary payloads.
 - `daily_reports`
-  Generated daily summaries and per-category summary payloads.
+  Generated daily summaries and per-category summary payloads for reportable, non-away activity.
 - `app_logs`
   Persistent runtime log entries for analysis errors and later debugging events, including LM Studio pause and unload traces under source `lm_studio`.
 

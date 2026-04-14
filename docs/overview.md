@@ -49,4 +49,4 @@ The app is designed for personal activity review rather than team-wide monitorin
 - Remote screenshot analysis can run in either OCR-first or multimodal mode.
 - Apple Intelligence currently participates through text-based flows, not direct screenshot-image understanding.
 - Daily summaries are generated from stored activity items, not from screenshots directly.
-
+- Away or inactive intervals are retained for time reporting but are not sent to the daily-summary model.

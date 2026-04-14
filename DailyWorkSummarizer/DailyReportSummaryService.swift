@@ -115,19 +115,20 @@ final class DailyReportSummaryService {
     private func summarizeMissingDailyReportsLocked() async throws {
         let snapshot = await MainActor.run { settingsStore.snapshot }
         let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
-        guard let latestDayStart = try database.fetchLatestActivityDayStart(calendar: calendar) else {
+        let reportableDayStarts = try fetchReportableActivityDayStarts(calendar: calendar)
+        guard let latestDayStart = reportableDayStarts.last else {
             return
         }
 
-        let pendingDays = try database.fetchPendingDailyReportDayStarts(
-            before: latestDayStart,
-            calendar: calendar
+        let pendingDays = try pendingReportableDayStarts(
+            in: reportableDayStarts,
+            before: latestDayStart
         )
         guard !pendingDays.isEmpty else {
             return
         }
 
-        let activityDaySet = Set(try database.fetchActivityDayStarts(calendar: calendar))
+        let activityDaySet = Set(reportableDayStarts)
         for dayStart in pendingDays {
             do {
                 _ = try await summarizeDayLocked(
@@ -144,7 +145,7 @@ final class DailyReportSummaryService {
     private func summarizeDayLocked(_ dayStart: Date) async throws -> DailyReportRecord {
         let snapshot = await MainActor.run { settingsStore.snapshot }
         let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
-        let activityDaySet = Set(try database.fetchActivityDayStarts(calendar: calendar))
+        let activityDaySet = Set(try fetchReportableActivityDayStarts(calendar: calendar))
         return try await summarizeDayLocked(
             dayStart,
             snapshot: snapshot,
@@ -174,7 +175,7 @@ final class DailyReportSummaryService {
             }
         }
 
-        let activityItems = try database.fetchDailyReportActivityItems(for: dayStart)
+        let activityItems = try fetchReportableActivityItems(for: dayStart)
         guard !activityItems.isEmpty else {
             throw DailyReportSummaryServiceError.noActivity(
                 localized(.reportDailySummaryNoActivity, language: language)
@@ -251,6 +252,36 @@ final class DailyReportSummaryService {
             summaryInstruction: summaryInstruction,
             language: language
         )
+    }
+
+    private func fetchReportableActivityItems(for dayStart: Date) throws -> [DailyReportActivityItem] {
+        try database.fetchDailyReportActivityItems(for: dayStart)
+            .filter { Self.isReportableCategory($0.categoryName) }
+    }
+
+    private func fetchReportableActivityDayStarts(calendar: Calendar) throws -> [Date] {
+        let dayStarts = try database.fetchReportSourceItems()
+            .filter { Self.isReportableCategory($0.categoryName) }
+            .map { calendar.startOfDay(for: $0.capturedAt) }
+        return Array(Set(dayStarts)).sorted()
+    }
+
+    private func pendingReportableDayStarts(
+        in dayStarts: [Date],
+        before dayStartExclusive: Date
+    ) throws -> [Date] {
+        try dayStarts
+            .filter { $0 < dayStartExclusive }
+            .filter { dayStart in
+                guard let report = try database.fetchDailyReport(for: dayStart) else {
+                    return true
+                }
+                return report.isTemporary
+            }
+    }
+
+    private static func isReportableCategory(_ categoryName: String) -> Bool {
+        categoryName != AppDefaults.absenceCategoryName
     }
 
     private func requestSummary(
