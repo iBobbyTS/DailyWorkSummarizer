@@ -11,6 +11,7 @@
 
 - Application Support 目录：`~/Library/Application Support/DailyWorkSummarizer/`
 - SQLite 数据库：`~/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite`
+- Sandboxed App SQLite 数据库：`~/Library/Containers/com.iBobby.DailyWorkSummarizer/Data/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite`
 - 正式截图目录：`~/Library/Application Support/DailyWorkSummarizer/screenshots/`
 - 预览截图目录：`~/Library/Application Support/DailyWorkSummarizer/screenshots/preview/`
 - 模型测试临时截图目录：`~/Library/Application Support/DailyWorkSummarizer/screenshots/temp/`
@@ -53,6 +54,13 @@ sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summar
   "select id,datetime(day_start,'unixepoch','localtime'),substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
 ```
 
+清理既有日报里的 `离开` 单项总结：
+
+```sh
+python3 scripts/clean_absence_daily_summaries.py \
+  --database "$HOME/Library/Containers/com.iBobby.DailyWorkSummarizer/Data/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite"
+```
+
 ```sh
 ls -lah "$HOME/Library/Application Support/DailyWorkSummarizer/screenshots" | tail
 ```
@@ -63,4 +71,3 @@ ls -lah "$HOME/Library/Application Support/DailyWorkSummarizer/screenshots" | ta
 - 预览截图会带 `-preview` 后缀。
 - 模型测试临时截图会带 `-model-test` 后缀。
 - `AppDatabase.listScreenshotFiles` 通过文件名反推时间和时长，所以改文件命名规则时必须同步更新解析逻辑。
-

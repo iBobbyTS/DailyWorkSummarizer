@@ -124,6 +124,13 @@ sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summar
   "select id,datetime(day_start,'unixepoch','localtime'),substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
 ```
 
+Remove legacy away-state category summaries from existing daily reports:
+
+```sh
+python3 scripts/clean_absence_daily_summaries.py \
+  --database "$HOME/Library/Containers/com.iBobby.DailyWorkSummarizer/Data/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite"
+```
+
 Recent runtime logs:
 
 ```sh
