@@ -292,6 +292,7 @@ struct SettingsView: View {
                 }
             }
             .padding(.top, Layout.sectionSpacing)
+            .padding(.bottom, Layout.sectionSpacing)
 
             Divider()
         }

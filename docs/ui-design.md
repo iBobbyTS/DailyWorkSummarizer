@@ -1,0 +1,57 @@
+# UI Design
+
+DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused desktop tool: dense enough for repeated use, visually quiet, and aligned with native macOS controls.
+
+## Overall Direction
+
+- Prefer native SwiftUI and AppKit-backed macOS controls before custom drawing.
+- Keep settings, menu items, report views, and log views optimized for scanning rather than marketing-style presentation.
+- Use system-adaptive colors and semantic foreground styles so Light and Dark mode remain readable.
+- Use custom surfaces sparingly. Framed cards are appropriate for repeated settings rows, previews, list items, and dialogs, but page sections should not become nested cards.
+- Use SF Symbols in buttons and menu-adjacent actions when a familiar symbol exists.
+
+## Settings Layout
+
+- `SettingsView` uses tabs for product areas: screenshot analysis, work content analysis, general, and report.
+- Each tab uses a leading-aligned vertical layout with `Layout.sectionSpacing` between major sections.
+- Section titles use `title2` semibold and should introduce the controls immediately below them.
+- Group related settings inside one rounded settings surface with row dividers.
+- Setting rows use a label on the left and the editable control aligned to the right.
+- Pickers, text fields, and date pickers should use fixed or proportional widths so controls line up across rows.
+- Rows inside a settings surface use shared horizontal and vertical padding constants.
+- Dividers that separate major sections should have equal visual spacing above and below. If a section owns the divider, the content before it should include bottom spacing matching the parent section spacing after it.
+- Do not add extra explanatory text inside settings unless the user needs a persistent warning, provider limitation, or validation message.
+
+## Screenshot Analysis Settings
+
+- The capture section keeps the screenshot interval and automatic-analysis controls in one settings surface.
+- Analysis startup mode is the primary control for automatic analysis behavior.
+- Scheduled analysis time is only visible when the startup mode is scheduled analysis.
+- The charger requirement is displayed below scheduled analysis time and is disabled only when automatic analysis is off.
+- Utility actions such as test screenshot and opening folders live below the settings surface, not inside it.
+- The divider below the capture section should maintain the same vertical spacing above and below.
+
+## Menu Bar UI
+
+- Menu bar labels should be short and scannable.
+- Keep long runtime details in status lines or dedicated windows rather than long action labels.
+- Mutating actions should use explicit menu items; state display should stay separate from commands.
+- Nested menus are appropriate for compact option groups such as analysis startup mode.
+
+## Reports And Logs
+
+- Reports should prioritize timeline and aggregate comprehension over decorative layout.
+- Derived statuses such as temporary daily reports should be visually marked where the result appears, not explained in a detached help block.
+- Runtime logs should remain dense, sortable or filterable when needed, and copy/export friendly.
+
+## Localization
+
+- All visible UI strings must go through `AppLocalization.swift`.
+- When adding or changing UI copy, update both Chinese and English entries in the same change.
+- Prefer concise labels that fit in existing row widths before increasing layout constants.
+
+## Verification
+
+- Run `DeskBriefTests` after UI changes that alter settings behavior, localization, or persisted preferences.
+- For purely visual spacing changes, a build or the existing unit test suite is usually sufficient unless the change affects window flow, permissions, or menu behavior.
+- Use GUI testing only when the interaction itself is under test; do not rely on it for simple spacing adjustments.

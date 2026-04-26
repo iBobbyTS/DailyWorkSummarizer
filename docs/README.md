@@ -13,6 +13,8 @@ The goal is to help a maintainer understand the product, architecture, model int
   Provider behavior, OCR vs. multimodal paths, and Apple Intelligence constraints.
 - `data-and-testing.md`
   Local storage layout, persistence details, recommended test commands, and debugging shortcuts.
+- `ui-design.md`
+  UI structure, spacing, control alignment, localization, and verification conventions.
 
 ## Scope and depth
 
@@ -27,6 +29,7 @@ The goal is to help a maintainer understand the product, architecture, model int
 - If a change affects model-provider behavior, update `model-integration.md` in the same batch.
 - If a change affects schema, storage paths, or runtime debugging steps, update `data-and-testing.md` in the same batch.
 - If a change affects module responsibilities or runtime flows, update `architecture.md` in the same batch.
+- If a change affects UI layout, visible copy, settings structure, or menu behavior, update `ui-design.md` in the same batch.
 - Keep examples and commands aligned with the current project structure and preferred tooling.
 
 ## Writing conventions
@@ -35,4 +38,3 @@ The goal is to help a maintainer understand the product, architecture, model int
 - Prefer short sections and flat lists over long narratives.
 - Use exact file or type names where accuracy matters.
 - Avoid copying large code blocks into docs unless the code itself is the subject of the explanation.
-
