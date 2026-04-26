@@ -10,7 +10,6 @@ from pathlib import Path
 import sqlite3
 import sys
 import tempfile
-import time
 import unittest
 
 
@@ -47,7 +46,6 @@ def clean_database(
     scanned_rows = 0
     updated_rows = 0
     skipped_invalid_json = 0
-    now = time.time()
     like_pattern = f'%"{category_name}"%'
 
     connection = sqlite3.connect(database_path)
@@ -86,11 +84,10 @@ def clean_database(
                 connection.execute(
                     """
                     UPDATE daily_reports
-                    SET category_summaries_json = ?,
-                        updated_at = ?
+                    SET category_summaries_json = ?
                     WHERE id = ?
                     """,
-                    (updated_json, now, report_id),
+                    (updated_json, report_id),
                 )
     finally:
         connection.close()
@@ -114,9 +111,7 @@ class CleanAbsenceDailySummariesTests(unittest.TestCase):
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     day_start DOUBLE NOT NULL UNIQUE,
                     daily_summary_text TEXT NOT NULL,
-                    category_summaries_json TEXT NOT NULL,
-                    created_at DOUBLE NOT NULL,
-                    updated_at DOUBLE NOT NULL
+                    category_summaries_json TEXT NOT NULL
                 )
                 """
             )
@@ -125,11 +120,9 @@ class CleanAbsenceDailySummariesTests(unittest.TestCase):
                 INSERT INTO daily_reports (
                     day_start,
                     daily_summary_text,
-                    category_summaries_json,
-                    created_at,
-                    updated_at
+                    category_summaries_json
                 )
-                VALUES (?, ?, ?, 1, 1)
+                VALUES (?, ?, ?)
                 """,
                 [
                     (

@@ -246,7 +246,7 @@ final class AnalysisService {
         }
     }
 
-    private func runAnalysis(scheduledFor: Date) async {
+    private func runAnalysis(scheduledFor _: Date) async {
         let snapshot = settingsStore.snapshot
         lastLMStudioModelInstanceID = nil
         activeRunSettings = snapshot
@@ -255,18 +255,12 @@ final class AnalysisService {
             summaryInstruction: snapshot.analysisSummaryInstruction,
             language: snapshot.appLanguage
         )
-        let categoriesJSON = encodeCategories(snapshot.validCategoryRules)
         let pendingCaptures = (try? database.listScreenshotFiles(defaultDurationMinutes: snapshot.screenshotIntervalMinutes)) ?? []
 
         let runID: Int64
         do {
             runID = try database.createAnalysisRun(
-                scheduledFor: scheduledFor,
-                provider: snapshot.provider,
-                baseURL: snapshot.apiBaseURL,
                 modelName: snapshot.modelName,
-                promptSnapshot: prompt,
-                categorySnapshotJSON: categoriesJSON,
                 totalItems: pendingCaptures.count
             )
         } catch {
@@ -356,16 +350,6 @@ final class AnalysisService {
             let durationMinutes = capture.durationMinutes
 
             guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                let message = localized(.analysisScreenshotMissing, language: snapshot.appLanguage)
-                try? database.insertAnalysisResult(
-                    runID: runID,
-                    capturedAt: capturedAt,
-                    categoryName: nil,
-                    summaryText: nil,
-                    status: "failed",
-                    errorMessage: message,
-                    durationMinutesSnapshot: durationMinutes
-                )
                 failureCount += 1
                 consecutiveFailureCount += 1
                 completedCount += 1
@@ -392,12 +376,9 @@ final class AnalysisService {
                 )
 
                 try database.insertAnalysisResult(
-                    runID: runID,
                     capturedAt: capturedAt,
                     categoryName: response.category,
                     summaryText: response.summary,
-                    status: "succeeded",
-                    errorMessage: nil,
                     durationMinutesSnapshot: durationMinutes
                 )
 
@@ -416,15 +397,6 @@ final class AnalysisService {
                 if Self.shouldRecordRuntimeError(error) {
                     logStore.add(level: .error, source: .analysis, message: message)
                 }
-                try? database.insertAnalysisResult(
-                    runID: runID,
-                    capturedAt: capturedAt,
-                    categoryName: nil,
-                    summaryText: nil,
-                    status: "failed",
-                    errorMessage: message,
-                    durationMinutesSnapshot: durationMinutes
-                )
                 failureCount += 1
                 consecutiveFailureCount += 1
             }
@@ -510,13 +482,6 @@ final class AnalysisService {
         language: AppLanguage
     ) -> String {
         L10n.analysisPrompt(with: rules, summaryInstruction: summaryInstruction, language: language)
-    }
-
-    private func encodeCategories(_ rules: [CategoryRule]) -> String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = (try? encoder.encode(rules)) ?? Data("[]".utf8)
-        return String(decoding: data, as: UTF8.self)
     }
 
     private func analyzeImage(

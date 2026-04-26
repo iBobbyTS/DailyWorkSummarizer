@@ -19,7 +19,7 @@ final class DailyWorkSummarizerUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
+        XCUIApplication().terminate()
     }
 
     @MainActor
@@ -33,9 +33,10 @@ final class DailyWorkSummarizerUITests: XCTestCase {
 
     @MainActor
     func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
+        let app = XCUIApplication()
+        measure(metrics: [XCTClockMetric()]) {
+            app.launch()
+            app.terminate()
         }
     }
 }

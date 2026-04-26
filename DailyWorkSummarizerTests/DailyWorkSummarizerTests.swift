@@ -732,6 +732,49 @@ struct DailyWorkSummarizerTests {
         #expect(chineseRules.last?.description == AppDefaults.preservedOtherCategoryDescription(language: .simplifiedChinese))
     }
 
+    @Test func databaseMigratesCategoryRulesToOrderingOnlySchema() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+
+        let firstID = UUID()
+        let secondID = UUID()
+        let handle = try openSQLite(at: databaseURL)
+
+        try executeSQL("""
+            CREATE TABLE category_rules (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                sort_order INTEGER NOT NULL,
+                created_at DOUBLE NOT NULL,
+                updated_at DOUBLE NOT NULL
+            );
+            INSERT INTO category_rules (
+                id,
+                name,
+                description,
+                sort_order,
+                created_at,
+                updated_at
+            )
+            VALUES
+                ('\(firstID.uuidString)', '会议沟通', '同步信息', 1, 10, 20),
+                ('\(secondID.uuidString)', '专注工作', '写代码', 0, 30, 40);
+        """, on: handle)
+
+        sqlite3_close(handle)
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let columns = try columnNames(in: "category_rules", databaseURL: databaseURL)
+        let rules = try database.fetchCategoryRules()
+
+        #expect(columns == ["id", "name", "description", "sort_order"])
+        #expect(!columns.contains("created_at"))
+        #expect(!columns.contains("updated_at"))
+        #expect(rules.map(\.name) == ["专注工作", "会议沟通"])
+        #expect(rules.map(\.description) == ["写代码", "同步信息"])
+    }
+
     @MainActor
     @Test func settingsStorePersistsSummaryInstruction() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
@@ -856,7 +899,84 @@ struct DailyWorkSummarizerTests {
         #expect(store.lmStudioContextLength == 12000)
     }
 
-    @Test func databaseMigratesAnalysisResultsSchemaToSummaryOnly() async throws {
+    @Test func databaseMigratesAnalysisRunsToCompactSchema() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+
+        let handle = try openSQLite(at: databaseURL)
+
+        try executeSQL("""
+            CREATE TABLE analysis_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scheduled_for DOUBLE NOT NULL,
+                started_at DOUBLE NOT NULL,
+                finished_at DOUBLE,
+                status TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                prompt_snapshot TEXT NOT NULL,
+                category_snapshot_json TEXT NOT NULL,
+                total_items INTEGER NOT NULL,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                failure_count INTEGER NOT NULL DEFAULT 0,
+                average_item_duration_seconds DOUBLE,
+                error_message TEXT,
+                created_at DOUBLE NOT NULL
+            );
+            INSERT INTO analysis_runs (
+                id, scheduled_for, started_at, finished_at, status, provider, base_url, model_name,
+                prompt_snapshot, category_snapshot_json, total_items, success_count, failure_count,
+                average_item_duration_seconds, error_message, created_at
+            )
+            VALUES (
+                7, 10, 20, 30, 'partial_failed', 'openai', 'https://example.com', 'gpt-test',
+                'prompt', '[]', 3, 2, 1, 1.5, 'partial failure', 40
+            );
+        """, on: handle)
+
+        sqlite3_close(handle)
+
+        _ = try AppDatabase(databaseURL: databaseURL)
+
+        let columns = try columnNames(in: "analysis_runs", databaseURL: databaseURL)
+        let modelName = try fetchOptionalString(
+            "SELECT model_name FROM analysis_runs WHERE id = 7;",
+            databaseURL: databaseURL
+        )
+        let failureCount = try fetchInt(
+            "SELECT failure_count FROM analysis_runs WHERE id = 7;",
+            databaseURL: databaseURL
+        )
+        let averageDuration = try fetchDouble(
+            "SELECT average_item_duration_seconds FROM analysis_runs WHERE id = 7;",
+            databaseURL: databaseURL
+        )
+
+        #expect(columns == [
+            "id",
+            "status",
+            "model_name",
+            "total_items",
+            "success_count",
+            "failure_count",
+            "average_item_duration_seconds",
+            "error_message",
+            "created_at",
+        ])
+        #expect(!columns.contains("scheduled_for"))
+        #expect(!columns.contains("started_at"))
+        #expect(!columns.contains("finished_at"))
+        #expect(!columns.contains("provider"))
+        #expect(!columns.contains("base_url"))
+        #expect(!columns.contains("prompt_snapshot"))
+        #expect(!columns.contains("category_snapshot_json"))
+        #expect(modelName == "gpt-test")
+        #expect(failureCount == 1)
+        #expect(averageDuration == 1.5)
+    }
+
+    @Test func databaseMigratesAnalysisResultsToSuccessfulRowsOnlySchema() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: databaseURL) }
 
@@ -909,6 +1029,11 @@ struct DailyWorkSummarizerTests {
                 duration_minutes_snapshot, created_at
             )
             VALUES (1, 1, 0, '专注工作', '{"category":"专注工作","summary":"旧数据"}', 'succeeded', NULL, 5, 0);
+            INSERT INTO analysis_results (
+                id, run_id, captured_at, category_name, raw_response_text, status, error_message,
+                duration_minutes_snapshot, created_at
+            )
+            VALUES (2, 1, 60, NULL, NULL, 'failed', 'server error', 5, 0);
         """, on: handle)
 
         sqlite3_close(handle)
@@ -916,53 +1041,60 @@ struct DailyWorkSummarizerTests {
         _ = try AppDatabase(databaseURL: databaseURL)
 
         let columns = try columnNames(in: "analysis_results", databaseURL: databaseURL)
+        let rowCount = try fetchInt(
+            "SELECT COUNT(*) FROM analysis_results;",
+            databaseURL: databaseURL
+        )
         let summaryText = try fetchOptionalString(
             "SELECT summary_text FROM analysis_results WHERE id = 1;",
             databaseURL: databaseURL
         )
 
+        #expect(columns == ["id", "captured_at", "category_name", "summary_text", "duration_minutes_snapshot"])
         #expect(columns.contains("summary_text"))
         #expect(!columns.contains("raw_response_text"))
+        #expect(!columns.contains("run_id"))
+        #expect(!columns.contains("status"))
+        #expect(!columns.contains("error_message"))
+        #expect(!columns.contains("created_at"))
+        #expect(rowCount == 1)
         #expect(summaryText == nil)
     }
 
-    @Test func databaseStoresCategoryAndSummaryWithoutRawResponseText() async throws {
+    @Test func databaseStoresSuccessfulAnalysisResultOnlyFields() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: databaseURL) }
 
         let database = try AppDatabase(databaseURL: databaseURL)
-        let runID = try database.createAnalysisRun(
-            scheduledFor: Date(timeIntervalSince1970: 0),
-            provider: .openAI,
-            baseURL: "http://127.0.0.1:8000",
+        _ = try database.createAnalysisRun(
             modelName: "gpt-test",
-            promptSnapshot: "prompt",
-            categorySnapshotJSON: "[]",
             totalItems: 1
         )
 
         try database.insertAnalysisResult(
-            runID: runID,
             capturedAt: Date(timeIntervalSince1970: 60),
             categoryName: "专注工作",
             summaryText: "开发 DailyWorkSummarizer 项目",
-            status: "succeeded",
-            errorMessage: nil,
             durationMinutesSnapshot: 5
         )
 
         let columns = try columnNames(in: "analysis_results", databaseURL: databaseURL)
         let categoryName = try fetchOptionalString(
-            "SELECT category_name FROM analysis_results WHERE run_id = \(runID);",
+            "SELECT category_name FROM analysis_results WHERE captured_at = 60;",
             databaseURL: databaseURL
         )
         let summaryText = try fetchOptionalString(
-            "SELECT summary_text FROM analysis_results WHERE run_id = \(runID);",
+            "SELECT summary_text FROM analysis_results WHERE captured_at = 60;",
             databaseURL: databaseURL
         )
 
+        #expect(columns == ["id", "captured_at", "category_name", "summary_text", "duration_minutes_snapshot"])
         #expect(columns.contains("summary_text"))
         #expect(!columns.contains("raw_response_text"))
+        #expect(!columns.contains("run_id"))
+        #expect(!columns.contains("status"))
+        #expect(!columns.contains("error_message"))
+        #expect(!columns.contains("created_at"))
         #expect(categoryName == "专注工作")
         #expect(summaryText == "开发 DailyWorkSummarizer 项目")
     }
@@ -1050,11 +1182,63 @@ struct DailyWorkSummarizerTests {
         let fetchedReport = try database.fetchDailyReport(for: dayStart)
         let report = try #require(fetchedReport)
 
-        #expect(columns.contains("day_start"))
-        #expect(columns.contains("daily_summary_text"))
-        #expect(columns.contains("category_summaries_json"))
+        #expect(columns == ["id", "day_start", "daily_summary_text", "category_summaries_json"])
         #expect(report.dailySummaryText == "第二次日报")
         #expect(report.categorySummaries["专注工作"] == "第二次分类总结")
+    }
+
+    @Test func databaseMigratesDailyReportsToContentOnlySchema() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: databaseURL) }
+
+        let handle = try openSQLite(at: databaseURL)
+
+        try executeSQL("""
+            CREATE TABLE daily_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                day_start DOUBLE NOT NULL UNIQUE,
+                daily_summary_text TEXT NOT NULL,
+                category_summaries_json TEXT NOT NULL,
+                created_at DOUBLE NOT NULL,
+                updated_at DOUBLE NOT NULL
+            );
+            INSERT INTO daily_reports (
+                id,
+                day_start,
+                daily_summary_text,
+                category_summaries_json,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                3,
+                1773187200,
+                '旧日报',
+                '{"专注工作":"旧分类总结"}',
+                1773187201,
+                1773187202
+            );
+        """, on: handle)
+
+        sqlite3_close(handle)
+
+        _ = try AppDatabase(databaseURL: databaseURL)
+
+        let columns = try columnNames(in: "daily_reports", databaseURL: databaseURL)
+        let dailySummaryText = try fetchOptionalString(
+            "SELECT daily_summary_text FROM daily_reports WHERE id = 3;",
+            databaseURL: databaseURL
+        )
+        let categorySummariesJSON = try fetchOptionalString(
+            "SELECT category_summaries_json FROM daily_reports WHERE id = 3;",
+            databaseURL: databaseURL
+        )
+
+        #expect(columns == ["id", "day_start", "daily_summary_text", "category_summaries_json"])
+        #expect(!columns.contains("created_at"))
+        #expect(!columns.contains("updated_at"))
+        #expect(dailySummaryText == "旧日报")
+        #expect(categorySummariesJSON == #"{"专注工作":"旧分类总结"}"#)
     }
 
     @Test func databaseCreatesAndFetchesAppLogs() async throws {
@@ -1274,14 +1458,11 @@ struct DailyWorkSummarizerTests {
         store.workContentModelName = "work-content-model"
         store.analysisSummaryInstruction = "请突出项目名"
 
-        let runID = try makeAnalysisRun(database: database)
+        _ = try makeAnalysisRun(database: database)
         try database.insertAnalysisResult(
-            runID: runID,
             capturedAt: captureTime,
             categoryName: "专注工作",
             summaryText: "开发 DailyWorkSummarizer 日报功能",
-            status: "succeeded",
-            errorMessage: nil,
             durationMinutesSnapshot: 30
         )
 
@@ -1346,23 +1527,17 @@ struct DailyWorkSummarizerTests {
         store.workContentAPIBaseURL = "https://work-content.example.com"
         store.workContentModelName = "daily-report-model"
 
-        let runID = try makeAnalysisRun(database: database)
+        _ = try makeAnalysisRun(database: database)
         try database.insertAnalysisResult(
-            runID: runID,
             capturedAt: workTime,
             categoryName: "专注工作",
             summaryText: "实现日报过滤逻辑",
-            status: "succeeded",
-            errorMessage: nil,
             durationMinutesSnapshot: 30
         )
         try database.insertAnalysisResult(
-            runID: runID,
             capturedAt: meetingTime,
             categoryName: "会议沟通",
             summaryText: "同步日报边界规则",
-            status: "succeeded",
-            errorMessage: nil,
             durationMinutesSnapshot: 15
         )
 
@@ -1477,23 +1652,17 @@ struct DailyWorkSummarizerTests {
         store.workContentAPIBaseURL = "https://work-content.example.com"
         store.workContentModelName = "daily-report-model"
 
-        let runID = try makeAnalysisRun(database: database)
+        _ = try makeAnalysisRun(database: database)
         try database.insertAnalysisResult(
-            runID: runID,
             capturedAt: calendar.date(byAdding: .hour, value: 9, to: dayOne)!,
             categoryName: "专注工作",
             summaryText: "整理日报需求",
-            status: "succeeded",
-            errorMessage: nil,
             durationMinutesSnapshot: 30
         )
         try database.insertAnalysisResult(
-            runID: runID,
             capturedAt: calendar.date(byAdding: .hour, value: 10, to: dayTwo)!,
             categoryName: "专注工作",
             summaryText: "继续开发第二天功能",
-            status: "succeeded",
-            errorMessage: nil,
             durationMinutesSnapshot: 30
         )
         try database.upsertDailyReport(
@@ -1618,6 +1787,38 @@ private func fetchOptionalString(_ sql: String, databaseURL: URL) throws -> Stri
     return String(cString: text)
 }
 
+private func fetchInt(_ sql: String, databaseURL: URL) throws -> Int {
+    let handle = try openSQLite(at: databaseURL)
+    defer { sqlite3_close(handle) }
+
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
+        throw DatabaseError.prepareStatement(handle.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite prepare failed")
+    }
+    defer { sqlite3_finalize(statement) }
+
+    guard sqlite3_step(statement) == SQLITE_ROW else {
+        throw DatabaseError.execute("sqlite query returned no rows")
+    }
+    return Int(sqlite3_column_int64(statement, 0))
+}
+
+private func fetchDouble(_ sql: String, databaseURL: URL) throws -> Double {
+    let handle = try openSQLite(at: databaseURL)
+    defer { sqlite3_close(handle) }
+
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
+        throw DatabaseError.prepareStatement(handle.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite prepare failed")
+    }
+    defer { sqlite3_finalize(statement) }
+
+    guard sqlite3_step(statement) == SQLITE_ROW else {
+        throw DatabaseError.execute("sqlite query returned no rows")
+    }
+    return sqlite3_column_double(statement, 0)
+}
+
 private func makeTestCalendar() -> Calendar {
     var calendar = Calendar.reportCalendar(language: .simplifiedChinese)
     calendar.timeZone = TimeZone(identifier: "America/Edmonton") ?? .current
@@ -1626,12 +1827,7 @@ private func makeTestCalendar() -> Calendar {
 
 private func makeAnalysisRun(database: AppDatabase) throws -> Int64 {
     try database.createAnalysisRun(
-        scheduledFor: Date(timeIntervalSince1970: 0),
-        provider: .openAI,
-        baseURL: "https://example.com",
         modelName: "test-model",
-        promptSnapshot: "prompt",
-        categorySnapshotJSON: "[]",
         totalItems: 1
     )
 }

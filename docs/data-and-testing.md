@@ -16,11 +16,11 @@ The app stores runtime data under Application Support:
 ## Database tables
 
 - `category_rules`
-  User-defined category definitions and ordering.
+  User-defined category definitions and ordering, without timestamp metadata.
 - `analysis_runs`
-  One record per analysis batch, including prompt snapshot and run status.
+  One compact record per analysis batch, including run status, model name, item counts, average item duration, and run-level error text.
 - `analysis_results`
-  Per-item output for screenshots, including category, summary, duration snapshot, and error fields.
+  Successful per-item screenshot analysis output, including capture time, category, summary, and duration snapshot.
 - `daily_reports`
   Generated daily summaries and per-category summary payloads for reportable, non-away activity.
 - `app_logs`
@@ -33,6 +33,7 @@ The app stores runtime data under Application Support:
 SQLite is the source of truth for captured work history, analysis outputs, and generated daily reports.
 It also stores lightweight runtime logs in `app_logs`, capped to the latest 1000 entries.
 Away intervals are not persisted; report views derive display-only `离开` blocks from bounded gaps between adjacent successful analysis results.
+Failed per-screenshot attempts are counted on `analysis_runs` but are not persisted as `analysis_results` rows.
 
 ### UserDefaults
 
@@ -106,14 +107,14 @@ Recent analysis runs:
 
 ```sh
 sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" \
-  "select id,status,provider,model_name,total_items,success_count,failure_count,datetime(started_at,'unixepoch','localtime') from analysis_runs order by id desc limit 20;"
+  "select id,status,model_name,total_items,success_count,failure_count,average_item_duration_seconds from analysis_runs order by id desc limit 20;"
 ```
 
 Recent analysis results:
 
 ```sh
 sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" \
-  "select id,datetime(captured_at,'unixepoch','localtime'),category_name,status,substr(ifnull(summary_text,''),1,80) from analysis_results order by id desc limit 20;"
+  "select id,datetime(captured_at,'unixepoch','localtime'),category_name,substr(ifnull(summary_text,''),1,80) from analysis_results order by id desc limit 20;"
 ```
 
 Recent daily reports:
@@ -127,6 +128,13 @@ Remove legacy away-state category summaries from existing daily reports:
 
 ```sh
 python3 scripts/clean_absence_daily_summaries.py \
+  --database "$HOME/Library/Containers/com.iBobby.DailyWorkSummarizer/Data/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite"
+```
+
+Remove legacy failed rows before compacting `analysis_results`:
+
+```sh
+python3 scripts/clean_failed_analysis_results.py \
   --database "$HOME/Library/Containers/com.iBobby.DailyWorkSummarizer/Data/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite"
 ```
 

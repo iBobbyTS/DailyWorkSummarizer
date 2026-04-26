@@ -46,12 +46,12 @@ sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summar
 
 ```sh
 sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" \
-  "select id,status,provider,model_name,total_items,success_count,failure_count,datetime(started_at,'unixepoch','localtime') from analysis_runs order by id desc limit 20;"
+  "select id,status,model_name,total_items,success_count,failure_count,average_item_duration_seconds from analysis_runs order by id desc limit 20;"
 ```
 
 ```sh
 sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" \
-  "select id,datetime(captured_at,'unixepoch','localtime'),category_name,status,substr(ifnull(summary_text,''),1,80) from analysis_results order by id desc limit 20;"
+  "select id,datetime(captured_at,'unixepoch','localtime'),category_name,substr(ifnull(summary_text,''),1,80) from analysis_results order by id desc limit 20;"
 ```
 
 ```sh
@@ -63,6 +63,13 @@ sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summar
 
 ```sh
 python3 scripts/clean_absence_daily_summaries.py \
+  --database "$HOME/Library/Containers/com.iBobby.DailyWorkSummarizer/Data/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite"
+```
+
+清理旧 `analysis_results.status == 'failed'` 行：
+
+```sh
+python3 scripts/clean_failed_analysis_results.py \
   --database "$HOME/Library/Containers/com.iBobby.DailyWorkSummarizer/Data/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite"
 ```
 

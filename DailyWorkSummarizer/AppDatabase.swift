@@ -78,7 +78,7 @@ final class AppDatabase: @unchecked Sendable {
             let statement = try prepareStatement("""
                 SELECT id, name, description
                 FROM category_rules
-                ORDER BY sort_order ASC, created_at ASC;
+                ORDER BY sort_order ASC;
             """)
             defer { sqlite3_finalize(statement) }
 
@@ -99,12 +99,11 @@ final class AppDatabase: @unchecked Sendable {
             do {
                 try executeLocked("DELETE FROM category_rules;")
                 let statement = try prepareStatement("""
-                    INSERT INTO category_rules (id, name, description, sort_order, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?);
+                    INSERT INTO category_rules (id, name, description, sort_order)
+                    VALUES (?, ?, ?, ?);
                 """)
                 defer { sqlite3_finalize(statement) }
 
-                let now = Date().timeIntervalSince1970
                 for (index, rule) in rules.enumerated() {
                     sqlite3_reset(statement)
                     sqlite3_clear_bindings(statement)
@@ -113,8 +112,6 @@ final class AppDatabase: @unchecked Sendable {
                     bind(rule.name, at: 2, to: statement)
                     bind(rule.description, at: 3, to: statement)
                     sqlite3_bind_int64(statement, 4, Int64(index))
-                    sqlite3_bind_double(statement, 5, now)
-                    sqlite3_bind_double(statement, 6, now)
 
                     guard sqlite3_step(statement) == SQLITE_DONE else {
                         throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
@@ -131,44 +128,27 @@ final class AppDatabase: @unchecked Sendable {
     }
 
     func createAnalysisRun(
-        scheduledFor: Date,
-        provider: ModelProvider,
-        baseURL: String,
         modelName: String,
-        promptSnapshot: String,
-        categorySnapshotJSON: String,
         totalItems: Int,
         status: String = "running"
     ) throws -> Int64 {
         try queue.sync {
             let statement = try prepareStatement("""
                 INSERT INTO analysis_runs (
-                    scheduled_for,
-                    started_at,
                     status,
-                    provider,
-                    base_url,
                     model_name,
-                    prompt_snapshot,
-                    category_snapshot_json,
                     total_items,
                     created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                VALUES (?, ?, ?, ?);
             """)
             defer { sqlite3_finalize(statement) }
 
             let now = Date().timeIntervalSince1970
-            sqlite3_bind_double(statement, 1, scheduledFor.timeIntervalSince1970)
-            sqlite3_bind_double(statement, 2, now)
-            bind(status, at: 3, to: statement)
-            bind(provider.rawValue, at: 4, to: statement)
-            bind(baseURL, at: 5, to: statement)
-            bind(modelName, at: 6, to: statement)
-            bind(promptSnapshot, at: 7, to: statement)
-            bind(categorySnapshotJSON, at: 8, to: statement)
-            sqlite3_bind_int64(statement, 9, Int64(totalItems))
-            sqlite3_bind_double(statement, 10, now)
+            bind(status, at: 1, to: statement)
+            bind(modelName, at: 2, to: statement)
+            sqlite3_bind_int64(statement, 3, Int64(totalItems))
+            sqlite3_bind_double(statement, 4, now)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
@@ -188,22 +168,21 @@ final class AppDatabase: @unchecked Sendable {
         try queue.sync {
             let statement = try prepareStatement("""
                 UPDATE analysis_runs
-                SET finished_at = ?, status = ?, success_count = ?, failure_count = ?, average_item_duration_seconds = ?, error_message = ?
+                SET status = ?, success_count = ?, failure_count = ?, average_item_duration_seconds = ?, error_message = ?
                 WHERE id = ?;
             """)
             defer { sqlite3_finalize(statement) }
 
-            sqlite3_bind_double(statement, 1, Date().timeIntervalSince1970)
-            bind(status, at: 2, to: statement)
-            sqlite3_bind_int64(statement, 3, Int64(successCount))
-            sqlite3_bind_int64(statement, 4, Int64(failureCount))
+            bind(status, at: 1, to: statement)
+            sqlite3_bind_int64(statement, 2, Int64(successCount))
+            sqlite3_bind_int64(statement, 3, Int64(failureCount))
             if let averageItemDurationSeconds {
-                sqlite3_bind_double(statement, 5, averageItemDurationSeconds)
+                sqlite3_bind_double(statement, 4, averageItemDurationSeconds)
             } else {
-                sqlite3_bind_null(statement, 5)
+                sqlite3_bind_null(statement, 4)
             }
-            bind(errorMessage, at: 6, to: statement)
-            sqlite3_bind_int64(statement, 7, id)
+            bind(errorMessage, at: 5, to: statement)
+            sqlite3_bind_int64(statement, 6, id)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
@@ -218,7 +197,7 @@ final class AppDatabase: @unchecked Sendable {
                 SELECT average_item_duration_seconds
                 FROM analysis_runs
                 WHERE average_item_duration_seconds IS NOT NULL
-                ORDER BY finished_at DESC, id DESC
+                ORDER BY id DESC
                 LIMIT 1;
             """)
             defer { sqlite3_finalize(statement) }
@@ -322,38 +301,27 @@ final class AppDatabase: @unchecked Sendable {
     }
 
     func insertAnalysisResult(
-        runID: Int64,
         capturedAt: Date,
         categoryName: String?,
         summaryText: String?,
-        status: String,
-        errorMessage: String?,
         durationMinutesSnapshot: Int
     ) throws {
         try queue.sync {
             let statement = try prepareStatement("""
                 INSERT INTO analysis_results (
-                    run_id,
                     captured_at,
                     category_name,
                     summary_text,
-                    status,
-                    error_message,
-                    duration_minutes_snapshot,
-                    created_at
+                    duration_minutes_snapshot
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                VALUES (?, ?, ?, ?);
             """)
             defer { sqlite3_finalize(statement) }
 
-            sqlite3_bind_int64(statement, 1, runID)
-            sqlite3_bind_double(statement, 2, capturedAt.timeIntervalSince1970)
-            bind(categoryName, at: 3, to: statement)
-            bind(summaryText, at: 4, to: statement)
-            bind(status, at: 5, to: statement)
-            bind(errorMessage, at: 6, to: statement)
-            sqlite3_bind_int64(statement, 7, Int64(durationMinutesSnapshot))
-            sqlite3_bind_double(statement, 8, Date().timeIntervalSince1970)
+            sqlite3_bind_double(statement, 1, capturedAt.timeIntervalSince1970)
+            bind(categoryName, at: 2, to: statement)
+            bind(summaryText, at: 3, to: statement)
+            sqlite3_bind_int64(statement, 4, Int64(durationMinutesSnapshot))
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
@@ -370,8 +338,7 @@ final class AppDatabase: @unchecked Sendable {
                     category_name,
                     duration_minutes_snapshot AS duration_minutes
                 FROM analysis_results
-                WHERE status = 'succeeded'
-                  AND category_name IS NOT NULL
+                WHERE category_name IS NOT NULL
                 ORDER BY captured_at DESC, id DESC;
             """)
             defer { sqlite3_finalize(statement) }
@@ -429,8 +396,7 @@ final class AppDatabase: @unchecked Sendable {
                     duration_minutes_snapshot AS duration_minutes,
                     summary_text AS item_summary_text
                 FROM analysis_results
-                WHERE status = 'succeeded'
-                  AND category_name IS NOT NULL
+                WHERE category_name IS NOT NULL
                   AND captured_at >= ?
                   AND captured_at < ?
                 ORDER BY captured_at ASC, id ASC;
@@ -496,24 +462,18 @@ final class AppDatabase: @unchecked Sendable {
                 INSERT INTO daily_reports (
                     day_start,
                     daily_summary_text,
-                    category_summaries_json,
-                    created_at,
-                    updated_at
+                    category_summaries_json
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?)
                 ON CONFLICT(day_start) DO UPDATE SET
                     daily_summary_text = excluded.daily_summary_text,
-                    category_summaries_json = excluded.category_summaries_json,
-                    updated_at = excluded.updated_at;
+                    category_summaries_json = excluded.category_summaries_json;
             """)
             defer { sqlite3_finalize(statement) }
 
-            let now = Date().timeIntervalSince1970
             sqlite3_bind_double(statement, 1, dayStart.timeIntervalSince1970)
             bind(dailySummaryText, at: 2, to: statement)
             bind(encodeCategorySummaries(categorySummaries), at: 3, to: statement)
-            sqlite3_bind_double(statement, 4, now)
-            sqlite3_bind_double(statement, 5, now)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
@@ -528,24 +488,15 @@ final class AppDatabase: @unchecked Sendable {
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
-                sort_order INTEGER NOT NULL,
-                created_at DOUBLE NOT NULL,
-                updated_at DOUBLE NOT NULL
+                sort_order INTEGER NOT NULL
             );
         """)
 
         try execute("""
             CREATE TABLE IF NOT EXISTS analysis_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                scheduled_for DOUBLE NOT NULL,
-                started_at DOUBLE NOT NULL,
-                finished_at DOUBLE,
                 status TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                base_url TEXT NOT NULL,
                 model_name TEXT NOT NULL,
-                prompt_snapshot TEXT NOT NULL,
-                category_snapshot_json TEXT NOT NULL,
                 total_items INTEGER NOT NULL,
                 success_count INTEGER NOT NULL DEFAULT 0,
                 failure_count INTEGER NOT NULL DEFAULT 0,
@@ -558,14 +509,10 @@ final class AppDatabase: @unchecked Sendable {
         try execute("""
             CREATE TABLE IF NOT EXISTS analysis_results (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id INTEGER NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
                 captured_at DOUBLE NOT NULL,
                 category_name TEXT,
                 summary_text TEXT,
-                status TEXT NOT NULL,
-                error_message TEXT,
-                duration_minutes_snapshot INTEGER NOT NULL,
-                created_at DOUBLE NOT NULL
+                duration_minutes_snapshot INTEGER NOT NULL
             );
         """)
 
@@ -574,9 +521,7 @@ final class AppDatabase: @unchecked Sendable {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 day_start DOUBLE NOT NULL UNIQUE,
                 daily_summary_text TEXT NOT NULL,
-                category_summaries_json TEXT NOT NULL,
-                created_at DOUBLE NOT NULL,
-                updated_at DOUBLE NOT NULL
+                category_summaries_json TEXT NOT NULL
             );
         """)
 
@@ -594,8 +539,9 @@ final class AppDatabase: @unchecked Sendable {
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_category_name ON analysis_results (category_name, captured_at DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_daily_reports_day_start ON daily_reports (day_start DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_app_logs_created_at ON app_logs (created_at DESC);")
-        try migrateAnalysisRunsIfNeeded()
+        try migrateCategoryRulesIfNeeded()
         try migrateAnalysisResultsIfNeeded()
+        try migrateAnalysisRunsIfNeeded()
         try migrateDailyReportsIfNeeded()
         try dropCaptureEventsTableIfNeeded()
         try dropAbsenceEventsTableIfNeeded()
@@ -660,18 +606,53 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
+    private func migrateCategoryRulesIfNeeded() throws {
+        let columns = try columnNames(in: "category_rules")
+        let expectedColumns = [
+            "id",
+            "name",
+            "description",
+            "sort_order",
+        ]
+        guard columns != expectedColumns else {
+            return
+        }
+
+        try executeLocked("ALTER TABLE category_rules RENAME TO category_rules_legacy;")
+        try executeLocked("""
+            CREATE TABLE category_rules (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                sort_order INTEGER NOT NULL
+            );
+        """)
+        let legacyColumns = Set(columns)
+        try executeLocked("""
+            INSERT INTO category_rules (
+                id,
+                name,
+                description,
+                sort_order
+            )
+            SELECT
+                \(legacyColumns.contains("id") ? "id" : "lower(hex(randomblob(16)))"),
+                \(legacyColumns.contains("name") ? "name" : "''"),
+                \(legacyColumns.contains("description") ? "description" : "''"),
+                \(legacyColumns.contains("sort_order") ? "sort_order" : "0")
+            FROM category_rules_legacy;
+        """)
+        try executeLocked("DROP TABLE category_rules_legacy;")
+    }
+
     private func migrateAnalysisResultsIfNeeded() throws {
         let columns = try columnNames(in: "analysis_results")
         let expectedColumns = [
             "id",
-            "run_id",
             "captured_at",
             "category_name",
             "summary_text",
-            "status",
-            "error_message",
             "duration_minutes_snapshot",
-            "created_at",
         ]
         guard columns != expectedColumns else {
             return
@@ -681,40 +662,30 @@ final class AppDatabase: @unchecked Sendable {
         try executeLocked("""
             CREATE TABLE analysis_results (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id INTEGER NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
                 captured_at DOUBLE NOT NULL,
                 category_name TEXT,
                 summary_text TEXT,
-                status TEXT NOT NULL,
-                error_message TEXT,
-                duration_minutes_snapshot INTEGER NOT NULL,
-                created_at DOUBLE NOT NULL
+                duration_minutes_snapshot INTEGER NOT NULL
             );
         """)
         let legacyColumns = Set(columns)
+        let succeededFilter = legacyColumns.contains("status") ? "WHERE status = 'succeeded'" : ""
         try executeLocked("""
             INSERT INTO analysis_results (
                 id,
-                run_id,
                 captured_at,
                 category_name,
                 summary_text,
-                status,
-                error_message,
-                duration_minutes_snapshot,
-                created_at
+                duration_minutes_snapshot
             )
             SELECT
                 \(legacyColumns.contains("id") ? "id" : "NULL"),
-                \(legacyColumns.contains("run_id") ? "run_id" : "0"),
                 \(legacyColumns.contains("captured_at") ? "captured_at" : "0"),
                 \(legacyColumns.contains("category_name") ? "category_name" : "NULL"),
                 \(legacyColumns.contains("summary_text") ? "summary_text" : "NULL"),
-                \(legacyColumns.contains("status") ? "status" : "'failed'"),
-                \(legacyColumns.contains("error_message") ? "error_message" : "NULL"),
-                \(legacyColumns.contains("duration_minutes_snapshot") ? "duration_minutes_snapshot" : "0"),
-                \(legacyColumns.contains("created_at") ? "created_at" : "0")
-            FROM analysis_results_legacy;
+                \(legacyColumns.contains("duration_minutes_snapshot") ? "duration_minutes_snapshot" : "0")
+            FROM analysis_results_legacy
+            \(succeededFilter);
         """)
         try executeLocked("DROP TABLE analysis_results_legacy;")
         try executeLocked("CREATE INDEX IF NOT EXISTS idx_analysis_results_captured_at ON analysis_results (captured_at DESC);")
@@ -723,11 +694,61 @@ final class AppDatabase: @unchecked Sendable {
 
     private func migrateAnalysisRunsIfNeeded() throws {
         let columns = try columnNames(in: "analysis_runs")
-        guard !columns.contains("average_item_duration_seconds") else {
+        let expectedColumns = [
+            "id",
+            "status",
+            "model_name",
+            "total_items",
+            "success_count",
+            "failure_count",
+            "average_item_duration_seconds",
+            "error_message",
+            "created_at",
+        ]
+        guard columns != expectedColumns else {
             return
         }
 
-        try executeLocked("ALTER TABLE analysis_runs ADD COLUMN average_item_duration_seconds DOUBLE;")
+        try executeLocked("ALTER TABLE analysis_runs RENAME TO analysis_runs_legacy;")
+        try executeLocked("""
+            CREATE TABLE analysis_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                status TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                total_items INTEGER NOT NULL,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                failure_count INTEGER NOT NULL DEFAULT 0,
+                average_item_duration_seconds DOUBLE,
+                error_message TEXT,
+                created_at DOUBLE NOT NULL
+            );
+        """)
+        let legacyColumns = Set(columns)
+        try executeLocked("""
+            INSERT INTO analysis_runs (
+                id,
+                status,
+                model_name,
+                total_items,
+                success_count,
+                failure_count,
+                average_item_duration_seconds,
+                error_message,
+                created_at
+            )
+            SELECT
+                \(legacyColumns.contains("id") ? "id" : "NULL"),
+                \(legacyColumns.contains("status") ? "status" : "'running'"),
+                \(legacyColumns.contains("model_name") ? "model_name" : "''"),
+                \(legacyColumns.contains("total_items") ? "total_items" : "0"),
+                \(legacyColumns.contains("success_count") ? "success_count" : "0"),
+                \(legacyColumns.contains("failure_count") ? "failure_count" : "0"),
+                \(legacyColumns.contains("average_item_duration_seconds") ? "average_item_duration_seconds" : "NULL"),
+                \(legacyColumns.contains("error_message") ? "error_message" : "NULL"),
+                \(legacyColumns.contains("created_at") ? "created_at" : "0")
+            FROM analysis_runs_legacy;
+        """)
+        try executeLocked("DROP TABLE analysis_runs_legacy;")
     }
 
     private func migrateDailyReportsIfNeeded() throws {
@@ -742,8 +763,6 @@ final class AppDatabase: @unchecked Sendable {
             "day_start",
             "daily_summary_text",
             "category_summaries_json",
-            "created_at",
-            "updated_at",
         ]
         guard columns != expectedColumns else {
             return
@@ -755,9 +774,7 @@ final class AppDatabase: @unchecked Sendable {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 day_start DOUBLE NOT NULL UNIQUE,
                 daily_summary_text TEXT NOT NULL,
-                category_summaries_json TEXT NOT NULL,
-                created_at DOUBLE NOT NULL,
-                updated_at DOUBLE NOT NULL
+                category_summaries_json TEXT NOT NULL
             );
         """)
         let legacyColumns = Set(columns)
@@ -766,17 +783,13 @@ final class AppDatabase: @unchecked Sendable {
                 id,
                 day_start,
                 daily_summary_text,
-                category_summaries_json,
-                created_at,
-                updated_at
+                category_summaries_json
             )
             SELECT
                 \(legacyColumns.contains("id") ? "id" : "NULL"),
                 \(legacyColumns.contains("day_start") ? "day_start" : "0"),
                 \(legacyColumns.contains("daily_summary_text") ? "daily_summary_text" : "''"),
-                \(legacyColumns.contains("category_summaries_json") ? "category_summaries_json" : "'{}'"),
-                \(legacyColumns.contains("created_at") ? "created_at" : "0"),
-                \(legacyColumns.contains("updated_at") ? "updated_at" : "0")
+                \(legacyColumns.contains("category_summaries_json") ? "category_summaries_json" : "'{}'")
             FROM daily_reports_legacy;
         """)
         try executeLocked("DROP TABLE daily_reports_legacy;")

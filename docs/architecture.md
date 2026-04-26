@@ -41,13 +41,13 @@ The app is centered around a small set of long-lived services created at launch 
 ### 3. Screenshot analysis flow
 
 - `AnalysisService` finds pending screenshot files from local storage.
-- It creates an `analysis_runs` record and processes screenshots one by one.
+- It creates a compact `analysis_runs` record for run-level status/counts and processes screenshots one by one.
 - Depending on provider and analysis mode, it either:
   - runs local OCR first and sends text to a model, or
   - sends the screenshot image to a remote multimodal endpoint.
 - `LLMService` translates the request into the provider-specific wire format and normalizes the response back into a shared result model.
 - When the user pauses analysis while LM Studio is active, `AnalysisService` first waits for the in-flight generation request to stop and then issues the unload request.
-- Parsed results are written to `analysis_results`.
+- Successful parsed results are written to `analysis_results`; failed per-screenshot attempts only update run-level counts and errors.
 - After a run completes, the service updates run status and may trigger daily-summary backfill.
 
 ### 4. Daily summary flow

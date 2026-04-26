@@ -44,6 +44,7 @@ xcodebuild test \
 - 默认 DerivedData 路径在当前沙箱里容易触发日志目录权限错误，因此统一把 `-derivedDataPath` 指到 `/tmp`。
 - `CoreSimulatorService connection became invalid`、`attempt to post distributed notification ... thwarted by sandboxing` 这类输出在 macOS CLI 环境里常见；只有在最终出现真正的 `SwiftCompile` / `Test Failure` 时才按失败处理。
 - UI 测试默认不是首选排障入口。先跑 `DailyWorkSummarizerTests`，只有明确要验证窗口流程或系统权限交互时再考虑 `DailyWorkSummarizerUITests`。
+- 菜单栏 accessory app 在 CLI 下使用 `XCTApplicationLaunchMetric` 可能出现某次 iteration 没有 metric 的不稳定失败；如果只需要覆盖 launch block 耗时，优先改用 `XCTClockMetric` 并在每次迭代后显式 `terminate()`。
 
 常见回归点：
 
@@ -58,4 +59,3 @@ rg -n "AnalysisModelSettings\\(|AppSettingsSnapshot\\(" DailyWorkSummarizer Dail
   - `SettingsStore.snapshot`
   - `SettingsView`
   - 两个模型配置复制入口
-
