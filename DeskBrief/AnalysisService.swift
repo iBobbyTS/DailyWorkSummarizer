@@ -47,7 +47,7 @@ private struct ParsedAnalysisPayload: Decodable {
 
 @MainActor
 final class AnalysisService {
-    private enum AnalysisTrigger {
+    enum AnalysisTrigger {
         case manual
         case scheduled
         case realtime
@@ -286,10 +286,14 @@ final class AnalysisService {
     }
 
     private func triggerAnalysis(scheduledFor: Date, trigger: AnalysisTrigger) {
-        if trigger == .scheduled,
-           settingsStore.snapshot.autoAnalysisRequiresCharger,
-           !Self.isConnectedToCharger() {
-            scheduleNextRun()
+        if Self.shouldSkipForChargerRequirement(
+            trigger: trigger,
+            requiresCharger: settingsStore.snapshot.autoAnalysisRequiresCharger,
+            isConnectedToCharger: Self.isConnectedToCharger()
+        ) {
+            if trigger == .scheduled {
+                scheduleNextRun()
+            }
             return
         }
 
@@ -1161,6 +1165,21 @@ final class AnalysisService {
         }
 
         return powerSourceType == kIOPMACPowerKey
+    }
+
+    nonisolated static func shouldSkipForChargerRequirement(
+        trigger: AnalysisTrigger,
+        requiresCharger: Bool,
+        isConnectedToCharger: Bool
+    ) -> Bool {
+        let usesChargerRequirement: Bool
+        switch trigger {
+        case .manual:
+            usesChargerRequirement = false
+        case .scheduled, .realtime:
+            usesChargerRequirement = true
+        }
+        return usesChargerRequirement && requiresCharger && !isConnectedToCharger
     }
 
     nonisolated static func shouldRetryAnalysis(after error: Error, attempt: Int, maxAttempts: Int = 3) -> Bool {

@@ -43,6 +43,7 @@ The app is centered around a small set of long-lived services created at launch 
 
 - `AnalysisService` can be started manually, by the configured scheduled time, or by realtime capture-saved notifications.
 - `AnalysisService` finds pending screenshot files from local storage; realtime mode still processes the whole pending folder, not only the latest screenshot.
+- The charger requirement applies to automatic triggers: scheduled and realtime analysis honor it, while manual "Analyze Now" always starts when selected.
 - It creates a compact `analysis_runs` record for run-level status/counts and processes screenshots one by one.
 - Depending on provider and analysis mode, it either:
   - runs local OCR first and sends text to a model, or

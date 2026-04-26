@@ -870,6 +870,44 @@ struct DeskBriefTests {
         #expect(AnalysisStartupMode.realtime.title(in: .english) == "Realtime Analysis")
     }
 
+    @Test func chargerRequirementAppliesOnlyToAutomaticAnalysisTriggers() async throws {
+        #expect(
+            !AnalysisService.shouldSkipForChargerRequirement(
+                trigger: .manual,
+                requiresCharger: true,
+                isConnectedToCharger: false
+            )
+        )
+        #expect(
+            AnalysisService.shouldSkipForChargerRequirement(
+                trigger: .scheduled,
+                requiresCharger: true,
+                isConnectedToCharger: false
+            )
+        )
+        #expect(
+            AnalysisService.shouldSkipForChargerRequirement(
+                trigger: .realtime,
+                requiresCharger: true,
+                isConnectedToCharger: false
+            )
+        )
+        #expect(
+            !AnalysisService.shouldSkipForChargerRequirement(
+                trigger: .realtime,
+                requiresCharger: false,
+                isConnectedToCharger: false
+            )
+        )
+        #expect(
+            !AnalysisService.shouldSkipForChargerRequirement(
+                trigger: .scheduled,
+                requiresCharger: true,
+                isConnectedToCharger: true
+            )
+        )
+    }
+
     @MainActor
     @Test func settingsStoreKeepsPreservedOtherLastAndRejectsReservedPrefixNames() async throws {
         let databaseURL = makeTemporaryDatabaseURL()

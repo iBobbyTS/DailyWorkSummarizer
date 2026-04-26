@@ -195,6 +195,24 @@ struct SettingsView: View {
                 .padding(.horizontal, Layout.cardRowHorizontalPadding)
                 .padding(.vertical, Layout.cardRowVerticalPadding)
 
+                if settingsStore.analysisStartupMode == .scheduled {
+                    Divider()
+
+                    HStack(spacing: 12) {
+                        Text(text(.settingsCaptureAnalysisTime))
+                        Spacer()
+                        DatePicker(
+                            "",
+                            selection: analysisTimeBinding,
+                            displayedComponents: [.hourAndMinute]
+                        )
+                        .labelsHidden()
+                        .datePickerStyle(.field)
+                    }
+                    .padding(.horizontal, Layout.cardRowHorizontalPadding)
+                    .padding(.vertical, Layout.cardRowVerticalPadding)
+                }
+
                 Divider()
 
                 HStack(spacing: 12) {
@@ -206,24 +224,7 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, Layout.cardRowHorizontalPadding)
                 .padding(.vertical, Layout.cardRowVerticalPadding)
-                .disabled(settingsStore.analysisStartupMode != .scheduled)
-
-                Divider()
-
-                HStack(spacing: 12) {
-                    Text(text(.settingsCaptureAnalysisTime))
-                    Spacer()
-                    DatePicker(
-                        "",
-                        selection: analysisTimeBinding,
-                        displayedComponents: [.hourAndMinute]
-                    )
-                    .labelsHidden()
-                    .datePickerStyle(.field)
-                    .disabled(settingsStore.analysisStartupMode != .scheduled)
-                }
-                .padding(.horizontal, Layout.cardRowHorizontalPadding)
-                .padding(.vertical, Layout.cardRowVerticalPadding)
+                .disabled(settingsStore.analysisStartupMode == .manual)
             }
             .background(
                 RoundedRectangle(cornerRadius: 20)

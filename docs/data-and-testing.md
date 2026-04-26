@@ -42,6 +42,7 @@ UserDefaults stores lightweight preferences such as:
 - screenshot interval
 - analysis time
 - analysis startup mode
+- automatic-analysis charger requirement
 - language
 - provider selection
 - base URLs
