@@ -47,6 +47,12 @@ private struct ParsedAnalysisPayload: Decodable {
 
 @MainActor
 final class AnalysisService {
+    private enum AnalysisTrigger {
+        case manual
+        case scheduled
+        case realtime
+    }
+
     private struct DataRequestResult {
         let data: Data
         let response: URLResponse
@@ -67,7 +73,9 @@ final class AnalysisService {
     private let session: URLSession
     private let llmService: LLMService
     private var timer: Timer?
+    private var realtimeAnalysisTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
+    private var screenshotSavedObserver: NSObjectProtocol?
     private var runningTask: Task<Void, Never>?
     private var activeRunSettings: AppSettingsSnapshot?
     private var lastLMStudioModelInstanceID: String?
@@ -95,14 +103,27 @@ final class AnalysisService {
 
     deinit {
         timer?.invalidate()
+        realtimeAnalysisTimer?.invalidate()
         runningTask?.cancel()
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+        if let screenshotSavedObserver {
+            NotificationCenter.default.removeObserver(screenshotSavedObserver)
         }
     }
 
     func start() {
         scheduleNextRun()
+        screenshotSavedObserver = NotificationCenter.default.addObserver(
+            forName: .screenshotFileSaved,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleRealtimeAnalysisAfterCapture()
+            }
+        }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,
@@ -116,10 +137,14 @@ final class AnalysisService {
 
     func reschedule() {
         scheduleNextRun()
+        if settingsStore.snapshot.analysisStartupMode != .realtime {
+            realtimeAnalysisTimer?.invalidate()
+            realtimeAnalysisTimer = nil
+        }
     }
 
     func runNow() {
-        triggerAnalysis(scheduledFor: Date(), isAutomatic: false)
+        triggerAnalysis(scheduledFor: Date(), trigger: .manual)
     }
 
     func cancelCurrentRun() {
@@ -213,13 +238,13 @@ final class AnalysisService {
 
     private func scheduleNextRun() {
         timer?.invalidate()
-        guard settingsStore.snapshot.automaticAnalysisEnabled else {
+        guard settingsStore.snapshot.analysisStartupMode == .scheduled else {
             return
         }
         let nextDate = settingsStore.snapshot.nextAnalysisDate(after: Date())
         timer = Timer(fire: nextDate, interval: 0, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.triggerAnalysis(scheduledFor: nextDate, isAutomatic: true)
+                self?.triggerAnalysis(scheduledFor: nextDate, trigger: .scheduled)
             }
         }
 
@@ -228,8 +253,40 @@ final class AnalysisService {
         }
     }
 
-    private func triggerAnalysis(scheduledFor: Date, isAutomatic: Bool) {
-        if isAutomatic,
+    private func scheduleRealtimeAnalysisAfterCapture() {
+        guard settingsStore.snapshot.analysisStartupMode == .realtime else {
+            return
+        }
+
+        realtimeAnalysisTimer?.invalidate()
+        let fireDate = Date().addingTimeInterval(1)
+        realtimeAnalysisTimer = Timer(fire: fireDate, interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.triggerRealtimeAnalysis()
+            }
+        }
+
+        if let realtimeAnalysisTimer {
+            RunLoop.main.add(realtimeAnalysisTimer, forMode: .common)
+        }
+    }
+
+    private func triggerRealtimeAnalysis() {
+        realtimeAnalysisTimer?.invalidate()
+        realtimeAnalysisTimer = nil
+
+        guard settingsStore.snapshot.analysisStartupMode == .realtime else {
+            return
+        }
+        guard !runtimeState.isRunning else {
+            return
+        }
+
+        triggerAnalysis(scheduledFor: Date(), trigger: .realtime)
+    }
+
+    private func triggerAnalysis(scheduledFor: Date, trigger: AnalysisTrigger) {
+        if trigger == .scheduled,
            settingsStore.snapshot.autoAnalysisRequiresCharger,
            !Self.isConnectedToCharger() {
             scheduleNextRun()

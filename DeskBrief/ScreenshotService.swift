@@ -147,6 +147,7 @@ final class ScreenshotService {
             if let currentFrontmostAppIdentifier {
                 saveLastFrontmostAppIdentifier(currentFrontmostAppIdentifier)
             }
+            NotificationCenter.default.post(name: .screenshotFileSaved, object: fileURL)
             NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
         } catch {
             return

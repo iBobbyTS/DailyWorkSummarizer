@@ -35,7 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private let statusAverageDurationItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let openScreenshotsItem = NSMenuItem(title: "", action: #selector(openScreenshotsFolder), keyEquivalent: "")
     private let viewLogsItem = NSMenuItem(title: "", action: #selector(openLogs), keyEquivalent: "")
-    private let automaticAnalysisToggleItem = NSMenuItem(title: "", action: #selector(toggleAutomaticAnalysis), keyEquivalent: "")
+    private let analysisStartupModeMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private var analysisStartupModeItems: [AnalysisStartupMode: NSMenuItem] = [:]
     private let analyzeNowItem = NSMenuItem(title: "", action: #selector(runAnalysisNow), keyEquivalent: "")
     private let currentStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let settingsMenuItem = NSMenuItem(title: "", action: #selector(openSettings), keyEquivalent: ",")
@@ -186,16 +187,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         openScreenshotsItem.target = self
         viewLogsItem.target = self
         viewLogsItem.isEnabled = true
-        automaticAnalysisToggleItem.target = self
         analyzeNowItem.target = self
+
+        let analysisStartupModeSubmenu = NSMenu()
+        for mode in AnalysisStartupMode.allCases {
+            let item = NSMenuItem(title: "", action: #selector(selectAnalysisStartupMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = mode.rawValue
+            analysisStartupModeSubmenu.addItem(item)
+            analysisStartupModeItems[mode] = item
+        }
 
         let statusSubmenu = NSMenu()
         statusSubmenu.addItem(statusSummaryItem)
         statusSubmenu.addItem(statusAverageDurationItem)
+        statusSubmenu.addItem(analysisStartupModeMenuItem)
+        statusSubmenu.setSubmenu(analysisStartupModeSubmenu, for: analysisStartupModeMenuItem)
         statusSubmenu.addItem(.separator())
         statusSubmenu.addItem(openScreenshotsItem)
         statusSubmenu.addItem(viewLogsItem)
-        statusSubmenu.addItem(automaticAnalysisToggleItem)
         statusSubmenu.addItem(analyzeNowItem)
 
         menu.addItem(currentStatusMenuItem)
@@ -285,9 +295,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         activateAndShow(window)
     }
 
-    @objc private func toggleAutomaticAnalysis() {
-        guard let settingsStore else { return }
-        settingsStore.automaticAnalysisEnabled.toggle()
+    @objc private func selectAnalysisStartupMode(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let mode = AnalysisStartupMode(rawValue: rawValue) else {
+            return
+        }
+        settingsStore?.analysisStartupMode = mode
     }
 
     @objc private func runAnalysisNow() {
@@ -313,15 +326,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let pendingScreenshots = (try? database.listScreenshotFiles(defaultDurationMinutes: defaultDuration)) ?? []
         let analysisState = analysisService?.currentState ?? .idle
         let lastAverageDuration = try? database.fetchLatestAnalysisAverageDurationSeconds()
-        let automaticAnalysisEnabled = settingsStore?.automaticAnalysisEnabled ?? AppDefaults.automaticAnalysisEnabled
+        let analysisStartupMode = settingsStore?.analysisStartupMode ?? AppDefaults.analysisStartupMode
         let language = settingsStore?.appLanguage ?? .current
 
         viewLogsItem.title = text(.menuShowLogs, language: language)
         viewLogsItem.isEnabled = true
-        automaticAnalysisToggleItem.title = automaticAnalysisEnabled
-            ? text(.menuTurnOffAutoAnalysis, language: language)
-            : text(.menuTurnOnAutoAnalysis, language: language)
-        automaticAnalysisToggleItem.isEnabled = true
+        analysisStartupModeMenuItem.title = text(.menuAnalysisStartupMode, language: language)
+        for mode in AnalysisStartupMode.allCases {
+            guard let item = analysisStartupModeItems[mode] else { continue }
+            item.title = mode.title(in: language)
+            item.state = mode == analysisStartupMode ? .on : .off
+        }
 
         if let lastAverageDuration {
             let durationText = averageDurationFormatter(language: language).string(from: NSNumber(value: lastAverageDuration))

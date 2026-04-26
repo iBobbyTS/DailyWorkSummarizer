@@ -22,6 +22,7 @@ struct SettingsView: View {
         static let servicePickerWidth: CGFloat = 220
         static let imageAnalysisMethodPickerWidth: CGFloat = 320
         static let reportPickerWidth: CGFloat = 160
+        static let analysisStartupModePickerWidth: CGFloat = 180
         static let plainIntegerFormatter: NumberFormatter = {
             let formatter = NumberFormatter()
             formatter.numberStyle = .decimal
@@ -184,9 +185,14 @@ struct SettingsView: View {
                 HStack(spacing: 12) {
                     Text(text(.settingsCaptureAutoAnalysis))
                     Spacer()
-                    Toggle("", isOn: $settingsStore.automaticAnalysisEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
+                    Picker("", selection: $settingsStore.analysisStartupMode) {
+                        ForEach(AnalysisStartupMode.allCases) { mode in
+                            Text(mode.title(in: language)).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(width: Layout.analysisStartupModePickerWidth)
                 }
                 .padding(.horizontal, Layout.cardRowHorizontalPadding)
                 .padding(.vertical, Layout.cardRowVerticalPadding)
@@ -202,7 +208,7 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, Layout.cardRowHorizontalPadding)
                 .padding(.vertical, Layout.cardRowVerticalPadding)
-                .disabled(!settingsStore.automaticAnalysisEnabled)
+                .disabled(settingsStore.analysisStartupMode != .scheduled)
 
                 Divider()
 
@@ -216,7 +222,7 @@ struct SettingsView: View {
                     )
                     .labelsHidden()
                     .datePickerStyle(.field)
-                    .disabled(!settingsStore.automaticAnalysisEnabled)
+                    .disabled(settingsStore.analysisStartupMode != .scheduled)
                 }
                 .padding(.horizontal, Layout.cardRowHorizontalPadding)
                 .padding(.vertical, Layout.cardRowVerticalPadding)

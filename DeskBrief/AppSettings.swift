@@ -27,9 +27,9 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    @Published var automaticAnalysisEnabled: Bool {
+    @Published var analysisStartupMode: AnalysisStartupMode {
         didSet {
-            userDefaults.set(automaticAnalysisEnabled, forKey: Keys.automaticAnalysisEnabled)
+            userDefaults.set(analysisStartupMode.rawValue, forKey: Keys.analysisStartupMode)
             notifySettingsChanged()
         }
     }
@@ -193,7 +193,7 @@ final class SettingsStore: ObservableObject {
 
         let savedInterval = userDefaults.object(forKey: Keys.screenshotIntervalMinutes) as? Int ?? AppDefaults.screenshotIntervalMinutes
         let savedAnalysisTime = userDefaults.object(forKey: Keys.analysisTimeMinutes) as? Int ?? AppDefaults.analysisTimeMinutes
-        let savedAutomaticAnalysisEnabled = userDefaults.object(forKey: Keys.automaticAnalysisEnabled) as? Bool ?? AppDefaults.automaticAnalysisEnabled
+        let savedAnalysisStartupMode = Self.resolvedAnalysisStartupMode(from: userDefaults)
         let savedReportWeekStart = ReportWeekStart(rawValue: userDefaults.string(forKey: Keys.reportWeekStart) ?? "") ?? .sunday
         let savedAutoAnalysisRequiresCharger = userDefaults.object(forKey: Keys.autoAnalysisRequiresCharger) as? Bool ?? AppDefaults.autoAnalysisRequiresCharger
         let savedAppLanguage = AppLanguage(rawValue: userDefaults.string(forKey: AppLanguage.userDefaultsKey) ?? "") ?? .defaultValue
@@ -231,7 +231,7 @@ final class SettingsStore: ObservableObject {
 
         screenshotIntervalMinutes = max(1, min(60, savedInterval))
         analysisTimeMinutes = max(0, min(23 * 60 + 59, savedAnalysisTime))
-        automaticAnalysisEnabled = savedAutomaticAnalysisEnabled
+        analysisStartupMode = savedAnalysisStartupMode
         reportWeekStart = savedReportWeekStart
         autoAnalysisRequiresCharger = savedAutoAnalysisRequiresCharger
         appLanguage = savedAppLanguage
@@ -251,6 +251,7 @@ final class SettingsStore: ObservableObject {
         let initialRules = savedRules.isEmpty ? AppDefaults.defaultCategoryRules(language: savedAppLanguage) : savedRules
         categoryRules = Self.normalizedCategoryRules(initialRules, language: savedAppLanguage)
         categoryRulesValidationMessage = nil
+        userDefaults.set(analysisStartupMode.rawValue, forKey: Keys.analysisStartupMode)
 
         if savedRules.isEmpty || initialRules != categoryRules {
             try? database.replaceCategoryRules(categoryRules)
@@ -261,7 +262,7 @@ final class SettingsStore: ObservableObject {
         AppSettingsSnapshot(
             screenshotIntervalMinutes: screenshotIntervalMinutes,
             analysisTimeMinutes: analysisTimeMinutes,
-            automaticAnalysisEnabled: automaticAnalysisEnabled,
+            analysisStartupMode: analysisStartupMode,
             autoAnalysisRequiresCharger: autoAnalysisRequiresCharger,
             appLanguage: appLanguage,
             analysisSummaryInstruction: analysisSummaryInstruction.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -403,6 +404,19 @@ final class SettingsStore: ObservableObject {
             : .openAI
     }
 
+    private static func resolvedAnalysisStartupMode(from userDefaults: UserDefaults) -> AnalysisStartupMode {
+        if let rawValue = userDefaults.string(forKey: Keys.analysisStartupMode),
+           let mode = AnalysisStartupMode(rawValue: rawValue) {
+            return mode
+        }
+
+        if let legacyValue = userDefaults.object(forKey: Keys.automaticAnalysisEnabled) as? Bool {
+            return legacyValue ? .scheduled : .manual
+        }
+
+        return AppDefaults.analysisStartupMode
+    }
+
     private static func resolvedImageAnalysisMethod(
         _ method: ImageAnalysisMethod,
         for provider: ModelProvider
@@ -417,6 +431,7 @@ final class SettingsStore: ObservableObject {
     private enum Keys {
         static let screenshotIntervalMinutes = "settings.screenshotIntervalMinutes"
         static let analysisTimeMinutes = "settings.analysisTimeMinutes"
+        static let analysisStartupMode = "settings.analysisStartupMode"
         static let automaticAnalysisEnabled = "settings.automaticAnalysisEnabled"
         static let reportWeekStart = "settings.reportWeekStart"
         static let autoAnalysisRequiresCharger = "settings.autoAnalysisRequiresCharger"

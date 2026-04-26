@@ -532,7 +532,7 @@ struct DeskBriefTests {
         let snapshot = AppSettingsSnapshot(
             screenshotIntervalMinutes: 5,
             analysisTimeMinutes: 18 * 60 + 30,
-            automaticAnalysisEnabled: true,
+            analysisStartupMode: .scheduled,
             autoAnalysisRequiresCharger: false,
             appLanguage: .simplifiedChinese,
             analysisSummaryInstruction: AppDefaults.defaultAnalysisSummaryInstruction(language: .simplifiedChinese),
@@ -805,6 +805,69 @@ struct DeskBriefTests {
         #expect(store.snapshot.analysisSummaryInstruction == updatedInstruction)
         #expect(reloadedStore.analysisSummaryInstruction == updatedInstruction)
         #expect(reloadedStore.workContentProvider == store.provider)
+    }
+
+    @MainActor
+    @Test func settingsStoreMigratesLegacyAutomaticAnalysisSettingToStartupMode() async throws {
+        for (legacyValue, expectedMode) in [(true, AnalysisStartupMode.scheduled), (false, .manual)] {
+            let databaseURL = makeTemporaryDatabaseURL()
+            let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+            let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+            let keychain = KeychainStore(service: suiteName)
+            userDefaults.set(legacyValue, forKey: "settings.automaticAnalysisEnabled")
+
+            defer {
+                userDefaults.removePersistentDomain(forName: suiteName)
+                keychain.set("", for: AppDefaults.apiKeyAccount)
+                keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+                try? FileManager.default.removeItem(at: databaseURL)
+            }
+
+            let database = try AppDatabase(databaseURL: databaseURL)
+            let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+            #expect(store.analysisStartupMode == expectedMode)
+            #expect(store.snapshot.analysisStartupMode == expectedMode)
+            #expect(userDefaults.string(forKey: "settings.analysisStartupMode") == expectedMode.rawValue)
+        }
+    }
+
+    @MainActor
+    @Test func settingsStorePersistsAnalysisStartupModeAndPrefersNewKey() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        userDefaults.set(false, forKey: "settings.automaticAnalysisEnabled")
+        userDefaults.set(AnalysisStartupMode.scheduled.rawValue, forKey: "settings.analysisStartupMode")
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        #expect(store.analysisStartupMode == .scheduled)
+
+        store.analysisStartupMode = .realtime
+        let reloadedStore = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        #expect(reloadedStore.analysisStartupMode == .realtime)
+        #expect(reloadedStore.snapshot.analysisStartupMode == .realtime)
+        #expect(userDefaults.string(forKey: "settings.analysisStartupMode") == AnalysisStartupMode.realtime.rawValue)
+    }
+
+    @Test func analysisStartupModeTitlesAreLocalized() async throws {
+        #expect(AnalysisStartupMode.manual.title(in: .simplifiedChinese) == "不自动分析")
+        #expect(AnalysisStartupMode.scheduled.title(in: .simplifiedChinese) == "定时分析")
+        #expect(AnalysisStartupMode.realtime.title(in: .simplifiedChinese) == "实时分析")
+        #expect(AnalysisStartupMode.manual.title(in: .english) == "Do Not Analyze Automatically")
+        #expect(AnalysisStartupMode.scheduled.title(in: .english) == "Scheduled Analysis")
+        #expect(AnalysisStartupMode.realtime.title(in: .english) == "Realtime Analysis")
     }
 
     @MainActor

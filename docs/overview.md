@@ -11,7 +11,7 @@ The app is designed for personal activity review rather than team-wide monitorin
 1. The app runs as a menu bar utility.
 2. It captures screenshots on a fixed interval.
 3. It detects idle or away periods and skips unchanged captures without saving a screenshot.
-4. It analyzes pending screenshots into categories and short summaries.
+4. It analyzes pending screenshots into categories and short summaries on demand, on a schedule, or shortly after a successful capture depending on the selected analysis startup mode.
 5. It aggregates analyzed items into day, week, month, and year reports.
 6. It can generate or backfill daily natural-language summaries from analyzed activity.
 
@@ -24,7 +24,7 @@ The app is designed for personal activity review rather than team-wide monitorin
 - Reports
   Bar-chart and heatmap views across multiple time ranges, with daily summary details.
 - Settings
-  Configuration for scheduling, language, category rules, and two separate model profiles.
+  Configuration for capture timing, analysis startup mode, language, category rules, and two separate model profiles.
 - Errors
   Runtime analysis failures surfaced in a dedicated error view.
 

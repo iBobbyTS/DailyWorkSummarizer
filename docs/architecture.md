@@ -37,10 +37,12 @@ The app is centered around a small set of long-lived services created at launch 
 - Before writing a screenshot, it checks whether the mouse location and frontmost app remain unchanged from the previous interval.
 - If the user appears away, the app skips that capture without writing a screenshot or database record.
 - Otherwise it saves a JPEG for the preferred display into Application Support.
+- A successful saved screenshot emits a capture-saved notification. When the analysis startup mode is realtime, `AnalysisService` starts the normal pending-folder analysis flow one second later.
 
 ### 3. Screenshot analysis flow
 
-- `AnalysisService` finds pending screenshot files from local storage.
+- `AnalysisService` can be started manually, by the configured scheduled time, or by realtime capture-saved notifications.
+- `AnalysisService` finds pending screenshot files from local storage; realtime mode still processes the whole pending folder, not only the latest screenshot.
 - It creates a compact `analysis_runs` record for run-level status/counts and processes screenshots one by one.
 - Depending on provider and analysis mode, it either:
   - runs local OCR first and sends text to a model, or

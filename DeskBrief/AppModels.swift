@@ -4,7 +4,7 @@ import SwiftUI
 enum AppDefaults {
     static let screenshotIntervalMinutes = 5
     static let analysisTimeMinutes = 18 * 60 + 30
-    static let automaticAnalysisEnabled = true
+    static let analysisStartupMode: AnalysisStartupMode = .scheduled
     static let autoAnalysisRequiresCharger = false
     nonisolated static let maxLogEntries = 1000
     static let lmStudioContextLength = 6000
@@ -59,6 +59,25 @@ enum AppDefaults {
             name: preservedOtherCategoryName,
             description: preservedOtherCategoryDescription(language: language)
         )
+    }
+}
+
+enum AnalysisStartupMode: String, CaseIterable, Codable, Hashable, Identifiable {
+    case manual
+    case scheduled
+    case realtime
+
+    var id: String { rawValue }
+
+    func title(in language: AppLanguage) -> String {
+        switch self {
+        case .manual:
+            return L10n.string(.analysisStartupModeManual, language: language)
+        case .scheduled:
+            return L10n.string(.analysisStartupModeScheduled, language: language)
+        case .realtime:
+            return L10n.string(.analysisStartupModeRealtime, language: language)
+        }
     }
 }
 
@@ -289,7 +308,7 @@ struct AnalysisModelSettings: Equatable {
 struct AppSettingsSnapshot {
     let screenshotIntervalMinutes: Int
     let analysisTimeMinutes: Int
-    let automaticAnalysisEnabled: Bool
+    let analysisStartupMode: AnalysisStartupMode
     let autoAnalysisRequiresCharger: Bool
     let appLanguage: AppLanguage
     let analysisSummaryInstruction: String
@@ -669,6 +688,7 @@ extension Double {
 extension Notification.Name {
     static let appSettingsDidChange = Notification.Name("DeskBrief.AppSettingsDidChange")
     static let appDatabaseDidChange = Notification.Name("DeskBrief.AppDatabaseDidChange")
+    static let screenshotFileSaved = Notification.Name("DeskBrief.ScreenshotFileSaved")
     static let screenshotFilesDidChange = Notification.Name("DeskBrief.ScreenshotFilesDidChange")
     static let analysisStatusDidChange = Notification.Name("DeskBrief.AnalysisStatusDidChange")
     static let appLogsDidChange = Notification.Name("DeskBrief.AppLogsDidChange")

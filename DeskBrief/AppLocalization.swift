@@ -56,6 +56,9 @@ enum L10n {
         case settingsTabGeneral
         case settingsTabReport
         case settingsCaptureAutoAnalysis
+        case analysisStartupModeManual
+        case analysisStartupModeScheduled
+        case analysisStartupModeRealtime
         case settingsCaptureRequireCharger
         case settingsCaptureAnalysisTime
         case settingsCaptureTestingScreenshot
@@ -121,8 +124,7 @@ enum L10n {
         case menuOpenScreenshotsFolder
         case menuShowLogs
         case menuShowErrorsCount
-        case menuTurnOffAutoAnalysis
-        case menuTurnOnAutoAnalysis
+        case menuAnalysisStartupMode
         case menuAnalyzeNowStart
         case menuAnalyzeNowPause
         case menuAnalyzeNowPausingStoppingGeneration
@@ -236,7 +238,10 @@ enum L10n {
             .settingsTabWorkContentAnalysis: "工作内容分析",
             .settingsTabGeneral: "通用",
             .settingsTabReport: "报告",
-            .settingsCaptureAutoAnalysis: "定时自动分析",
+            .settingsCaptureAutoAnalysis: "分析启动模式",
+            .analysisStartupModeManual: "不自动分析",
+            .analysisStartupModeScheduled: "定时分析",
+            .analysisStartupModeRealtime: "实时分析",
             .settingsCaptureRequireCharger: "仅在连接充电器时定时开始分析",
             .settingsCaptureAnalysisTime: "定时分析时间",
             .settingsCaptureTestingScreenshot: "正在测试截屏…",
@@ -302,8 +307,7 @@ enum L10n {
             .menuOpenScreenshotsFolder: "打开截图文件夹",
             .menuShowLogs: "显示日志",
             .menuShowErrorsCount: "显示%d个错误",
-            .menuTurnOffAutoAnalysis: "关闭定时分析",
-            .menuTurnOnAutoAnalysis: "开启定时分析",
+            .menuAnalysisStartupMode: "分析启动模式",
             .menuAnalyzeNowStart: "立即分析",
             .menuAnalyzeNowPause: "暂停分析",
             .menuAnalyzeNowPausingStoppingGeneration: "正在暂停（正在停止生成）",
@@ -415,7 +419,10 @@ enum L10n {
             .settingsTabWorkContentAnalysis: "Work Content Analysis",
             .settingsTabGeneral: "General",
             .settingsTabReport: "Report",
-            .settingsCaptureAutoAnalysis: "Scheduled analysis",
+            .settingsCaptureAutoAnalysis: "Analysis startup mode",
+            .analysisStartupModeManual: "Do Not Analyze Automatically",
+            .analysisStartupModeScheduled: "Scheduled Analysis",
+            .analysisStartupModeRealtime: "Realtime Analysis",
             .settingsCaptureRequireCharger: "Only run scheduled analysis while charging",
             .settingsCaptureAnalysisTime: "Scheduled analysis time",
             .settingsCaptureTestingScreenshot: "Testing screenshot…",
@@ -481,8 +488,7 @@ enum L10n {
             .menuOpenScreenshotsFolder: "Open Screenshots Folder",
             .menuShowLogs: "Show Logs",
             .menuShowErrorsCount: "Show %d Errors",
-            .menuTurnOffAutoAnalysis: "Turn Off Scheduled Analysis",
-            .menuTurnOnAutoAnalysis: "Turn On Scheduled Analysis",
+            .menuAnalysisStartupMode: "Analysis Startup Mode",
             .menuAnalyzeNowStart: "Analyze Now",
             .menuAnalyzeNowPause: "Pause Analysis",
             .menuAnalyzeNowPausingStoppingGeneration: "Stopping (Stopping Generation)",
