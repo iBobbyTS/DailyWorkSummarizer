@@ -35,7 +35,7 @@ The app is centered around a small set of long-lived services created at launch 
 
 - `ScreenshotService` schedules captures using the configured screenshot interval.
 - Before writing a screenshot, it checks whether the mouse location and frontmost app remain unchanged from the previous interval.
-- If the user appears away, the app records an absence event instead of a screenshot.
+- If the user appears away, the app skips that capture without writing a screenshot or database record.
 - Otherwise it saves a JPEG for the preferred display into Application Support.
 
 ### 3. Screenshot analysis flow
@@ -53,14 +53,16 @@ The app is centered around a small set of long-lived services created at launch 
 ### 4. Daily summary flow
 
 - `DailyReportSummaryService` fetches analyzed activity items for a target day.
-- Away or inactive intervals recorded in `absence_events` are excluded from daily-summary generation and per-category summaries.
+- Away or inactive intervals are not persisted and are not included in daily-summary generation or per-category summaries.
 - It builds a text timeline prompt from category, duration, and per-item summary data.
 - The summary is generated through the configured work-content model profile via `LLMService`.
 - Results are stored in `daily_reports`.
 
 ### 5. Reporting flow
 
-- `ReportsViewModel` loads source items from the database.
+- `ReportsViewModel` loads successfully analyzed source items from the database.
+- It derives display-only away intervals from gaps between adjacent persisted analysis results; it does not derive leading gaps before the first item or trailing gaps after the latest item.
+- Cross-day away gaps are split at report-day boundaries before aggregation.
 - It builds date ranges for day, week, month, and year views.
 - It transforms raw items into:
   - aggregated category durations for bar charts

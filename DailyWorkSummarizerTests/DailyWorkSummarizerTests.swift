@@ -565,26 +565,26 @@ struct DailyWorkSummarizerTests {
         #expect(components.minute == 30)
     }
 
-    @Test func absenceRequiresSameMouseLocationAndSameFrontmostApp() async throws {
-        let shouldRecord = ScreenshotService.shouldRecordAbsence(
+    @Test func captureSkipsWhenMouseLocationAndFrontmostAppAreUnchanged() async throws {
+        let shouldSkip = ScreenshotService.shouldSkipCapture(
             currentMouseLocation: CGPoint(x: 120, y: 240),
             lastMouseLocation: CGPoint(x: 120, y: 240),
             currentFrontmostAppIdentifier: "com.apple.Safari",
             lastFrontmostAppIdentifier: "com.apple.Safari"
         )
 
-        #expect(shouldRecord)
+        #expect(shouldSkip)
     }
 
-    @Test func absenceDoesNotRecordWhenFrontmostAppChanges() async throws {
-        let shouldRecord = ScreenshotService.shouldRecordAbsence(
+    @Test func captureDoesNotSkipWhenFrontmostAppChanges() async throws {
+        let shouldSkip = ScreenshotService.shouldSkipCapture(
             currentMouseLocation: CGPoint(x: 120, y: 240),
             lastMouseLocation: CGPoint(x: 120, y: 240),
             currentFrontmostAppIdentifier: "com.apple.Safari",
             lastFrontmostAppIdentifier: "com.apple.dt.Xcode"
         )
 
-        #expect(!shouldRecord)
+        #expect(!shouldSkip)
     }
 
     @Test func retryPolicyRetriesServerAndInvalidResponseErrorsBeforeMaxAttempts() async throws {
@@ -972,10 +972,10 @@ struct DailyWorkSummarizerTests {
         let dayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
         let prompt = L10n.dailyReportSummaryPrompt(
             for: dayStart,
-            categories: ["专注工作", "离开"],
+            categories: ["专注工作", "会议沟通"],
             activityLines: [
                 "09:00 | 30分钟 | 专注工作 | 开发 DailyWorkSummarizer 报告页",
-                "10:00 | 5分钟 | 离开 | 离开工位"
+                "10:00 | 5分钟 | 会议沟通 | 同步日报边界规则"
             ],
             summaryInstruction: "请突出项目名和课程名",
             language: .simplifiedChinese
@@ -985,44 +985,44 @@ struct DailyWorkSummarizerTests {
         #expect(prompt.contains("\"dailySummary\""))
         #expect(prompt.contains("\"categorySummaries\""))
         #expect(prompt.contains("专注工作"))
-        #expect(prompt.contains("10:00 | 5分钟 | 离开 | 离开工位"))
+        #expect(prompt.contains("10:00 | 5分钟 | 会议沟通 | 同步日报边界规则"))
     }
 
     @Test func dailyReportResponseParsingHandlesThinkAndCodeFenceJSON() async throws {
         let rawText = """
         <think>先整理一下当天内容</think>
         ```json
-        {"dailySummary":"推进了 DailyWorkSummarizer 的日报总结功能","categorySummaries":{"专注工作":"完成日报总结链路开发","离开":"有短暂离开工位的时间"}}
+        {"dailySummary":"推进了 DailyWorkSummarizer 的日报总结功能","categorySummaries":{"专注工作":"完成日报总结链路开发","会议沟通":"同步了日报边界规则"}}
         ```
         """
 
         let response = DailyReportSummaryService.extractDailyReportResponse(
             from: rawText,
-            categories: ["专注工作", "离开"]
+            categories: ["专注工作", "会议沟通"]
         )
 
         #expect(response?.dailySummary == "推进了 DailyWorkSummarizer 的日报总结功能")
         #expect(response?.categorySummaries["专注工作"] == "完成日报总结链路开发")
-        #expect(response?.categorySummaries["离开"] == "有短暂离开工位的时间")
+        #expect(response?.categorySummaries["会议沟通"] == "同步了日报边界规则")
     }
 
     @Test func dailyReportResponseParsingRejectsInvalidCategorySummaryShape() async throws {
         #expect(
             DailyReportSummaryService.extractDailyReportResponse(
                 from: #"{"dailySummary":"日报","categorySummaries":{"专注工作":"工作总结"}}"#,
-                categories: ["专注工作", "离开"]
+                categories: ["专注工作", "会议沟通"]
             ) == nil
         )
         #expect(
             DailyReportSummaryService.extractDailyReportResponse(
-                from: #"{"dailySummary":"日报","categorySummaries":{"专注工作":"工作总结","离开":"离开总结","额外分类":"无效"}}"#,
-                categories: ["专注工作", "离开"]
+                from: #"{"dailySummary":"日报","categorySummaries":{"专注工作":"工作总结","会议沟通":"沟通总结","额外分类":"无效"}}"#,
+                categories: ["专注工作", "会议沟通"]
             ) == nil
         )
         #expect(
             DailyReportSummaryService.extractDailyReportResponse(
-                from: #"{"dailySummary":"  ","categorySummaries":{"专注工作":"工作总结","离开":"离开总结"}}"#,
-                categories: ["专注工作", "离开"]
+                from: #"{"dailySummary":"  ","categorySummaries":{"专注工作":"工作总结","会议沟通":"沟通总结"}}"#,
+                categories: ["专注工作", "会议沟通"]
             ) == nil
         )
     }
@@ -1162,30 +1162,88 @@ struct DailyWorkSummarizerTests {
         #expect(englishText.contains(".123"))
     }
 
-    @Test func latestActivityDayStartIncludesAbsenceEvents() async throws {
+    @Test func migrationDropsLegacyAbsenceEventsTable() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: databaseURL) }
 
+        do {
+            let handle = try openSQLite(at: databaseURL)
+            defer { sqlite3_close(handle) }
+            try executeSQL("""
+                CREATE TABLE absence_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    captured_at DOUBLE NOT NULL,
+                    duration_minutes INTEGER NOT NULL,
+                    created_at DOUBLE NOT NULL
+                );
+                CREATE INDEX idx_absence_events_captured_at ON absence_events (captured_at DESC);
+                INSERT INTO absence_events (captured_at, duration_minutes, created_at)
+                VALUES (1741798800, 15, 1741798800);
+            """, on: handle)
+        }
+
         let database = try AppDatabase(databaseURL: databaseURL)
-        let calendar = makeTestCalendar()
-        let dayOne = calendar.date(from: DateComponents(year: 2026, month: 3, day: 10, hour: 9))!
-        let dayTwo = calendar.date(from: DateComponents(year: 2026, month: 3, day: 11, hour: 10))!
-        let runID = try makeAnalysisRun(database: database)
+        _ = database
 
-        try database.insertAnalysisResult(
-            runID: runID,
-            capturedAt: dayOne,
-            categoryName: "专注工作",
-            summaryText: "开发项目",
-            status: "succeeded",
-            errorMessage: nil,
-            durationMinutesSnapshot: 5
+        let tables = try tableNames(databaseURL: databaseURL)
+        let legacyIndex = try fetchOptionalString(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_absence_events_captured_at';",
+            databaseURL: databaseURL
         )
-        try database.recordAbsenceEvent(capturedAt: dayTwo, durationMinutes: 5)
 
-        let latestDayStart = try database.fetchLatestActivityDayStart(calendar: calendar)
+        #expect(!tables.contains("absence_events"))
+        #expect(legacyIndex == nil)
+    }
 
-        #expect(latestDayStart == calendar.startOfDay(for: dayTwo))
+    @Test func reportItemsDeriveAbsenceBetweenRecordedEvents() async throws {
+        let calendar = makeTestCalendar()
+        let firstStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 14, minute: 0))!
+        let secondStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 14, minute: 20))!
+        let items = [
+            ReportSourceItem(id: 2, capturedAt: secondStart, categoryName: "会议沟通", durationMinutes: 5),
+            ReportSourceItem(id: 1, capturedAt: firstStart, categoryName: "专注工作", durationMinutes: 4),
+        ]
+
+        let result = ReportsViewModel.itemsIncludingDerivedAbsences(from: items, calendar: calendar)
+        let absence = try #require(result.first { $0.categoryName == AppDefaults.absenceCategoryName })
+
+        #expect(absence.capturedAt == calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 14, minute: 4)))
+        #expect(absence.durationMinutes == 16)
+    }
+
+    @Test func reportItemsDoNotDeriveTrailingAbsenceAfterLatestRecord() async throws {
+        let calendar = makeTestCalendar()
+        let start = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 14, minute: 0))!
+        let items = [
+            ReportSourceItem(id: 1, capturedAt: start, categoryName: "专注工作", durationMinutes: 4),
+        ]
+
+        let result = ReportsViewModel.itemsIncludingDerivedAbsences(from: items, calendar: calendar)
+
+        #expect(!result.contains { $0.categoryName == AppDefaults.absenceCategoryName })
+    }
+
+    @Test func reportItemsSplitDerivedAbsenceAcrossDays() async throws {
+        let calendar = makeTestCalendar()
+        let firstStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 23, minute: 50))!
+        let secondStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 13, hour: 0, minute: 20))!
+        let items = [
+            ReportSourceItem(id: 2, capturedAt: secondStart, categoryName: "会议沟通", durationMinutes: 5),
+            ReportSourceItem(id: 1, capturedAt: firstStart, categoryName: "专注工作", durationMinutes: 5),
+        ]
+
+        let result = ReportsViewModel.itemsIncludingDerivedAbsences(from: items, calendar: calendar)
+        let absences = result
+            .filter { $0.categoryName == AppDefaults.absenceCategoryName }
+            .sorted { $0.capturedAt < $1.capturedAt }
+        let firstAbsence = try #require(absences.first)
+        let secondAbsence = try #require(absences.dropFirst().first)
+
+        #expect(absences.count == 2)
+        #expect(firstAbsence.capturedAt == calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 23, minute: 55)))
+        #expect(firstAbsence.durationMinutes == 5)
+        #expect(secondAbsence.capturedAt == calendar.date(from: DateComponents(year: 2026, month: 3, day: 13, hour: 0, minute: 0)))
+        #expect(secondAbsence.durationMinutes == 20)
     }
 
     @MainActor
@@ -1264,7 +1322,7 @@ struct DailyWorkSummarizerTests {
     }
 
     @MainActor
-    @Test func dailyReportSummaryServiceExcludesAbsenceFromPromptAndCategorySummaries() async throws {
+    @Test func dailyReportSummaryServiceUsesOnlyAnalysisResultsInPromptAndCategorySummaries() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
@@ -1272,7 +1330,7 @@ struct DailyWorkSummarizerTests {
         let calendar = makeTestCalendar()
         let dayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
         let workTime = calendar.date(byAdding: .hour, value: 9, to: dayStart)!
-        let absenceTime = calendar.date(byAdding: .hour, value: 10, to: dayStart)!
+        let meetingTime = calendar.date(byAdding: .hour, value: 10, to: dayStart)!
 
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
@@ -1298,7 +1356,15 @@ struct DailyWorkSummarizerTests {
             errorMessage: nil,
             durationMinutesSnapshot: 30
         )
-        try database.recordAbsenceEvent(capturedAt: absenceTime, durationMinutes: 15)
+        try database.insertAnalysisResult(
+            runID: runID,
+            capturedAt: meetingTime,
+            categoryName: "会议沟通",
+            summaryText: "同步日报边界规则",
+            status: "succeeded",
+            errorMessage: nil,
+            durationMinutesSnapshot: 15
+        )
 
         let session = makeMockSession { request in
             let requestBody = try #require(requestBodyData(from: request))
@@ -1308,6 +1374,8 @@ struct DailyWorkSummarizerTests {
 
             #expect(prompt.contains("专注工作"))
             #expect(prompt.contains("实现日报过滤逻辑"))
+            #expect(prompt.contains("会议沟通"))
+            #expect(prompt.contains("同步日报边界规则"))
             #expect(!prompt.contains(AppDefaults.absenceCategoryName))
             #expect(!prompt.contains("该时间段没有截图"))
 
@@ -1316,7 +1384,7 @@ struct DailyWorkSummarizerTests {
               "choices": [
                 {
                   "message": {
-                    "content": "{\\"dailySummary\\":\\"完成了日报过滤逻辑\\",\\"categorySummaries\\":{\\"专注工作\\":\\"实现了日报过滤逻辑\\"}}"
+                    "content": "{\\"dailySummary\\":\\"完成了日报过滤逻辑\\",\\"categorySummaries\\":{\\"专注工作\\":\\"实现了日报过滤逻辑\\",\\"会议沟通\\":\\"完成了同步沟通\\"}}"
                   },
                   "finish_reason": "stop"
                 }
@@ -1334,18 +1402,18 @@ struct DailyWorkSummarizerTests {
         let report = try await service.summarizeDay(dayStart)
 
         #expect(report.categorySummaries["专注工作"] == "TEMP_实现了日报过滤逻辑")
+        #expect(report.categorySummaries["会议沟通"] == "TEMP_完成了同步沟通")
         #expect(report.categorySummaries[AppDefaults.absenceCategoryName] == nil)
     }
 
     @MainActor
-    @Test func dailyReportSummaryServiceSkipsAbsenceOnlyDays() async throws {
+    @Test func dailyReportSummaryServiceSkipsDaysWithoutAnalysisResults() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         let keychain = KeychainStore(service: suiteName)
         let calendar = makeTestCalendar()
         let dayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
-        let absenceTime = calendar.date(byAdding: .hour, value: 10, to: dayStart)!
 
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
@@ -1360,7 +1428,6 @@ struct DailyWorkSummarizerTests {
         store.workContentProvider = .openAI
         store.workContentAPIBaseURL = "https://work-content.example.com"
         store.workContentModelName = "daily-report-model"
-        try database.recordAbsenceEvent(capturedAt: absenceTime, durationMinutes: 15)
 
         let session = makeMockSession { request in
             MockURLProtocol.requestCount += 1
@@ -1510,6 +1577,25 @@ private func columnNames(in table: String, databaseURL: URL) throws -> [String] 
         }
     }
     return columns
+}
+
+private func tableNames(databaseURL: URL) throws -> [String] {
+    let handle = try openSQLite(at: databaseURL)
+    defer { sqlite3_close(handle) }
+
+    var statement: OpaquePointer?
+    guard sqlite3_prepare_v2(handle, "SELECT name FROM sqlite_master WHERE type = 'table';", -1, &statement, nil) == SQLITE_OK else {
+        throw DatabaseError.prepareStatement(handle.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite prepare failed")
+    }
+    defer { sqlite3_finalize(statement) }
+
+    var names: [String] = []
+    while sqlite3_step(statement) == SQLITE_ROW {
+        if let text = sqlite3_column_text(statement, 0) {
+            names.append(String(cString: text))
+        }
+    }
+    return names
 }
 
 private func fetchOptionalString(_ sql: String, databaseURL: URL) throws -> String? {

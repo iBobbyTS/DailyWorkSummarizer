@@ -122,22 +122,12 @@ final class ScreenshotService {
         let currentMouseLocation = mouseLocation()
         let currentFrontmostAppIdentifier = frontmostAppIdentifier()
 
-        if Self.shouldRecordAbsence(
+        if Self.shouldSkipCapture(
             currentMouseLocation: currentMouseLocation,
             lastMouseLocation: lastMouseLocation(),
             currentFrontmostAppIdentifier: currentFrontmostAppIdentifier,
             lastFrontmostAppIdentifier: lastFrontmostAppIdentifier()
         ) {
-            try? database.recordAbsenceEvent(
-                capturedAt: scheduledAt,
-                durationMinutes: settings.screenshotIntervalMinutes
-            )
-            if let currentMouseLocation {
-                saveLastMouseLocation(currentMouseLocation)
-            }
-            if let currentFrontmostAppIdentifier {
-                saveLastFrontmostAppIdentifier(currentFrontmostAppIdentifier)
-            }
             return
         }
 
@@ -163,7 +153,7 @@ final class ScreenshotService {
         }
     }
 
-    nonisolated static func shouldRecordAbsence(
+    nonisolated static func shouldSkipCapture(
         currentMouseLocation: CGPoint?,
         lastMouseLocation: CGPoint?,
         currentFrontmostAppIdentifier: String?,

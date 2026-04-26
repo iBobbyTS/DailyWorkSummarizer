@@ -76,7 +76,8 @@ final class ReportsViewModel: ObservableObject {
     }
 
     func reload() {
-        sourceItems = (try? database.fetchReportSourceItems()) ?? []
+        let persistedItems = (try? database.fetchReportSourceItems()) ?? []
+        sourceItems = Self.itemsIncludingDerivedAbsences(from: persistedItems)
         rebuildRanges()
     }
 
@@ -259,6 +260,69 @@ final class ReportsViewModel: ObservableObject {
             return lhs.category < rhs.category
         }
         return lhs.hours > rhs.hours
+    }
+
+    nonisolated static func itemsIncludingDerivedAbsences(
+        from persistedItems: [ReportSourceItem],
+        calendar: Calendar = .reportCalendar
+    ) -> [ReportSourceItem] {
+        let anchors = persistedItems.sorted { lhs, rhs in
+            if lhs.capturedAt == rhs.capturedAt {
+                return lhs.id < rhs.id
+            }
+            return lhs.capturedAt < rhs.capturedAt
+        }
+        guard anchors.count > 1 else {
+            return persistedItems
+        }
+
+        var nextDerivedID: Int64 = -1
+        var derivedItems: [ReportSourceItem] = []
+
+        for index in anchors.indices.dropLast() {
+            let previous = anchors[index]
+            let next = anchors[anchors.index(after: index)]
+            var segmentStart = previous.endAt
+            let gapEnd = next.capturedAt
+            guard gapEnd > segmentStart else {
+                continue
+            }
+
+            while segmentStart < gapEnd {
+                let dayStart = calendar.startOfDay(for: segmentStart)
+                guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart),
+                      dayEnd > segmentStart else {
+                    break
+                }
+
+                let segmentEnd = Swift.min(dayEnd, gapEnd)
+                if let item = absenceItem(id: nextDerivedID, start: segmentStart, end: segmentEnd) {
+                    derivedItems.append(item)
+                    nextDerivedID -= 1
+                }
+                segmentStart = segmentEnd
+            }
+        }
+
+        return (persistedItems + derivedItems).sorted { lhs, rhs in
+            if lhs.capturedAt == rhs.capturedAt {
+                return lhs.id > rhs.id
+            }
+            return lhs.capturedAt > rhs.capturedAt
+        }
+    }
+
+    private nonisolated static func absenceItem(id: Int64, start: Date, end: Date) -> ReportSourceItem? {
+        guard end > start else {
+            return nil
+        }
+
+        return ReportSourceItem(
+            id: id,
+            capturedAt: start,
+            categoryName: AppDefaults.absenceCategoryName,
+            durationMinutes: max(Int((end.timeIntervalSince(start) / 60.0).rounded()), 1)
+        )
     }
 
     private func displayedItems(for range: ReportRange) -> [ReportSourceItem] {

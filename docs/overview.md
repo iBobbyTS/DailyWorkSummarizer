@@ -10,7 +10,7 @@ The app is designed for personal activity review rather than team-wide monitorin
 
 1. The app runs as a menu bar utility.
 2. It captures screenshots on a fixed interval.
-3. It detects idle or away periods and records them without saving a screenshot.
+3. It detects idle or away periods and skips unchanged captures without saving a screenshot.
 4. It analyzes pending screenshots into categories and short summaries.
 5. It aggregates analyzed items into day, week, month, and year reports.
 6. It can generate or backfill daily natural-language summaries from analyzed activity.
@@ -49,4 +49,4 @@ The app is designed for personal activity review rather than team-wide monitorin
 - Remote screenshot analysis can run in either OCR-first or multimodal mode.
 - Apple Intelligence currently participates through text-based flows, not direct screenshot-image understanding.
 - Daily summaries are generated from stored activity items, not from screenshots directly.
-- Away or inactive intervals are retained for time reporting but are not sent to the daily-summary model.
+- Away or inactive intervals are not persisted; report views render bounded gaps between analyzed records as display-only `离开` blocks.

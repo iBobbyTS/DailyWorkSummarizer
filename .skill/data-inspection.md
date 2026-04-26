@@ -21,8 +21,13 @@
 - `category_rules`
 - `analysis_runs`
 - `analysis_results`
-- `absence_events`
 - `daily_reports`
+- `app_logs`
+
+注意：
+
+- `离开` 不再持久化为数据库表；报告窗口会根据相邻成功分析结果之间的空白，在内存中派生展示。
+- 旧库里的 `absence_events` 表会在 Swift 数据库迁移中删除。
 
 设置存储位置：
 

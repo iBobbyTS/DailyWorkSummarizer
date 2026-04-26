@@ -321,30 +321,6 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
-    func recordAbsenceEvent(capturedAt: Date, durationMinutes: Int) throws {
-        try queue.sync {
-            let statement = try prepareStatement("""
-                INSERT INTO absence_events (
-                    captured_at,
-                    duration_minutes,
-                    created_at
-                )
-                VALUES (?, ?, ?);
-            """)
-            defer { sqlite3_finalize(statement) }
-
-            let now = Date().timeIntervalSince1970
-            sqlite3_bind_double(statement, 1, capturedAt.timeIntervalSince1970)
-            sqlite3_bind_int64(statement, 2, Int64(durationMinutes))
-            sqlite3_bind_double(statement, 3, now)
-
-            guard sqlite3_step(statement) == SQLITE_DONE else {
-                throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
-            }
-            postChangeNotification()
-        }
-    }
-
     func insertAnalysisResult(
         runID: Int64,
         capturedAt: Date,
@@ -388,26 +364,14 @@ final class AppDatabase: @unchecked Sendable {
     func fetchReportSourceItems() throws -> [ReportSourceItem] {
         try queue.sync {
             let statement = try prepareStatement("""
-                SELECT id, captured_at, category_name, duration_minutes
-                FROM (
-                    SELECT
-                        id,
-                        captured_at,
-                        category_name,
-                        duration_minutes_snapshot AS duration_minutes
-                    FROM analysis_results
-                    WHERE status = 'succeeded'
-                      AND category_name IS NOT NULL
-
-                    UNION ALL
-
-                    SELECT
-                        -id AS id,
-                        captured_at,
-                        '\(AppDefaults.absenceCategoryName)' AS category_name,
-                        duration_minutes
-                    FROM absence_events
-                )
+                SELECT
+                    id,
+                    captured_at,
+                    category_name,
+                    duration_minutes_snapshot AS duration_minutes
+                FROM analysis_results
+                WHERE status = 'succeeded'
+                  AND category_name IS NOT NULL
                 ORDER BY captured_at DESC, id DESC;
             """)
             defer { sqlite3_finalize(statement) }
@@ -458,40 +422,23 @@ final class AppDatabase: @unchecked Sendable {
 
         return try queue.sync {
             let statement = try prepareStatement("""
-                SELECT id, captured_at, category_name, duration_minutes, item_summary_text
-                FROM (
-                    SELECT
-                        id,
-                        captured_at,
-                        category_name,
-                        duration_minutes_snapshot AS duration_minutes,
-                        summary_text AS item_summary_text
-                    FROM analysis_results
-                    WHERE status = 'succeeded'
-                      AND category_name IS NOT NULL
-                      AND captured_at >= ?
-                      AND captured_at < ?
-
-                    UNION ALL
-
-                    SELECT
-                        -id AS id,
-                        captured_at,
-                        '\(AppDefaults.absenceCategoryName)' AS category_name,
-                        duration_minutes,
-                        NULL AS item_summary_text
-                    FROM absence_events
-                    WHERE captured_at >= ?
-                      AND captured_at < ?
-                )
+                SELECT
+                    id,
+                    captured_at,
+                    category_name,
+                    duration_minutes_snapshot AS duration_minutes,
+                    summary_text AS item_summary_text
+                FROM analysis_results
+                WHERE status = 'succeeded'
+                  AND category_name IS NOT NULL
+                  AND captured_at >= ?
+                  AND captured_at < ?
                 ORDER BY captured_at ASC, id ASC;
             """)
             defer { sqlite3_finalize(statement) }
 
             sqlite3_bind_double(statement, 1, dayStart.timeIntervalSince1970)
             sqlite3_bind_double(statement, 2, dayEnd.timeIntervalSince1970)
-            sqlite3_bind_double(statement, 3, dayStart.timeIntervalSince1970)
-            sqlite3_bind_double(statement, 4, dayEnd.timeIntervalSince1970)
 
             var items: [DailyReportActivityItem] = []
             while sqlite3_step(statement) == SQLITE_ROW {
@@ -623,15 +570,6 @@ final class AppDatabase: @unchecked Sendable {
         """)
 
         try execute("""
-            CREATE TABLE IF NOT EXISTS absence_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                captured_at DOUBLE NOT NULL,
-                duration_minutes INTEGER NOT NULL,
-                created_at DOUBLE NOT NULL
-            );
-        """)
-
-        try execute("""
             CREATE TABLE IF NOT EXISTS daily_reports (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 day_start DOUBLE NOT NULL UNIQUE,
@@ -654,13 +592,13 @@ final class AppDatabase: @unchecked Sendable {
 
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_captured_at ON analysis_results (captured_at DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_category_name ON analysis_results (category_name, captured_at DESC);")
-        try execute("CREATE INDEX IF NOT EXISTS idx_absence_events_captured_at ON absence_events (captured_at DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_daily_reports_day_start ON daily_reports (day_start DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_app_logs_created_at ON app_logs (created_at DESC);")
         try migrateAnalysisRunsIfNeeded()
         try migrateAnalysisResultsIfNeeded()
         try migrateDailyReportsIfNeeded()
         try dropCaptureEventsTableIfNeeded()
+        try dropAbsenceEventsTableIfNeeded()
     }
 
     private func execute(_ sql: String) throws {
@@ -852,6 +790,16 @@ final class AppDatabase: @unchecked Sendable {
         }
 
         try executeLocked("DROP TABLE capture_events;")
+    }
+
+    private func dropAbsenceEventsTableIfNeeded() throws {
+        let tables = try tableNames()
+        guard tables.contains("absence_events") else {
+            return
+        }
+
+        try executeLocked("DROP INDEX IF EXISTS idx_absence_events_captured_at;")
+        try executeLocked("DROP TABLE absence_events;")
     }
 
     private func columnNames(in table: String) throws -> [String] {

@@ -21,8 +21,6 @@ The app stores runtime data under Application Support:
   One record per analysis batch, including prompt snapshot and run status.
 - `analysis_results`
   Per-item output for screenshots, including category, summary, duration snapshot, and error fields.
-- `absence_events`
-  Idle or away intervals recorded without screenshots. These records remain available for time reporting, but are excluded from daily-summary model prompts and per-category summary payloads.
 - `daily_reports`
   Generated daily summaries and per-category summary payloads for reportable, non-away activity.
 - `app_logs`
@@ -34,6 +32,7 @@ The app stores runtime data under Application Support:
 
 SQLite is the source of truth for captured work history, analysis outputs, and generated daily reports.
 It also stores lightweight runtime logs in `app_logs`, capped to the latest 1000 entries.
+Away intervals are not persisted; report views derive display-only `离开` blocks from bounded gaps between adjacent successful analysis results.
 
 ### UserDefaults
 
