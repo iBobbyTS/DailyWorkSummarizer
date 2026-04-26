@@ -9,12 +9,12 @@
 
 关键落盘位置：
 
-- Application Support 目录：`~/Library/Application Support/DailyWorkSummarizer/`
-- SQLite 数据库：`~/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite`
-- Sandboxed App SQLite 数据库：`~/Library/Containers/com.iBobby.DailyWorkSummarizer/Data/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite`
-- 正式截图目录：`~/Library/Application Support/DailyWorkSummarizer/screenshots/`
-- 预览截图目录：`~/Library/Application Support/DailyWorkSummarizer/screenshots/preview/`
-- 模型测试临时截图目录：`~/Library/Application Support/DailyWorkSummarizer/screenshots/temp/`
+- Application Support 目录：`~/Library/Application Support/DeskBrief/`
+- SQLite 数据库：`~/Library/Application Support/DeskBrief/desk-brief.sqlite`
+- Sandboxed App SQLite 数据库：`~/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite`
+- 正式截图目录：`~/Library/Application Support/DeskBrief/screenshots/`
+- 预览截图目录：`~/Library/Application Support/DeskBrief/screenshots/preview/`
+- 模型测试临时截图目录：`~/Library/Application Support/DeskBrief/screenshots/temp/`
 
 数据库主表：
 
@@ -41,21 +41,21 @@
 常用命令：
 
 ```sh
-sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" '.tables'
+sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" '.tables'
 ```
 
 ```sh
-sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" \
+sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select id,status,model_name,total_items,success_count,failure_count,average_item_duration_seconds from analysis_runs order by id desc limit 20;"
 ```
 
 ```sh
-sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" \
+sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select id,datetime(captured_at,'unixepoch','localtime'),category_name,substr(ifnull(summary_text,''),1,80) from analysis_results order by id desc limit 20;"
 ```
 
 ```sh
-sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" \
+sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select id,datetime(day_start,'unixepoch','localtime'),substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
 ```
 
@@ -63,18 +63,18 @@ sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summar
 
 ```sh
 python3 scripts/clean_absence_daily_summaries.py \
-  --database "$HOME/Library/Containers/com.iBobby.DailyWorkSummarizer/Data/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite"
+  --database "$HOME/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite"
 ```
 
 清理旧 `analysis_results.status == 'failed'` 行：
 
 ```sh
 python3 scripts/clean_failed_analysis_results.py \
-  --database "$HOME/Library/Containers/com.iBobby.DailyWorkSummarizer/Data/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite"
+  --database "$HOME/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite"
 ```
 
 ```sh
-ls -lah "$HOME/Library/Application Support/DailyWorkSummarizer/screenshots" | tail
+ls -lah "$HOME/Library/Application Support/DeskBrief/screenshots" | tail
 ```
 
 额外事实：

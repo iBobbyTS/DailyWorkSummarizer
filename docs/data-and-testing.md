@@ -5,13 +5,13 @@
 The app stores runtime data under Application Support:
 
 - Database
-  `~/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite`
+  `~/Library/Application Support/DeskBrief/desk-brief.sqlite`
 - Screenshot directory
-  `~/Library/Application Support/DailyWorkSummarizer/screenshots/`
+  `~/Library/Application Support/DeskBrief/screenshots/`
 - Preview captures
-  `~/Library/Application Support/DailyWorkSummarizer/screenshots/preview/`
+  `~/Library/Application Support/DeskBrief/screenshots/preview/`
 - Model-test temporary captures
-  `~/Library/Application Support/DailyWorkSummarizer/screenshots/temp/`
+  `~/Library/Application Support/DeskBrief/screenshots/temp/`
 
 ## Database tables
 
@@ -70,10 +70,10 @@ Use an explicit DerivedData path in sandboxed or automation-driven environments:
 
 ```sh
 xcodebuild test \
-  -project DailyWorkSummarizer.xcodeproj \
-  -scheme DailyWorkSummarizer \
+  -project DeskBrief.xcodeproj \
+  -scheme DeskBrief \
   -destination 'platform=macOS' \
-  -derivedDataPath /tmp/DailyWorkSummarizerDerivedData \
+  -derivedDataPath /tmp/DeskBriefDerivedData \
   CODE_SIGNING_ALLOWED=NO
 ```
 
@@ -81,11 +81,11 @@ To focus on unit-style coverage first:
 
 ```sh
 xcodebuild test \
-  -project DailyWorkSummarizer.xcodeproj \
-  -scheme DailyWorkSummarizer \
+  -project DeskBrief.xcodeproj \
+  -scheme DeskBrief \
   -destination 'platform=macOS' \
-  -derivedDataPath /tmp/DailyWorkSummarizerDerivedData \
-  -only-testing:DailyWorkSummarizerTests \
+  -derivedDataPath /tmp/DeskBriefDerivedData \
+  -only-testing:DeskBriefTests \
   CODE_SIGNING_ALLOWED=NO
 ```
 
@@ -100,27 +100,27 @@ xcodebuild test \
 List tables:
 
 ```sh
-sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" '.tables'
+sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" '.tables'
 ```
 
 Recent analysis runs:
 
 ```sh
-sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" \
+sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select id,status,model_name,total_items,success_count,failure_count,average_item_duration_seconds from analysis_runs order by id desc limit 20;"
 ```
 
 Recent analysis results:
 
 ```sh
-sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" \
+sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select id,datetime(captured_at,'unixepoch','localtime'),category_name,substr(ifnull(summary_text,''),1,80) from analysis_results order by id desc limit 20;"
 ```
 
 Recent daily reports:
 
 ```sh
-sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" \
+sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select id,datetime(day_start,'unixepoch','localtime'),substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
 ```
 
@@ -128,25 +128,25 @@ Remove legacy away-state category summaries from existing daily reports:
 
 ```sh
 python3 scripts/clean_absence_daily_summaries.py \
-  --database "$HOME/Library/Containers/com.iBobby.DailyWorkSummarizer/Data/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite"
+  --database "$HOME/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite"
 ```
 
 Remove legacy failed rows before compacting `analysis_results`:
 
 ```sh
 python3 scripts/clean_failed_analysis_results.py \
-  --database "$HOME/Library/Containers/com.iBobby.DailyWorkSummarizer/Data/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite"
+  --database "$HOME/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite"
 ```
 
 Recent runtime logs:
 
 ```sh
-sqlite3 "$HOME/Library/Application Support/DailyWorkSummarizer/daily-work-summarizer.sqlite" \
+sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select datetime(created_at,'unixepoch','localtime'),level,source,substr(message,1,160) from app_logs order by created_at desc limit 50;"
 ```
 
 Recent screenshots:
 
 ```sh
-ls -lah "$HOME/Library/Application Support/DailyWorkSummarizer/screenshots" | tail
+ls -lah "$HOME/Library/Application Support/DeskBrief/screenshots" | tail
 ```

@@ -667,9 +667,9 @@ extension Double {
 }
 
 extension Notification.Name {
-    static let appSettingsDidChange = Notification.Name("DailyWorkSummarizer.AppSettingsDidChange")
-    static let appDatabaseDidChange = Notification.Name("DailyWorkSummarizer.AppDatabaseDidChange")
-    static let screenshotFilesDidChange = Notification.Name("DailyWorkSummarizer.ScreenshotFilesDidChange")
-    static let analysisStatusDidChange = Notification.Name("DailyWorkSummarizer.AnalysisStatusDidChange")
-    static let appLogsDidChange = Notification.Name("DailyWorkSummarizer.AppLogsDidChange")
+    static let appSettingsDidChange = Notification.Name("DeskBrief.AppSettingsDidChange")
+    static let appDatabaseDidChange = Notification.Name("DeskBrief.AppDatabaseDidChange")
+    static let screenshotFilesDidChange = Notification.Name("DeskBrief.ScreenshotFilesDidChange")
+    static let analysisStatusDidChange = Notification.Name("DeskBrief.AnalysisStatusDidChange")
+    static let appLogsDidChange = Notification.Name("DeskBrief.AppLogsDidChange")
 }

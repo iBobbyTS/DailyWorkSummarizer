@@ -1,6 +1,6 @@
 //
-//  DailyWorkSummarizerTests.swift
-//  DailyWorkSummarizerTests
+//  DeskBriefTests.swift
+//  DeskBriefTests
 //
 //  Created by iBobby on 2025-12-01.
 //
@@ -10,11 +10,11 @@ import FoundationModels
 import CoreGraphics
 import SQLite3
 import Testing
-@testable import DailyWorkSummarizer
+@testable import DeskBrief
 
 @Suite(.serialized)
 @MainActor
-struct DailyWorkSummarizerTests {
+struct DeskBriefTests {
     @Test func openAICompatibleURLNormalization() async throws {
         let url1 = ModelProvider.openAI.requestURL(from: "http://127.0.0.1:8000")
         let url2 = ModelProvider.openAI.requestURL(from: "http://127.0.0.1:8000/v1")
@@ -682,14 +682,14 @@ struct DailyWorkSummarizerTests {
         let rawText = """
         <think>先看一下窗口内容</think>
         ```json
-        {"category":"专注工作","summary":"开发 DailyWorkSummarizer 菜单栏项目"}
+        {"category":"专注工作","summary":"开发 DeskBrief 菜单栏项目"}
         ```
         """
 
         let response = AnalysisService.extractAnalysisResponse(from: rawText, validRules: rules)
 
         #expect(response?.category == "专注工作")
-        #expect(response?.summary == "开发 DailyWorkSummarizer 菜单栏项目")
+        #expect(response?.summary == "开发 DeskBrief 菜单栏项目")
     }
 
     @Test func analysisResponseParsingRejectsInvalidStructuredPayloads() async throws {
@@ -778,7 +778,7 @@ struct DailyWorkSummarizerTests {
     @MainActor
     @Test func settingsStorePersistsSummaryInstruction() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
-        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         let keychain = KeychainStore(service: suiteName)
         userDefaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.userDefaultsKey)
@@ -792,7 +792,7 @@ struct DailyWorkSummarizerTests {
 
         let database = try AppDatabase(databaseURL: databaseURL)
         let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
-        let updatedInstruction = "最近在做操作系统课程项目和 DailyWorkSummarizer 重构"
+        let updatedInstruction = "最近在做操作系统课程项目和 DeskBrief 重构"
 
         #expect(
             store.analysisSummaryInstruction == AppDefaults.defaultAnalysisSummaryInstruction(language: .simplifiedChinese)
@@ -810,7 +810,7 @@ struct DailyWorkSummarizerTests {
     @MainActor
     @Test func settingsStoreKeepsPreservedOtherLastAndRejectsReservedPrefixNames() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
-        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         let keychain = KeychainStore(service: suiteName)
         userDefaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.userDefaultsKey)
@@ -857,7 +857,7 @@ struct DailyWorkSummarizerTests {
     @MainActor
     @Test func settingsStoreCanCopyModelConfigurationBetweenTabs() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
-        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         let keychain = KeychainStore(service: suiteName)
 
@@ -1074,7 +1074,7 @@ struct DailyWorkSummarizerTests {
         try database.insertAnalysisResult(
             capturedAt: Date(timeIntervalSince1970: 60),
             categoryName: "专注工作",
-            summaryText: "开发 DailyWorkSummarizer 项目",
+            summaryText: "开发 DeskBrief 项目",
             durationMinutesSnapshot: 5
         )
 
@@ -1096,7 +1096,7 @@ struct DailyWorkSummarizerTests {
         #expect(!columns.contains("error_message"))
         #expect(!columns.contains("created_at"))
         #expect(categoryName == "专注工作")
-        #expect(summaryText == "开发 DailyWorkSummarizer 项目")
+        #expect(summaryText == "开发 DeskBrief 项目")
     }
 
     @Test func dailyReportPromptIncludesActivitiesAndJSONContract() async throws {
@@ -1106,7 +1106,7 @@ struct DailyWorkSummarizerTests {
             for: dayStart,
             categories: ["专注工作", "会议沟通"],
             activityLines: [
-                "09:00 | 30分钟 | 专注工作 | 开发 DailyWorkSummarizer 报告页",
+                "09:00 | 30分钟 | 专注工作 | 开发 DeskBrief 报告页",
                 "10:00 | 5分钟 | 会议沟通 | 同步日报边界规则"
             ],
             summaryInstruction: "请突出项目名和课程名",
@@ -1124,7 +1124,7 @@ struct DailyWorkSummarizerTests {
         let rawText = """
         <think>先整理一下当天内容</think>
         ```json
-        {"dailySummary":"推进了 DailyWorkSummarizer 的日报总结功能","categorySummaries":{"专注工作":"完成日报总结链路开发","会议沟通":"同步了日报边界规则"}}
+        {"dailySummary":"推进了 DeskBrief 的日报总结功能","categorySummaries":{"专注工作":"完成日报总结链路开发","会议沟通":"同步了日报边界规则"}}
         ```
         """
 
@@ -1133,7 +1133,7 @@ struct DailyWorkSummarizerTests {
             categories: ["专注工作", "会议沟通"]
         )
 
-        #expect(response?.dailySummary == "推进了 DailyWorkSummarizer 的日报总结功能")
+        #expect(response?.dailySummary == "推进了 DeskBrief 的日报总结功能")
         #expect(response?.categorySummaries["专注工作"] == "完成日报总结链路开发")
         #expect(response?.categorySummaries["会议沟通"] == "同步了日报边界规则")
     }
@@ -1433,7 +1433,7 @@ struct DailyWorkSummarizerTests {
     @MainActor
     @Test func dailyReportSummaryServiceUsesWorkContentModelAndMarksIncompleteDayTemporary() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
-        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         let keychain = KeychainStore(service: suiteName)
         let calendar = makeTestCalendar()
@@ -1462,7 +1462,7 @@ struct DailyWorkSummarizerTests {
         try database.insertAnalysisResult(
             capturedAt: captureTime,
             categoryName: "专注工作",
-            summaryText: "开发 DailyWorkSummarizer 日报功能",
+            summaryText: "开发 DeskBrief 日报功能",
             durationMinutesSnapshot: 30
         )
 
@@ -1476,7 +1476,7 @@ struct DailyWorkSummarizerTests {
               "choices": [
                 {
                   "message": {
-                    "content": "{\\"dailySummary\\":\\"完成了 DailyWorkSummarizer 日报总结开发\\",\\"categorySummaries\\":{\\"专注工作\\":\\"实现了日报总结服务与报告页展示\\"}}"
+                    "content": "{\\"dailySummary\\":\\"完成了 DeskBrief 日报总结开发\\",\\"categorySummaries\\":{\\"专注工作\\":\\"实现了日报总结服务与报告页展示\\"}}"
                   },
                   "finish_reason": "stop"
                 }
@@ -1498,14 +1498,14 @@ struct DailyWorkSummarizerTests {
         #expect(MockURLProtocol.lastRequestedModel == "work-content-model")
         #expect(report.isTemporary)
         #expect(storedReport.isTemporary)
-        #expect(storedReport.displayDailySummaryText == "完成了 DailyWorkSummarizer 日报总结开发")
+        #expect(storedReport.displayDailySummaryText == "完成了 DeskBrief 日报总结开发")
         #expect(storedReport.displayCategorySummary(for: "专注工作") == "实现了日报总结服务与报告页展示")
     }
 
     @MainActor
     @Test func dailyReportSummaryServiceUsesOnlyAnalysisResultsInPromptAndCategorySummaries() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
-        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         let keychain = KeychainStore(service: suiteName)
         let calendar = makeTestCalendar()
@@ -1584,7 +1584,7 @@ struct DailyWorkSummarizerTests {
     @MainActor
     @Test func dailyReportSummaryServiceSkipsDaysWithoutAnalysisResults() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
-        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         let keychain = KeychainStore(service: suiteName)
         let calendar = makeTestCalendar()
@@ -1631,7 +1631,7 @@ struct DailyWorkSummarizerTests {
     @MainActor
     @Test func dailyReportSummaryServiceSummarizesOnlyPendingDaysBeforeLatestActivityDay() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
-        let suiteName = "DailyWorkSummarizerTests.\(UUID().uuidString)"
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         let keychain = KeychainStore(service: suiteName)
         let calendar = makeTestCalendar()

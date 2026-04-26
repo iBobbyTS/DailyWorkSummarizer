@@ -9,33 +9,33 @@
 
 项目事实：
 
-- 工程文件：`DailyWorkSummarizer.xcodeproj`
-- 默认 Scheme：`DailyWorkSummarizer`
+- 工程文件：`DeskBrief.xcodeproj`
+- 默认 Scheme：`DeskBrief`
 - 平台：macOS
 - 测试框架：`swift-testing`（源码里 `import Testing`），但运行入口仍然是 `xcodebuild test`
 
 推荐命令：
 
 ```sh
-xcodebuild -list -project DailyWorkSummarizer.xcodeproj
+xcodebuild -list -project DeskBrief.xcodeproj
 ```
 
 ```sh
 xcodebuild test \
-  -project DailyWorkSummarizer.xcodeproj \
-  -scheme DailyWorkSummarizer \
+  -project DeskBrief.xcodeproj \
+  -scheme DeskBrief \
   -destination 'platform=macOS' \
-  -derivedDataPath /tmp/DailyWorkSummarizerDerivedData \
+  -derivedDataPath /tmp/DeskBriefDerivedData \
   CODE_SIGNING_ALLOWED=NO
 ```
 
 ```sh
 xcodebuild test \
-  -project DailyWorkSummarizer.xcodeproj \
-  -scheme DailyWorkSummarizer \
+  -project DeskBrief.xcodeproj \
+  -scheme DeskBrief \
   -destination 'platform=macOS' \
-  -derivedDataPath /tmp/DailyWorkSummarizerDerivedData \
-  -only-testing:DailyWorkSummarizerTests \
+  -derivedDataPath /tmp/DeskBriefDerivedData \
+  -only-testing:DeskBriefTests \
   CODE_SIGNING_ALLOWED=NO
 ```
 
@@ -43,16 +43,16 @@ xcodebuild test \
 
 - 默认 DerivedData 路径在当前沙箱里容易触发日志目录权限错误，因此统一把 `-derivedDataPath` 指到 `/tmp`。
 - `CoreSimulatorService connection became invalid`、`attempt to post distributed notification ... thwarted by sandboxing` 这类输出在 macOS CLI 环境里常见；只有在最终出现真正的 `SwiftCompile` / `Test Failure` 时才按失败处理。
-- UI 测试默认不是首选排障入口。先跑 `DailyWorkSummarizerTests`，只有明确要验证窗口流程或系统权限交互时再考虑 `DailyWorkSummarizerUITests`。
+- UI 测试默认不是首选排障入口。先跑 `DeskBriefTests`，只有明确要验证窗口流程或系统权限交互时再考虑 `DeskBriefUITests`。
 - 菜单栏 accessory app 在 CLI 下使用 `XCTApplicationLaunchMetric` 可能出现某次 iteration 没有 metric 的不稳定失败；如果只需要覆盖 launch block 耗时，优先改用 `XCTClockMetric` 并在每次迭代后显式 `terminate()`。
 
 常见回归点：
 
-- 新增 `AnalysisModelSettings` 或 `AppSettingsSnapshot` 字段后，`DailyWorkSummarizerTests.swift` 里的手写初始化很容易报 `Missing argument for parameter ... in call`。
+- 新增 `AnalysisModelSettings` 或 `AppSettingsSnapshot` 字段后，`DeskBriefTests.swift` 里的手写初始化很容易报 `Missing argument for parameter ... in call`。
 - 出现这类错误时，先搜：
 
 ```sh
-rg -n "AnalysisModelSettings\\(|AppSettingsSnapshot\\(" DailyWorkSummarizer DailyWorkSummarizerTests DailyWorkSummarizerUITests
+rg -n "AnalysisModelSettings\\(|AppSettingsSnapshot\\(" DeskBrief DeskBriefTests DeskBriefUITests
 ```
 
 - 设置相关改动除了测试，还要同步检查：

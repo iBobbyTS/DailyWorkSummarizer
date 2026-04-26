@@ -10,14 +10,14 @@ enum DatabaseError: Error {
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 final class AppDatabase: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "DailyWorkSummarizer.Database")
+    private let queue = DispatchQueue(label: "DeskBrief.Database")
     private var handle: OpaquePointer?
     let databaseURL: URL
 
     convenience init() throws {
         let supportURL = try Self.applicationSupportDirectory()
         try self.init(
-            databaseURL: supportURL.appendingPathComponent("daily-work-summarizer.sqlite", isDirectory: false)
+            databaseURL: supportURL.appendingPathComponent("desk-brief.sqlite", isDirectory: false)
         )
     }
 
@@ -47,7 +47,7 @@ final class AppDatabase: @unchecked Sendable {
             appropriateFor: nil,
             create: true
         )
-        let bundleName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "DailyWorkSummarizer"
+        let bundleName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "DeskBrief"
         let directory = base.appendingPathComponent(bundleName, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory

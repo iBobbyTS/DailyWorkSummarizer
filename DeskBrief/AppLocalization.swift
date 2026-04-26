@@ -476,7 +476,7 @@ enum L10n {
             .settingsReportTitle: "Report Settings",
             .settingsReportWeekStart: "First day of the week",
             .settingsCountdown: "Countdown: %d sec",
-            .statusAccessibilityDescription: "Daily Work Summarizer",
+            .statusAccessibilityDescription: "DeskBrief",
             .menuNoPending: "No screenshots pending analysis",
             .menuOpenScreenshotsFolder: "Open Screenshots Folder",
             .menuShowLogs: "Show Logs",

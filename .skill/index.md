@@ -1,4 +1,4 @@
-# DailyWorkSummarizer Skill Index
+# DeskBrief Skill Index
 
 这些 skill 只给 Codex/代理自己用，用来快速决定在这个仓库里应该怎样调用工具、先读哪些文件、哪些命令最少踩坑。
 
@@ -16,8 +16,8 @@
 全局约定：
 
 - 这是原生 macOS Xcode 项目，不是 Node 项目，也没有以 Docker 作为主开发入口。
-- 运行 `xcodebuild` 时总是显式传 `-derivedDataPath /tmp/DailyWorkSummarizerDerivedData`，避免沙箱环境下写默认 `~/Library/Developer/Xcode/DerivedData` 时报权限问题。
-- 涉及 `AnalysisModelSettings`、`AppSettingsSnapshot`、`SettingsStore.snapshot` 的字段变更时，先全局搜索手写初始化点，尤其是 `DailyWorkSummarizerTests/`。
+- 运行 `xcodebuild` 时总是显式传 `-derivedDataPath /tmp/DeskBriefDerivedData`，避免沙箱环境下写默认 `~/Library/Developer/Xcode/DerivedData` 时报权限问题。
+- 涉及 `AnalysisModelSettings`、`AppSettingsSnapshot`、`SettingsStore.snapshot` 的字段变更时，先全局搜索手写初始化点，尤其是 `DeskBriefTests/`。
 - 涉及模型配置时，始终同时检查两套配置：
   - 截图分析：`provider` / `imageAnalysisMethod` / `apiBaseURL` / `modelName`
   - 工作内容分析：`workContentProvider` / `workContentImageAnalysisMethod` / `workContentAPIBaseURL` / `workContentModelName`

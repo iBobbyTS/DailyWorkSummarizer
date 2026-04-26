@@ -9,12 +9,12 @@
 
 先读这些文件：
 
-- `DailyWorkSummarizer/AppleIntelligenceSupport.swift`
-- `DailyWorkSummarizer/SettingsView.swift`
-- `DailyWorkSummarizer/AppSettings.swift`
-- `DailyWorkSummarizer/AnalysisService.swift`
-- `DailyWorkSummarizer/DailyReportSummaryService.swift`
-- `DailyWorkSummarizer/AppLocalization.swift`
+- `DeskBrief/AppleIntelligenceSupport.swift`
+- `DeskBrief/SettingsView.swift`
+- `DeskBrief/AppSettings.swift`
+- `DeskBrief/AnalysisService.swift`
+- `DeskBrief/DailyReportSummaryService.swift`
+- `DeskBrief/AppLocalization.swift`
 
 当前项目里的真实接入方式：
 

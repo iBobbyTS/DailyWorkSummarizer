@@ -48,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         do {
             let database = try AppDatabase()
-            let keychain = KeychainStore(service: Bundle.main.bundleIdentifier ?? "DailyWorkSummarizer")
+            let keychain = KeychainStore(service: Bundle.main.bundleIdentifier ?? "DeskBrief")
             let settingsStore = SettingsStore(database: database, keychain: keychain)
             let logStore = AppLogStore(database: database)
 

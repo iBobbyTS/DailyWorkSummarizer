@@ -16,12 +16,12 @@ DEFAULT_DATABASE_PATH = (
     Path.home()
     / "Library"
     / "Containers"
-    / "com.iBobby.DailyWorkSummarizer"
+    / "com.iBobby.DeskBrief"
     / "Data"
     / "Library"
     / "Application Support"
-    / "DailyWorkSummarizer"
-    / "daily-work-summarizer.sqlite"
+    / "DeskBrief"
+    / "desk-brief.sqlite"
 )
 
 
@@ -91,7 +91,7 @@ def clean_database(database_path: Path, dry_run: bool = False) -> CleanupResult:
 
 class CleanFailedAnalysisResultsTests(unittest.TestCase):
     def make_database(self, temporary_directory: Path) -> Path:
-        database_path = temporary_directory / "daily-work-summarizer.sqlite"
+        database_path = temporary_directory / "desk-brief.sqlite"
         connection = sqlite3.connect(database_path)
         try:
             connection.execute(
@@ -158,7 +158,7 @@ class CleanFailedAnalysisResultsTests(unittest.TestCase):
 
     def test_missing_status_column_is_noop(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
-            database_path = Path(temporary_directory) / "daily-work-summarizer.sqlite"
+            database_path = Path(temporary_directory) / "desk-brief.sqlite"
             connection = sqlite3.connect(database_path)
             try:
                 connection.execute(

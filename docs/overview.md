@@ -2,7 +2,7 @@
 
 ## Purpose
 
-DailyWorkSummarizer is a native macOS menu bar app that captures periodic screenshots, classifies work activity, and generates time-based reports and daily summaries.
+DeskBrief is a native macOS menu bar app that captures periodic screenshots, classifies work activity, and generates time-based reports and daily summaries.
 
 The app is designed for personal activity review rather than team-wide monitoring. Its core value is turning passive screen capture into structured work history that can be browsed as charts and summarized as natural-language reports.
 

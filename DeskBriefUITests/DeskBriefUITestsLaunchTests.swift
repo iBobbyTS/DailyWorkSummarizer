@@ -1,13 +1,13 @@
 //
-//  DailyWorkSummarizerUITestsLaunchTests.swift
-//  DailyWorkSummarizerUITests
+//  DeskBriefUITestsLaunchTests.swift
+//  DeskBriefUITests
 //
 //  Created by iBobby on 2025-12-01.
 //
 
 import XCTest
 
-final class DailyWorkSummarizerUITestsLaunchTests: XCTestCase {
+final class DeskBriefUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true

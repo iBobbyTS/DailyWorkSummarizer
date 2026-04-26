@@ -10,16 +10,16 @@
 
 先读这些文件：
 
-- `DailyWorkSummarizer/ScreenshotService.swift`
-- `DailyWorkSummarizer/AnalysisService.swift`
-- `DailyWorkSummarizer/DailyReportSummaryService.swift`
-- `DailyWorkSummarizer/LLMService.swift`
-- `DailyWorkSummarizer/LMStudioAPI.swift`
-- `DailyWorkSummarizer/AppSettings.swift`
-- `DailyWorkSummarizer/AppModels.swift`
-- `DailyWorkSummarizer/AnalysisErrorStore.swift`
-- `DailyWorkSummarizer/SettingsView.swift`
-- `DailyWorkSummarizer/AppLocalization.swift`
+- `DeskBrief/ScreenshotService.swift`
+- `DeskBrief/AnalysisService.swift`
+- `DeskBrief/DailyReportSummaryService.swift`
+- `DeskBrief/LLMService.swift`
+- `DeskBrief/LMStudioAPI.swift`
+- `DeskBrief/AppSettings.swift`
+- `DeskBrief/AppModels.swift`
+- `DeskBrief/AnalysisErrorStore.swift`
+- `DeskBrief/SettingsView.swift`
+- `DeskBrief/AppLocalization.swift`
 
 理解主链路时的顺序：
 
