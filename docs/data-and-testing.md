@@ -19,8 +19,10 @@ The app stores runtime data under Application Support:
   User-defined category definitions and ordering, without timestamp metadata.
 - `analysis_runs`
   One compact record per analysis batch, including run status, model name, item counts, average item duration, and run-level error text.
+  `total_items` can grow during an active run when new screenshots are appended to the same queue.
 - `analysis_results`
   Successful per-item screenshot analysis output, including capture time, category, summary, and duration snapshot.
+  `captured_at` is unique; duplicate inserts are ignored so an existing result is not overwritten.
 - `daily_reports`
   Generated daily summaries and per-category summary payloads for reportable, non-away activity.
 - `app_logs`
@@ -34,6 +36,7 @@ SQLite is the source of truth for captured work history, analysis outputs, and g
 It also stores lightweight runtime logs in `app_logs`, capped to the latest 1000 entries.
 Away intervals are not persisted; report views derive display-only `离开` blocks from bounded gaps between adjacent successful analysis results.
 Failed per-screenshot attempts are counted on `analysis_runs` but are not persisted as `analysis_results` rows.
+Duplicate capture-time results are treated as already processed: the screenshot file is removed and the original `analysis_results` row remains unchanged.
 
 ### UserDefaults
 

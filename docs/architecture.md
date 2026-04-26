@@ -43,14 +43,19 @@ The app is centered around a small set of long-lived services created at launch 
 
 - `AnalysisService` can be started manually, by the configured scheduled time, or by realtime capture-saved notifications.
 - `AnalysisService` finds pending screenshot files from local storage; realtime mode still processes the whole pending folder, not only the latest screenshot.
+- If no pending screenshots exist, a trigger returns without creating an `analysis_runs` record.
+- If a new analysis request arrives while a run is already active, the service appends newly discovered screenshot paths to the current queue instead of cancelling, pausing, or restarting the run.
+- When the user cancels a run, the active queue stops accepting appends immediately; later triggers are held for a follow-up run instead of being merged into the cancelling run.
 - The charger requirement applies to automatic triggers: scheduled and realtime analysis honor it, while manual "Analyze Now" always starts when selected.
 - It creates a compact `analysis_runs` record for run-level status/counts and processes screenshots one by one.
+- `analysis_runs.total_items` is updated when the active queue grows so the run progress stays aligned with the appended screenshots.
 - Depending on provider and analysis mode, it either:
   - runs local OCR first and sends text to a model, or
   - sends the screenshot image to a remote multimodal endpoint.
 - `LLMService` translates the request into the provider-specific wire format and normalizes the response back into a shared result model.
 - When the user pauses analysis while LM Studio is active, `AnalysisService` first waits for the in-flight generation request to stop and then issues the unload request.
-- Successful parsed results are written to `analysis_results`; failed per-screenshot attempts only update run-level counts and errors.
+- Successful parsed results are written to `analysis_results`; duplicate capture times are ignored and the already-processed screenshot file is removed without overwriting the existing result.
+- Failed per-screenshot attempts only update run-level counts and errors.
 - After a run completes, the service updates run status and may trigger daily-summary backfill.
 
 ### 4. Daily summary flow

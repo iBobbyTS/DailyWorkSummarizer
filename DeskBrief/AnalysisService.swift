@@ -66,6 +66,64 @@ final class AnalysisService {
         let ocrText: String?
         let reasoningText: String?
     }
+
+    private final class ActiveAnalysisRun {
+        let id: Int64
+        let settings: AppSettingsSnapshot
+        let prompt: String
+        var captures: [ScreenshotFileRecord]
+        var capturedPaths: Set<String>
+        var currentIndex = 0
+        var successCount = 0
+        var failureCount = 0
+        var completedCount = 0
+        var consecutiveFailureCount = 0
+        var measuredDurationTotal: TimeInterval = 0
+        var measuredItemCount = 0
+        var wasCancelled = false
+        var wasPausedAfterFailures = false
+        var didLogLMStudioCancellationObservation = false
+        var isAcceptingAppends = true
+
+        init(id: Int64, settings: AppSettingsSnapshot, prompt: String, captures: [ScreenshotFileRecord]) {
+            self.id = id
+            self.settings = settings
+            self.prompt = prompt
+            self.captures = captures
+            self.capturedPaths = Set(captures.map { $0.url.path })
+        }
+
+        var startedAt: Date? {
+            captures.first?.capturedAt
+        }
+
+        var totalCount: Int {
+            captures.count
+        }
+
+        var hasRemainingCaptures: Bool {
+            currentIndex < captures.count
+        }
+
+        func nextCapture() -> ScreenshotFileRecord? {
+            guard currentIndex < captures.count else {
+                return nil
+            }
+            defer { currentIndex += 1 }
+            return captures[currentIndex]
+        }
+
+        @discardableResult
+        func appendMissingCaptures(_ pendingCaptures: [ScreenshotFileRecord]) -> Int {
+            let newCaptures = pendingCaptures.filter { capturedPaths.insert($0.url.path).inserted }
+            guard !newCaptures.isEmpty else {
+                return 0
+            }
+            captures.append(contentsOf: newCaptures)
+            return newCaptures.count
+        }
+    }
+
     private let database: AppDatabase
     private let settingsStore: SettingsStore
     private let logStore: AppLogStore
@@ -77,6 +135,8 @@ final class AnalysisService {
     private var wakeObserver: NSObjectProtocol?
     private var screenshotSavedObserver: NSObjectProtocol?
     private var runningTask: Task<Void, Never>?
+    private var activeAnalysisRun: ActiveAnalysisRun?
+    private var pendingTriggerAfterCurrentRun: AnalysisTrigger?
     private var activeRunSettings: AppSettingsSnapshot?
     private var lastLMStudioModelInstanceID: String?
     private var runtimeState: AnalysisRuntimeState = .idle {
@@ -149,6 +209,7 @@ final class AnalysisService {
 
     func cancelCurrentRun() {
         guard runtimeState.isRunning, !runtimeState.isStopping else { return }
+        activeAnalysisRun?.isAcceptingAppends = false
         if activeRunSettings?.provider == .lmStudio {
             recordLMStudioLog(
                 chinese: "用户点击了暂停分析。",
@@ -278,14 +339,11 @@ final class AnalysisService {
         guard settingsStore.snapshot.analysisStartupMode == .realtime else {
             return
         }
-        guard !runtimeState.isRunning else {
-            return
-        }
 
         triggerAnalysis(scheduledFor: Date(), trigger: .realtime)
     }
 
-    private func triggerAnalysis(scheduledFor: Date, trigger: AnalysisTrigger) {
+    private func triggerAnalysis(scheduledFor _: Date, trigger: AnalysisTrigger) {
         if Self.shouldSkipForChargerRequirement(
             trigger: trigger,
             requiresCharger: settingsStore.snapshot.autoAnalysisRequiresCharger,
@@ -297,60 +355,81 @@ final class AnalysisService {
             return
         }
 
-        runningTask?.cancel()
-        runningTask = Task { [weak self] in
-            guard let self else { return }
-            await self.runAnalysis(scheduledFor: scheduledFor)
-            await MainActor.run {
-                self.scheduleNextRun()
+        if let activeAnalysisRun {
+            if activeAnalysisRun.isAcceptingAppends {
+                appendPendingCaptures(to: activeAnalysisRun)
+            } else {
+                rememberPendingTriggerAfterCurrentRun(trigger)
             }
+            return
         }
-    }
 
-    private func runAnalysis(scheduledFor _: Date) async {
         let snapshot = settingsStore.snapshot
-        lastLMStudioModelInstanceID = nil
-        activeRunSettings = snapshot
+        let pendingCaptures = pendingScreenshotFiles(defaultDurationMinutes: snapshot.screenshotIntervalMinutes)
+        guard !pendingCaptures.isEmpty else {
+            if trigger == .scheduled {
+                scheduleNextRun()
+            }
+            return
+        }
+
         let prompt = buildPrompt(
             with: snapshot.validCategoryRules,
             summaryInstruction: snapshot.analysisSummaryInstruction,
             language: snapshot.appLanguage
         )
-        let pendingCaptures = (try? database.listScreenshotFiles(defaultDurationMinutes: snapshot.screenshotIntervalMinutes)) ?? []
 
-        let runID: Int64
-        do {
-            runID = try database.createAnalysisRun(
-                modelName: snapshot.modelName,
-                totalItems: pendingCaptures.count
-            )
-        } catch {
+        guard let runID = try? database.createAnalysisRun(
+            modelName: snapshot.modelName,
+            totalItems: pendingCaptures.count
+        ) else {
             return
         }
 
+        let run = ActiveAnalysisRun(
+            id: runID,
+            settings: snapshot,
+            prompt: prompt,
+            captures: pendingCaptures
+        )
+        activeAnalysisRun = run
         updateRuntimeState(
-            startedAt: pendingCaptures.first?.capturedAt,
-            completedCount: 0,
-            totalCount: pendingCaptures.count,
+            startedAt: run.startedAt,
+            completedCount: run.completedCount,
+            totalCount: run.totalCount,
             stoppingStage: nil
         )
+        runningTask = Task { [weak self] in
+            guard let self else { return }
+            await self.runAnalysis(for: run)
+            await MainActor.run {
+                let pendingTrigger = self.pendingTriggerAfterCurrentRun
+                self.pendingTriggerAfterCurrentRun = nil
+                self.runningTask = nil
+                self.scheduleNextRun()
+                if let pendingTrigger {
+                    self.triggerAnalysis(scheduledFor: Date(), trigger: pendingTrigger)
+                }
+            }
+        }
+    }
+
+    private func runAnalysis(for run: ActiveAnalysisRun) async {
+        let snapshot = run.settings
+        lastLMStudioModelInstanceID = nil
+        activeRunSettings = snapshot
         defer {
             activeRunSettings = nil
+            activeAnalysisRun = nil
             runtimeState = .idle
-        }
-
-        guard !pendingCaptures.isEmpty else {
-            try? database.finishAnalysisRun(id: runID, status: "succeeded", successCount: 0, failureCount: 0)
-            await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded()
-            return
         }
 
         guard !snapshot.validCategoryRules.isEmpty else {
             try? database.finishAnalysisRun(
-                id: runID,
+                id: run.id,
                 status: "failed",
                 successCount: 0,
-                failureCount: pendingCaptures.count,
+                failureCount: run.totalCount,
                 errorMessage: localized(.analysisNeedsCategoryRule, language: snapshot.appLanguage)
             )
             return
@@ -359,10 +438,10 @@ final class AnalysisService {
         if snapshot.provider.requiresRemoteConfiguration {
             guard !snapshot.apiBaseURL.isEmpty else {
                 try? database.finishAnalysisRun(
-                    id: runID,
+                    id: run.id,
                     status: "failed",
                     successCount: 0,
-                    failureCount: pendingCaptures.count,
+                    failureCount: run.totalCount,
                     errorMessage: localized(.analysisNeedsBaseURL, language: snapshot.appLanguage)
                 )
                 return
@@ -370,130 +449,140 @@ final class AnalysisService {
 
             guard !snapshot.modelName.isEmpty else {
                 try? database.finishAnalysisRun(
-                    id: runID,
+                    id: run.id,
                     status: "failed",
                     successCount: 0,
-                    failureCount: pendingCaptures.count,
+                    failureCount: run.totalCount,
                     errorMessage: localized(.analysisNeedsModelName, language: snapshot.appLanguage)
                 )
                 return
             }
         }
 
-        var successCount = 0
-        var failureCount = 0
-        var completedCount = 0
-        var consecutiveFailureCount = 0
-        var wasCancelled = false
-        var wasPausedAfterFailures = false
-        var measuredDurationTotal: TimeInterval = 0
-        var measuredItemCount = 0
-        var didLogLMStudioCancellationObservation = false
-
         func recordLMStudioCancellationObservationIfNeeded() {
-            guard snapshot.provider == .lmStudio, !didLogLMStudioCancellationObservation else { return }
-            didLogLMStudioCancellationObservation = true
+            guard snapshot.provider == .lmStudio, !run.didLogLMStudioCancellationObservation else { return }
+            run.didLogLMStudioCancellationObservation = true
             recordLMStudioLog(
                 chinese: "分析循环检测到取消，准备进入 LM Studio 清理阶段。",
                 english: "Analysis loop observed cancellation and is entering LM Studio cleanup."
             )
         }
 
-        for (index, capture) in pendingCaptures.enumerated() {
-            if Task.isCancelled {
-                recordLMStudioCancellationObservationIfNeeded()
-                wasCancelled = true
+        while true {
+            while let capture = run.nextCapture() {
+                if Task.isCancelled {
+                    recordLMStudioCancellationObservationIfNeeded()
+                    run.wasCancelled = true
+                    break
+                }
+
+                let fileURL = capture.url
+                let capturedAt = capture.capturedAt
+                let durationMinutes = capture.durationMinutes
+
+                guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                    run.failureCount += 1
+                    run.consecutiveFailureCount += 1
+                    run.completedCount += 1
+                    updateRuntimeState(
+                        startedAt: run.startedAt,
+                        completedCount: run.completedCount,
+                        totalCount: run.totalCount
+                    )
+                    if Self.shouldPauseAfterConsecutiveFailures(run.consecutiveFailureCount) {
+                        run.wasPausedAfterFailures = true
+                        break
+                    }
+                    continue
+                }
+
+                let shouldMeasureDuration = run.completedCount > 0
+                let itemStartTime = shouldMeasureDuration ? Date() : nil
+
+                do {
+                    let response = try await analyzeImage(
+                        at: fileURL,
+                        settings: snapshot,
+                        prompt: run.prompt
+                    )
+
+                    _ = try database.insertAnalysisResult(
+                        capturedAt: capturedAt,
+                        categoryName: response.category,
+                        summaryText: response.summary,
+                        durationMinutesSnapshot: durationMinutes
+                    )
+
+                    run.successCount += 1
+                    run.consecutiveFailureCount = 0
+                    try? FileManager.default.removeItem(at: fileURL)
+                    NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
+                } catch {
+                    if error is CancellationError || Task.isCancelled {
+                        recordLMStudioCancellationObservationIfNeeded()
+                        run.wasCancelled = true
+                        break
+                    }
+
+                    let message = error.localizedDescription
+                    if Self.shouldRecordRuntimeError(error) {
+                        logStore.add(level: .error, source: .analysis, message: message)
+                    }
+                    run.failureCount += 1
+                    run.consecutiveFailureCount += 1
+                }
+
+                if let itemStartTime {
+                    run.measuredDurationTotal += Date().timeIntervalSince(itemStartTime)
+                    run.measuredItemCount += 1
+                }
+
+                run.completedCount += 1
+                updateRuntimeState(
+                    startedAt: run.startedAt,
+                    completedCount: run.completedCount,
+                    totalCount: run.totalCount
+                )
+
+                if Self.shouldPauseAfterConsecutiveFailures(run.consecutiveFailureCount) {
+                    run.wasPausedAfterFailures = true
+                    break
+                }
+            }
+
+            if run.wasCancelled || run.wasPausedAfterFailures {
                 break
             }
 
-            let fileURL = capture.url
-            let capturedAt = capture.capturedAt
-            let durationMinutes = capture.durationMinutes
-
-            guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                failureCount += 1
-                consecutiveFailureCount += 1
-                completedCount += 1
-                updateRuntimeState(
-                    startedAt: pendingCaptures.first?.capturedAt,
-                    completedCount: completedCount,
-                    totalCount: pendingCaptures.count
-                )
-                if Self.shouldPauseAfterConsecutiveFailures(consecutiveFailureCount) {
-                    wasPausedAfterFailures = true
-                    break
-                }
+            if await waitForAdditionalCaptures(to: run) {
                 continue
             }
 
-            let shouldMeasureDuration = index > 0
-            let itemStartTime = shouldMeasureDuration ? Date() : nil
-
-            do {
-                let response = try await analyzeImage(
-                    at: fileURL,
-                    settings: snapshot,
-                    prompt: prompt
-                )
-
-                try database.insertAnalysisResult(
-                    capturedAt: capturedAt,
-                    categoryName: response.category,
-                    summaryText: response.summary,
-                    durationMinutesSnapshot: durationMinutes
-                )
-
-                successCount += 1
-                consecutiveFailureCount = 0
-                try? FileManager.default.removeItem(at: fileURL)
-                NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
-            } catch {
-                if error is CancellationError || Task.isCancelled {
-                    recordLMStudioCancellationObservationIfNeeded()
-                    wasCancelled = true
-                    break
-                }
-
-                let message = error.localizedDescription
-                if Self.shouldRecordRuntimeError(error) {
-                    logStore.add(level: .error, source: .analysis, message: message)
-                }
-                failureCount += 1
-                consecutiveFailureCount += 1
-            }
-
-            if let itemStartTime {
-                measuredDurationTotal += Date().timeIntervalSince(itemStartTime)
-                measuredItemCount += 1
-            }
-
-            completedCount += 1
-            updateRuntimeState(
-                startedAt: pendingCaptures.first?.capturedAt,
-                completedCount: completedCount,
-                totalCount: pendingCaptures.count
-            )
-
-            if Self.shouldPauseAfterConsecutiveFailures(consecutiveFailureCount) {
-                wasPausedAfterFailures = true
+            if Task.isCancelled {
+                recordLMStudioCancellationObservationIfNeeded()
+                run.wasCancelled = true
                 break
             }
+            run.isAcceptingAppends = false
+            break
         }
 
-        if wasCancelled {
+        run.isAcceptingAppends = false
+
+        if run.wasCancelled {
             try? database.finishAnalysisRun(
-                id: runID,
+                id: run.id,
                 status: "cancelled",
-                successCount: successCount,
-                failureCount: failureCount,
-                averageItemDurationSeconds: measuredItemCount > 0 ? measuredDurationTotal / Double(measuredItemCount) : nil,
+                successCount: run.successCount,
+                failureCount: run.failureCount,
+                averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
                 errorMessage: localized(.analysisCancelledByUser, language: snapshot.appLanguage)
             )
             if let unloadingStage = Self.stoppingStageAfterGenerationStops(for: snapshot.provider) {
                 updateRuntimeState(
-                    startedAt: pendingCaptures.first?.capturedAt,
-                    completedCount: completedCount,
-                    totalCount: pendingCaptures.count,
+                    startedAt: run.startedAt,
+                    completedCount: run.completedCount,
+                    totalCount: run.totalCount,
                     stoppingStage: unloadingStage
                 )
             }
@@ -501,15 +590,15 @@ final class AnalysisService {
             return
         }
 
-        if wasPausedAfterFailures {
+        if run.wasPausedAfterFailures {
             let message = localized(.analysisPausedAfterFailures, language: snapshot.appLanguage)
-            let finalStatus = successCount > 0 ? "partial_failed" : "failed"
+            let finalStatus = run.successCount > 0 ? "partial_failed" : "failed"
             try? database.finishAnalysisRun(
-                id: runID,
+                id: run.id,
                 status: finalStatus,
-                successCount: successCount,
-                failureCount: failureCount,
-                averageItemDurationSeconds: measuredItemCount > 0 ? measuredDurationTotal / Double(measuredItemCount) : nil,
+                successCount: run.successCount,
+                failureCount: run.failureCount,
+                averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
                 errorMessage: message
             )
             await stopModelIfNeeded(for: snapshot)
@@ -517,24 +606,75 @@ final class AnalysisService {
         }
 
         let finalStatus: String
-        if successCount == 0 && failureCount > 0 {
+        if run.successCount == 0 && run.failureCount > 0 {
             finalStatus = "failed"
-        } else if failureCount > 0 {
+        } else if run.failureCount > 0 {
             finalStatus = "partial_failed"
         } else {
             finalStatus = "succeeded"
         }
 
         try? database.finishAnalysisRun(
-            id: runID,
+            id: run.id,
             status: finalStatus,
-            successCount: successCount,
-            failureCount: failureCount,
-            averageItemDurationSeconds: measuredItemCount > 0 ? measuredDurationTotal / Double(measuredItemCount) : nil,
-            errorMessage: failureCount > 0 ? localized(.analysisPartialFailures, language: snapshot.appLanguage) : nil
+            successCount: run.successCount,
+            failureCount: run.failureCount,
+            averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
+            errorMessage: run.failureCount > 0 ? localized(.analysisPartialFailures, language: snapshot.appLanguage) : nil
         )
         await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded()
         await stopModelIfNeeded(for: snapshot)
+    }
+
+    private func pendingScreenshotFiles(defaultDurationMinutes: Int) -> [ScreenshotFileRecord] {
+        (try? database.listScreenshotFiles(defaultDurationMinutes: defaultDurationMinutes)) ?? []
+    }
+
+    @discardableResult
+    private func appendPendingCaptures(to run: ActiveAnalysisRun) -> Int {
+        let pendingCaptures = pendingScreenshotFiles(defaultDurationMinutes: run.settings.screenshotIntervalMinutes)
+        let appendedCount = run.appendMissingCaptures(pendingCaptures)
+        guard appendedCount > 0 else {
+            return 0
+        }
+
+        do {
+            try database.updateAnalysisRunTotalItems(id: run.id, totalItems: run.totalCount)
+        } catch {
+            logStore.add(level: .error, source: .analysis, message: error.localizedDescription)
+        }
+        updateRuntimeState(
+            startedAt: run.startedAt,
+            completedCount: run.completedCount,
+            totalCount: run.totalCount
+        )
+        return appendedCount
+    }
+
+    private func rememberPendingTriggerAfterCurrentRun(_ trigger: AnalysisTrigger) {
+        if trigger == .manual || pendingTriggerAfterCurrentRun == nil {
+            pendingTriggerAfterCurrentRun = trigger
+        }
+    }
+
+    private func waitForAdditionalCaptures(to run: ActiveAnalysisRun) async -> Bool {
+        guard realtimeAnalysisTimer != nil else {
+            return run.hasRemainingCaptures
+        }
+
+        for _ in 0..<20 {
+            if Task.isCancelled {
+                return false
+            }
+            if run.hasRemainingCaptures {
+                return true
+            }
+            if realtimeAnalysisTimer == nil {
+                return run.hasRemainingCaptures
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return run.hasRemainingCaptures
     }
 
     private func buildPrompt(

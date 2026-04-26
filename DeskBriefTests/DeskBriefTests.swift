@@ -909,6 +909,305 @@ struct DeskBriefTests {
     }
 
     @MainActor
+    @Test func runNowWithoutPendingScreenshotsDoesNotCreateAnalysisRun() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            return try makeHTTPResponse(url: try #require(request.url), body: "{}")
+        }
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            dailyReportSummaryService: DailyReportSummaryService(database: database, settingsStore: store, session: session),
+            session: session
+        )
+
+        service.runNow()
+
+        #expect(!service.currentState.isRunning)
+        #expect(MockURLProtocol.requestCount == 0)
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_runs;", databaseURL: databaseURL) == 0)
+    }
+
+    @MainActor
+    @Test func runningAnalysisAppendsNewScreenshotsToCurrentRun() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let firstRequestStarted = DispatchSemaphore(value: 0)
+        let releaseFirstRequest = DispatchSemaphore(value: 0)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "screenshot-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .manual
+
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        let firstScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1000-i5.jpg")
+        let secondScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1005-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: firstScreenshot)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            if MockURLProtocol.requestCount == 1 {
+                firstRequestStarted.signal()
+                _ = releaseFirstRequest.wait(timeout: .now() + 5)
+            }
+
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"category\\":\\"专注工作\\",\\"summary\\":\\"处理追加队列\\"}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let logStore = AppLogStore(database: database)
+        let dailyReportSummaryService = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: logStore,
+            dailyReportSummaryService: dailyReportSummaryService,
+            session: session
+        )
+
+        service.runNow()
+        #expect(await waitForSemaphore(firstRequestStarted, timeoutSeconds: 5))
+
+        try writeTestScreenshotPlaceholder(to: secondScreenshot)
+        service.runNow()
+        #expect(service.currentState.totalCount == 2)
+
+        releaseFirstRequest.signal()
+        let didFinish = await waitUntil(timeoutSeconds: 8) {
+            !service.currentState.isRunning
+        }
+
+        #expect(didFinish)
+        #expect(MockURLProtocol.requestCount == 2)
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_runs;", databaseURL: databaseURL) == 1)
+        #expect(try fetchInt("SELECT total_items FROM analysis_runs LIMIT 1;", databaseURL: databaseURL) == 2)
+        #expect(try fetchInt("SELECT success_count FROM analysis_runs LIMIT 1;", databaseURL: databaseURL) == 2)
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_results;", databaseURL: databaseURL) == 2)
+    }
+
+    @MainActor
+    @Test func cancellingAnalysisStopsAppendingNewScreenshotsToCancelledRun() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let firstRequestStarted = DispatchSemaphore(value: 0)
+        let releaseFirstRequest = DispatchSemaphore(value: 0)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "screenshot-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .manual
+
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        let firstScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1000-i5.jpg")
+        let secondScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1005-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: firstScreenshot)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            if MockURLProtocol.requestCount == 1 {
+                firstRequestStarted.signal()
+                _ = releaseFirstRequest.wait(timeout: .now() + 5)
+            }
+
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"category\\":\\"专注工作\\",\\"summary\\":\\"取消后重新排队\\"}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let logStore = AppLogStore(database: database)
+        let dailyReportSummaryService = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: logStore,
+            dailyReportSummaryService: dailyReportSummaryService,
+            session: session
+        )
+
+        service.runNow()
+        #expect(await waitForSemaphore(firstRequestStarted, timeoutSeconds: 5))
+
+        try writeTestScreenshotPlaceholder(to: secondScreenshot)
+        service.cancelCurrentRun()
+        service.runNow()
+        #expect(service.currentState.totalCount == 1)
+
+        releaseFirstRequest.signal()
+        let didFinishQueuedRun = await waitUntil(timeoutSeconds: 8) {
+            MockURLProtocol.requestCount >= 3 && !service.currentState.isRunning
+        }
+
+        #expect(didFinishQueuedRun)
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_runs;", databaseURL: databaseURL) == 2)
+        #expect(try fetchInt("SELECT total_items FROM analysis_runs ORDER BY id ASC LIMIT 1;", databaseURL: databaseURL) == 1)
+        #expect(try fetchInt("SELECT total_items FROM analysis_runs ORDER BY id DESC LIMIT 1;", databaseURL: databaseURL) == 2)
+        #expect(try fetchOptionalString("SELECT status FROM analysis_runs ORDER BY id ASC LIMIT 1;", databaseURL: databaseURL) == "cancelled")
+        #expect(try fetchOptionalString("SELECT status FROM analysis_runs ORDER BY id DESC LIMIT 1;", databaseURL: databaseURL) == "succeeded")
+        #expect(!FileManager.default.fileExists(atPath: secondScreenshot.path))
+    }
+
+    @MainActor
+    @Test func duplicateCapturedAtResultKeepsExistingRowAndDeletesScreenshot() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "screenshot-model"
+        store.imageAnalysisMethod = .multimodal
+
+        let capturedAt = makeScreenshotDate(year: 2026, month: 4, day: 26, hour: 10, minute: 0)
+        let firstOutcome = try database.insertAnalysisResult(
+            capturedAt: capturedAt,
+            categoryName: "已有分类",
+            summaryText: "已有分析结果",
+            durationMinutesSnapshot: 5
+        )
+        #expect(firstOutcome == .inserted)
+
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        let duplicateScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1000-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: duplicateScreenshot)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"category\\":\\"专注工作\\",\\"summary\\":\\"不应覆盖旧结果\\"}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            dailyReportSummaryService: DailyReportSummaryService(database: database, settingsStore: store, session: session),
+            session: session
+        )
+
+        service.runNow()
+        let didFinish = await waitUntil(timeoutSeconds: 8) {
+            MockURLProtocol.requestCount == 1 && !service.currentState.isRunning
+        }
+
+        #expect(didFinish)
+        #expect(!FileManager.default.fileExists(atPath: duplicateScreenshot.path))
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_results;", databaseURL: databaseURL) == 1)
+        #expect(try fetchOptionalString("SELECT category_name FROM analysis_results LIMIT 1;", databaseURL: databaseURL) == "已有分类")
+        #expect(try fetchOptionalString("SELECT summary_text FROM analysis_results LIMIT 1;", databaseURL: databaseURL) == "已有分析结果")
+        #expect(try fetchInt("SELECT success_count FROM analysis_runs LIMIT 1;", databaseURL: databaseURL) == 1)
+    }
+
+    @MainActor
     @Test func settingsStoreKeepsPreservedOtherLastAndRejectsReservedPrefixNames() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DeskBriefTests.\(UUID().uuidString)"
@@ -1134,7 +1433,12 @@ struct DeskBriefTests {
                 id, run_id, captured_at, category_name, raw_response_text, status, error_message,
                 duration_minutes_snapshot, created_at
             )
-            VALUES (2, 1, 60, NULL, NULL, 'failed', 'server error', 5, 0);
+            VALUES (2, 1, 0, '重复工作', '{"category":"重复工作","summary":"重复旧数据"}', 'succeeded', NULL, 5, 0);
+            INSERT INTO analysis_results (
+                id, run_id, captured_at, category_name, raw_response_text, status, error_message,
+                duration_minutes_snapshot, created_at
+            )
+            VALUES (3, 1, 60, NULL, NULL, 'failed', 'server error', 5, 0);
         """, on: handle)
 
         sqlite3_close(handle)
@@ -1150,6 +1454,10 @@ struct DeskBriefTests {
             "SELECT summary_text FROM analysis_results WHERE id = 1;",
             databaseURL: databaseURL
         )
+        let uniqueIndexExists = try fetchInt(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_analysis_results_captured_at_unique';",
+            databaseURL: databaseURL
+        )
 
         #expect(columns == ["id", "captured_at", "category_name", "summary_text", "duration_minutes_snapshot"])
         #expect(columns.contains("summary_text"))
@@ -1160,6 +1468,7 @@ struct DeskBriefTests {
         #expect(!columns.contains("created_at"))
         #expect(rowCount == 1)
         #expect(summaryText == nil)
+        #expect(uniqueIndexExists == 1)
     }
 
     @Test func databaseStoresSuccessfulAnalysisResultOnlyFields() async throws {
@@ -1172,14 +1481,24 @@ struct DeskBriefTests {
             totalItems: 1
         )
 
-        try database.insertAnalysisResult(
+        let firstOutcome = try database.insertAnalysisResult(
             capturedAt: Date(timeIntervalSince1970: 60),
             categoryName: "专注工作",
             summaryText: "开发 DeskBrief 项目",
             durationMinutesSnapshot: 5
         )
+        let duplicateOutcome = try database.insertAnalysisResult(
+            capturedAt: Date(timeIntervalSince1970: 60),
+            categoryName: "重复分类",
+            summaryText: "不应覆盖",
+            durationMinutesSnapshot: 10
+        )
 
         let columns = try columnNames(in: "analysis_results", databaseURL: databaseURL)
+        let rowCount = try fetchInt(
+            "SELECT COUNT(*) FROM analysis_results;",
+            databaseURL: databaseURL
+        )
         let categoryName = try fetchOptionalString(
             "SELECT category_name FROM analysis_results WHERE captured_at = 60;",
             databaseURL: databaseURL
@@ -1196,6 +1515,9 @@ struct DeskBriefTests {
         #expect(!columns.contains("status"))
         #expect(!columns.contains("error_message"))
         #expect(!columns.contains("created_at"))
+        #expect(firstOutcome == .inserted)
+        #expect(duplicateOutcome == .duplicate)
+        #expect(rowCount == 1)
         #expect(categoryName == "专注工作")
         #expect(summaryText == "开发 DeskBrief 项目")
     }
@@ -1642,6 +1964,7 @@ struct DeskBriefTests {
             durationMinutesSnapshot: 15
         )
 
+        let absenceCategoryName = AppDefaults.absenceCategoryName
         let session = makeMockSession { request in
             let requestBody = try #require(requestBodyData(from: request))
             let body = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
@@ -1652,7 +1975,7 @@ struct DeskBriefTests {
             #expect(prompt.contains("实现日报过滤逻辑"))
             #expect(prompt.contains("会议沟通"))
             #expect(prompt.contains("同步日报边界规则"))
-            #expect(!prompt.contains(AppDefaults.absenceCategoryName))
+            #expect(!prompt.contains(absenceCategoryName))
             #expect(!prompt.contains("该时间段没有截图"))
 
             let payload = """
@@ -1812,6 +2135,51 @@ private func makeTemporaryDatabaseURL() -> URL {
     FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString)
         .appendingPathExtension("sqlite")
+}
+
+private func writeTestScreenshotPlaceholder(to url: URL) throws {
+    try Data([0xFF, 0xD8, 0xFF, 0xD9]).write(to: url)
+}
+
+private func makeScreenshotDate(
+    year: Int,
+    month: Int,
+    day: Int,
+    hour: Int,
+    minute: Int
+) -> Date {
+    var components = DateComponents()
+    components.calendar = Calendar.current
+    components.timeZone = .current
+    components.year = year
+    components.month = month
+    components.day = day
+    components.hour = hour
+    components.minute = minute
+    return components.date!
+}
+
+private func waitForSemaphore(_ semaphore: DispatchSemaphore, timeoutSeconds: TimeInterval) async -> Bool {
+    await withCheckedContinuation { continuation in
+        DispatchQueue.global().async {
+            continuation.resume(returning: semaphore.wait(timeout: .now() + timeoutSeconds) == .success)
+        }
+    }
+}
+
+@MainActor
+private func waitUntil(
+    timeoutSeconds: TimeInterval,
+    condition: @MainActor @escaping () -> Bool
+) async -> Bool {
+    let deadline = Date().addingTimeInterval(timeoutSeconds)
+    while Date() < deadline {
+        if condition() {
+            return true
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+    }
+    return condition()
 }
 
 private func openSQLite(at url: URL) throws -> OpaquePointer? {

@@ -7,11 +7,17 @@ enum DatabaseError: Error {
     case execute(String)
 }
 
+enum AnalysisResultInsertOutcome: Equatable {
+    case inserted
+    case duplicate
+}
+
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 final class AppDatabase: @unchecked Sendable {
     private let queue = DispatchQueue(label: "DeskBrief.Database")
     private var handle: OpaquePointer?
+    private let applicationSupportDirectoryOverride: URL?
     let databaseURL: URL
 
     convenience init() throws {
@@ -21,8 +27,9 @@ final class AppDatabase: @unchecked Sendable {
         )
     }
 
-    init(databaseURL: URL) throws {
+    init(databaseURL: URL, applicationSupportDirectory: URL? = nil) throws {
         self.databaseURL = databaseURL
+        self.applicationSupportDirectoryOverride = applicationSupportDirectory
 
         if sqlite3_open(databaseURL.path, &handle) != SQLITE_OK {
             let message = String(cString: sqlite3_errmsg(handle))
@@ -54,7 +61,13 @@ final class AppDatabase: @unchecked Sendable {
     }
 
     func screenshotsDirectory() throws -> URL {
-        let directory = try Self.applicationSupportDirectory().appendingPathComponent("screenshots", isDirectory: true)
+        let supportDirectory: URL
+        if let applicationSupportDirectoryOverride {
+            supportDirectory = applicationSupportDirectoryOverride
+        } else {
+            supportDirectory = try Self.applicationSupportDirectory()
+        }
+        let directory = supportDirectory.appendingPathComponent("screenshots", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
     }
@@ -154,6 +167,25 @@ final class AppDatabase: @unchecked Sendable {
                 throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
             }
             return sqlite3_last_insert_rowid(handle)
+        }
+    }
+
+    func updateAnalysisRunTotalItems(id: Int64, totalItems: Int) throws {
+        try queue.sync {
+            let statement = try prepareStatement("""
+                UPDATE analysis_runs
+                SET total_items = ?
+                WHERE id = ?;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_int64(statement, 1, Int64(totalItems))
+            sqlite3_bind_int64(statement, 2, id)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
+            }
+            postChangeNotification()
         }
     }
 
@@ -300,15 +332,16 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
+    @discardableResult
     func insertAnalysisResult(
         capturedAt: Date,
         categoryName: String?,
         summaryText: String?,
         durationMinutesSnapshot: Int
-    ) throws {
+    ) throws -> AnalysisResultInsertOutcome {
         try queue.sync {
             let statement = try prepareStatement("""
-                INSERT INTO analysis_results (
+                INSERT OR IGNORE INTO analysis_results (
                     captured_at,
                     category_name,
                     summary_text,
@@ -326,6 +359,7 @@ final class AppDatabase: @unchecked Sendable {
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
             }
+            return sqlite3_changes(handle) > 0 ? .inserted : .duplicate
         }
     }
 
@@ -535,12 +569,12 @@ final class AppDatabase: @unchecked Sendable {
             );
         """)
 
-        try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_captured_at ON analysis_results (captured_at DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_category_name ON analysis_results (category_name, captured_at DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_daily_reports_day_start ON daily_reports (day_start DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_app_logs_created_at ON app_logs (created_at DESC);")
         try migrateCategoryRulesIfNeeded()
         try migrateAnalysisResultsIfNeeded()
+        try ensureAnalysisResultsCapturedAtUniqueIndex()
         try migrateAnalysisRunsIfNeeded()
         try migrateDailyReportsIfNeeded()
         try dropCaptureEventsTableIfNeeded()
@@ -670,8 +704,9 @@ final class AppDatabase: @unchecked Sendable {
         """)
         let legacyColumns = Set(columns)
         let succeededFilter = legacyColumns.contains("status") ? "WHERE status = 'succeeded'" : ""
+        let legacyOrder = legacyColumns.contains("id") ? "ORDER BY id ASC" : ""
         try executeLocked("""
-            INSERT INTO analysis_results (
+            INSERT OR IGNORE INTO analysis_results (
                 id,
                 captured_at,
                 category_name,
@@ -685,11 +720,24 @@ final class AppDatabase: @unchecked Sendable {
                 \(legacyColumns.contains("summary_text") ? "summary_text" : "NULL"),
                 \(legacyColumns.contains("duration_minutes_snapshot") ? "duration_minutes_snapshot" : "0")
             FROM analysis_results_legacy
-            \(succeededFilter);
+            \(succeededFilter)
+            \(legacyOrder);
         """)
         try executeLocked("DROP TABLE analysis_results_legacy;")
-        try executeLocked("CREATE INDEX IF NOT EXISTS idx_analysis_results_captured_at ON analysis_results (captured_at DESC);")
         try executeLocked("CREATE INDEX IF NOT EXISTS idx_analysis_results_category_name ON analysis_results (category_name, captured_at DESC);")
+    }
+
+    private func ensureAnalysisResultsCapturedAtUniqueIndex() throws {
+        try executeLocked("""
+            DELETE FROM analysis_results
+            WHERE id NOT IN (
+                SELECT MIN(id)
+                FROM analysis_results
+                GROUP BY captured_at
+            );
+        """)
+        try executeLocked("DROP INDEX IF EXISTS idx_analysis_results_captured_at;")
+        try executeLocked("CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_results_captured_at_unique ON analysis_results (captured_at);")
     }
 
     private func migrateAnalysisRunsIfNeeded() throws {
