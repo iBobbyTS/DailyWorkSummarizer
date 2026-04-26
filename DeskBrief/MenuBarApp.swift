@@ -201,8 +201,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let statusSubmenu = NSMenu()
         statusSubmenu.addItem(statusSummaryItem)
         statusSubmenu.addItem(statusAverageDurationItem)
-        statusSubmenu.addItem(analysisStartupModeMenuItem)
-        statusSubmenu.setSubmenu(analysisStartupModeSubmenu, for: analysisStartupModeMenuItem)
         statusSubmenu.addItem(.separator())
         statusSubmenu.addItem(openScreenshotsItem)
         statusSubmenu.addItem(viewLogsItem)
@@ -210,6 +208,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         menu.addItem(currentStatusMenuItem)
         menu.setSubmenu(statusSubmenu, for: currentStatusMenuItem)
+        menu.addItem(analysisStartupModeMenuItem)
+        menu.setSubmenu(analysisStartupModeSubmenu, for: analysisStartupModeMenuItem)
         menu.addItem(.separator())
         menu.addItem(settingsMenuItem)
         menu.addItem(reportsMenuItem)

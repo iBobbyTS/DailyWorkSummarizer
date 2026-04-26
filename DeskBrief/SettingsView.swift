@@ -111,9 +111,6 @@ struct SettingsView: View {
 
                 captureSection
 
-                Divider()
-                    .padding(.vertical, 4)
-
                 modelConfigurationSection(
                     provider: $settingsStore.provider,
                     imageAnalysisMethod: $settingsStore.imageAnalysisMethod,
@@ -176,7 +173,7 @@ struct SettingsView: View {
     }
 
     private var captureSection: some View {
-        VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
+        VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 intervalRow
 
@@ -192,7 +189,8 @@ struct SettingsView: View {
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
-                    .frame(width: Layout.analysisStartupModePickerWidth)
+                    .fixedSize()
+                    .frame(width: Layout.analysisStartupModePickerWidth, alignment: .trailing)
                 }
                 .padding(.horizontal, Layout.cardRowHorizontalPadding)
                 .padding(.vertical, Layout.cardRowVerticalPadding)
@@ -231,9 +229,6 @@ struct SettingsView: View {
                 RoundedRectangle(cornerRadius: 20)
                     .fill(Color.gray.opacity(0.08))
             )
-
-            Divider()
-                .padding(.vertical, 4)
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
@@ -295,8 +290,9 @@ struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            .padding(.top, Layout.sectionSpacing)
 
-            Spacer()
+            Divider()
         }
     }
 
@@ -700,7 +696,8 @@ struct SettingsView: View {
                         }
                         .pickerStyle(.menu)
                         .labelsHidden()
-                        .frame(width: Layout.reportPickerWidth)
+                        .fixedSize()
+                        .frame(width: Layout.reportPickerWidth, alignment: .trailing)
                     }
                     .frame(width: fieldWidth, alignment: .trailing)
                 }
@@ -733,7 +730,8 @@ struct SettingsView: View {
                         }
                         .pickerStyle(.menu)
                         .labelsHidden()
-                        .frame(width: Layout.reportPickerWidth)
+                        .fixedSize()
+                        .frame(width: Layout.reportPickerWidth, alignment: .trailing)
                     }
                     .frame(width: fieldWidth, alignment: .trailing)
                 }
