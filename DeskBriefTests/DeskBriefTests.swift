@@ -2274,6 +2274,102 @@ struct DeskBriefTests {
     }
 
     @MainActor
+    @Test func dailyReportSummaryServiceClipsCrossDayActivityItemsInPrompt() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let previousDayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 11))!
+        let dayStart = calendar.date(byAdding: .day, value: 1, to: previousDayStart)!
+        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart)!
+        let previousNight = calendar.date(byAdding: .minute, value: 23 * 60 + 53, to: previousDayStart)!
+        let workTime = calendar.date(byAdding: .hour, value: 9, to: dayStart)!
+        let lateWorkTime = calendar.date(byAdding: .minute, value: 23 * 60 + 50, to: dayStart)!
+        let nextDayTime = calendar.date(byAdding: .minute, value: 1, to: nextDayStart)!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentProvider = .openAI
+        store.workContentAPIBaseURL = "https://work-content.example.com"
+        store.workContentModelName = "daily-report-model"
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: previousNight,
+            categoryName: "娱乐",
+            summaryText: "观看Bilibili视频",
+            durationMinutesSnapshot: 10
+        )
+        try database.insertAnalysisResult(
+            capturedAt: workTime,
+            categoryName: "专注工作",
+            summaryText: "开发日报跨日裁剪逻辑",
+            durationMinutesSnapshot: 30
+        )
+        try database.insertAnalysisResult(
+            capturedAt: lateWorkTime,
+            categoryName: "收尾工作",
+            summaryText: "整理当天事项",
+            durationMinutesSnapshot: 20
+        )
+        try database.insertAnalysisResult(
+            capturedAt: nextDayTime,
+            categoryName: "次日事项",
+            summaryText: "不应进入当天日报",
+            durationMinutesSnapshot: 30
+        )
+
+        let session = makeMockSession { request in
+            let requestBody = try #require(requestBodyData(from: request))
+            let body = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+            let messages = try #require(body["messages"] as? [[String: Any]])
+            let prompt = try #require(messages.first?["content"] as? String)
+
+            #expect(prompt.contains("00:00 | 3 分钟 | 娱乐 | 观看Bilibili视频"))
+            #expect(prompt.contains("09:00 | 30 分钟 | 专注工作 | 开发日报跨日裁剪逻辑"))
+            #expect(prompt.contains("23:50 | 10 分钟 | 收尾工作 | 整理当天事项"))
+            #expect(!prompt.contains("23:53 | 10 分钟 | 娱乐"))
+            #expect(!prompt.contains("次日事项"))
+            #expect(!prompt.contains("不应进入当天日报"))
+
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"dailySummary\\":\\"完成了跨日活动的日报总结\\",\\"categorySummaries\\":{\\"娱乐\\":\\"记录了跨日延续的视频观看时间\\",\\"专注工作\\":\\"开发了日报跨日裁剪逻辑\\",\\"收尾工作\\":\\"整理了当天事项\\"}}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        let report = try await service.summarizeDay(dayStart)
+
+        #expect(report.categorySummaries["娱乐"] == "记录了跨日延续的视频观看时间")
+        #expect(report.categorySummaries["专注工作"] == "开发了日报跨日裁剪逻辑")
+        #expect(report.categorySummaries["收尾工作"] == "整理了当天事项")
+        #expect(report.categorySummaries["次日事项"] == nil)
+    }
+
+    @MainActor
     @Test func dailyReportSummaryServiceSkipsDaysWithoutAnalysisResults() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DeskBriefTests.\(UUID().uuidString)"

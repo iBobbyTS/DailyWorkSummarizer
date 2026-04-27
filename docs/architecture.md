@@ -60,7 +60,10 @@ The app is centered around a small set of long-lived services created at launch 
 
 ### 4. Daily summary flow
 
-- `DailyReportSummaryService` fetches analyzed activity items for a target day.
+- `DailyReportSummaryService` fetches analyzed activity items that overlap the target day.
+- The fetch includes the last result before the target day only when its stored duration crosses into the day, then clips that item to start at the report day boundary.
+- Items captured during the target day are clipped at the next day boundary when their stored duration crosses midnight.
+- The service does not need the first result from the following day for daily-summary generation because each persisted result already carries its own `duration_minutes_snapshot`.
 - Away or inactive intervals are not persisted and are not included in daily-summary generation or per-category summaries.
 - It builds a text timeline prompt from category, duration, and per-item summary data.
 - The summary is generated through the configured work-content model profile via `LLMService`.

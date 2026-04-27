@@ -417,8 +417,10 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
-    func fetchDailyReportActivityItems(for dayStart: Date) throws -> [DailyReportActivityItem] {
-        let calendar = Calendar.reportCalendar
+    func fetchDailyReportActivityItems(
+        for dayStart: Date,
+        calendar: Calendar = .reportCalendar
+    ) throws -> [DailyReportActivityItem] {
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
 
         return try queue.sync {
@@ -431,32 +433,70 @@ final class AppDatabase: @unchecked Sendable {
                     summary_text AS item_summary_text
                 FROM analysis_results
                 WHERE category_name IS NOT NULL
-                  AND captured_at >= ?
-                  AND captured_at < ?
+                  AND (
+                    (captured_at >= ? AND captured_at < ?)
+                    OR id = (
+                        SELECT id
+                        FROM analysis_results
+                        WHERE category_name IS NOT NULL
+                          AND captured_at < ?
+                        ORDER BY captured_at DESC, id DESC
+                        LIMIT 1
+                    )
+                  )
                 ORDER BY captured_at ASC, id ASC;
             """)
             defer { sqlite3_finalize(statement) }
 
             sqlite3_bind_double(statement, 1, dayStart.timeIntervalSince1970)
             sqlite3_bind_double(statement, 2, dayEnd.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 3, dayStart.timeIntervalSince1970)
 
             var items: [DailyReportActivityItem] = []
             while sqlite3_step(statement) == SQLITE_ROW {
                 let itemSummaryText = sqlite3_column_type(statement, 4) == SQLITE_NULL
                     ? nil
                     : string(at: 4, from: statement)
-                items.append(
-                    DailyReportActivityItem(
-                        id: sqlite3_column_int64(statement, 0),
-                        capturedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 1)),
-                        categoryName: string(at: 2, from: statement),
-                        durationMinutes: Int(sqlite3_column_int64(statement, 3)),
-                        itemSummaryText: itemSummaryText
-                    )
-                )
+                guard let item = Self.clippedDailyReportActivityItem(
+                    id: sqlite3_column_int64(statement, 0),
+                    capturedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 1)),
+                    categoryName: string(at: 2, from: statement),
+                    durationMinutes: Int(sqlite3_column_int64(statement, 3)),
+                    itemSummaryText: itemSummaryText,
+                    intervalStart: dayStart,
+                    intervalEnd: dayEnd
+                ) else {
+                    continue
+                }
+                items.append(item)
             }
             return items
         }
+    }
+
+    private static func clippedDailyReportActivityItem(
+        id: Int64,
+        capturedAt: Date,
+        categoryName: String,
+        durationMinutes: Int,
+        itemSummaryText: String?,
+        intervalStart: Date,
+        intervalEnd: Date
+    ) -> DailyReportActivityItem? {
+        let itemEnd = capturedAt.addingTimeInterval(TimeInterval(durationMinutes * 60))
+        let clippedStart = max(capturedAt, intervalStart)
+        let clippedEnd = min(itemEnd, intervalEnd)
+        guard clippedEnd > clippedStart else {
+            return nil
+        }
+
+        return DailyReportActivityItem(
+            id: id,
+            capturedAt: clippedStart,
+            categoryName: categoryName,
+            durationMinutes: max(Int((clippedEnd.timeIntervalSince(clippedStart) / 60.0).rounded()), 1),
+            itemSummaryText: itemSummaryText
+        )
     }
 
     func fetchDailyReport(for dayStart: Date) throws -> DailyReportRecord? {

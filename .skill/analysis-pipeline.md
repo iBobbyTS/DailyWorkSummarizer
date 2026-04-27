@@ -72,6 +72,7 @@
   - `multimodal`：直接把截图图片发给远程模型
 - 当 provider 是 `appleIntelligence` 时，截图分析始终走 OCR-first，本地不会直接把图片字节送进 `FoundationModels`。
 - 日报汇总始终是文本链路，不读取图片。
+- 日报汇总读取当天 `captured_at` 结果时，会额外读取当天开始前最后一条结果；如果这条结果按 `duration_minutes_snapshot` 跨入当天，会裁剪成从当天 00:00 开始的活动项。当天内跨到次日的结果也裁剪到当天结束。日报汇总不需要读取次日第一条结果，因为截图结果自身已经保存了持续时长。
 - `workContentImageAnalysisMethod` 目前是配置层字段，主要用于两套模型配置保持一致；`DailyReportSummaryService` 当前并不会根据它决定不同请求体。
 
 排查顺序：

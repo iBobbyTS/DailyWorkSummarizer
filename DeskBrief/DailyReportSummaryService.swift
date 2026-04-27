@@ -175,7 +175,8 @@ final class DailyReportSummaryService {
             }
         }
 
-        let activityItems = try fetchReportableActivityItems(for: dayStart)
+        let calendar = Calendar.reportCalendar(language: language)
+        let activityItems = try fetchReportableActivityItems(for: dayStart, calendar: calendar)
         guard !activityItems.isEmpty else {
             throw DailyReportSummaryServiceError.noActivity(
                 localized(.reportDailySummaryNoActivity, language: language)
@@ -201,7 +202,6 @@ final class DailyReportSummaryService {
             )
         }
 
-        let calendar = Calendar.reportCalendar(language: language)
         let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
         let isTemporary = !activityDaySet.contains(nextDayStart)
         let record = storedRecord(
@@ -254,8 +254,8 @@ final class DailyReportSummaryService {
         )
     }
 
-    private func fetchReportableActivityItems(for dayStart: Date) throws -> [DailyReportActivityItem] {
-        try database.fetchDailyReportActivityItems(for: dayStart)
+    private func fetchReportableActivityItems(for dayStart: Date, calendar: Calendar) throws -> [DailyReportActivityItem] {
+        try database.fetchDailyReportActivityItems(for: dayStart, calendar: calendar)
             .filter { Self.isReportableCategory($0.categoryName) }
     }
 

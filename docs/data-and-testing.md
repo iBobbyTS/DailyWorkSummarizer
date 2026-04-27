@@ -121,6 +121,10 @@ sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select id,datetime(captured_at,'unixepoch','localtime'),category_name,substr(ifnull(summary_text,''),1,80) from analysis_results order by id desc limit 20;"
 ```
 
+Daily report activity items are based on the target day plus the immediately preceding result when that result overlaps the day by `duration_minutes_snapshot`.
+The summarizer clips overlapping activity to the day interval before building the model prompt, so a result captured at 23:53 for 10 minutes appears in the next day's prompt as a 00:00 activity for the overlapping minutes.
+It does not read the first result after the day because persisted result durations already define each result's end time.
+
 Recent daily reports:
 
 ```sh
