@@ -136,7 +136,7 @@ final class AnalysisService {
     private var screenshotSavedObserver: NSObjectProtocol?
     private var runningTask: Task<Void, Never>?
     private var activeAnalysisRun: ActiveAnalysisRun?
-    private var pendingTriggerAfterCurrentRun: AnalysisTrigger?
+    private var pendingRequestAfterCurrentRun: AnalysisTrigger?
     private var activeRunSettings: AppSettingsSnapshot?
     private var lastLMStudioModelInstanceID: String?
     private var runtimeState: AnalysisRuntimeState = .idle {
@@ -179,7 +179,10 @@ final class AnalysisService {
             forName: .screenshotFileSaved,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            guard notification.object is URL else {
+                return
+            }
             Task { @MainActor [weak self] in
                 self?.scheduleRealtimeAnalysisAfterCapture()
             }
@@ -359,7 +362,7 @@ final class AnalysisService {
             if activeAnalysisRun.isAcceptingAppends {
                 appendPendingCaptures(to: activeAnalysisRun)
             } else {
-                rememberPendingTriggerAfterCurrentRun(trigger)
+                rememberPendingRequestAfterCurrentRun(trigger)
             }
             return
         }
@@ -403,12 +406,12 @@ final class AnalysisService {
             guard let self else { return }
             await self.runAnalysis(for: run)
             await MainActor.run {
-                let pendingTrigger = self.pendingTriggerAfterCurrentRun
-                self.pendingTriggerAfterCurrentRun = nil
+                let pendingRequest = self.pendingRequestAfterCurrentRun
+                self.pendingRequestAfterCurrentRun = nil
                 self.runningTask = nil
                 self.scheduleNextRun()
-                if let pendingTrigger {
-                    self.triggerAnalysis(scheduledFor: Date(), trigger: pendingTrigger)
+                if let pendingRequest {
+                    self.triggerAnalysis(scheduledFor: Date(), trigger: pendingRequest)
                 }
             }
         }
@@ -632,8 +635,8 @@ final class AnalysisService {
 
     @discardableResult
     private func appendPendingCaptures(to run: ActiveAnalysisRun) -> Int {
-        let pendingCaptures = pendingScreenshotFiles(defaultDurationMinutes: run.settings.screenshotIntervalMinutes)
-        let appendedCount = run.appendMissingCaptures(pendingCaptures)
+        let captures = pendingScreenshotFiles(defaultDurationMinutes: run.settings.screenshotIntervalMinutes)
+        let appendedCount = run.appendMissingCaptures(captures)
         guard appendedCount > 0 else {
             return 0
         }
@@ -651,9 +654,9 @@ final class AnalysisService {
         return appendedCount
     }
 
-    private func rememberPendingTriggerAfterCurrentRun(_ trigger: AnalysisTrigger) {
-        if trigger == .manual || pendingTriggerAfterCurrentRun == nil {
-            pendingTriggerAfterCurrentRun = trigger
+    private func rememberPendingRequestAfterCurrentRun(_ trigger: AnalysisTrigger) {
+        if pendingRequestAfterCurrentRun == nil || trigger == .manual {
+            pendingRequestAfterCurrentRun = trigger
         }
     }
 

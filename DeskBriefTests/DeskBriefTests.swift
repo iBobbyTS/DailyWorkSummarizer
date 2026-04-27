@@ -1037,6 +1037,179 @@ struct DeskBriefTests {
     }
 
     @MainActor
+    @Test func realtimeAnalysisAppendsPendingScreenshotsToActiveRun() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let firstRequestStarted = DispatchSemaphore(value: 0)
+        let releaseFirstRequest = DispatchSemaphore(value: 0)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "screenshot-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .manual
+
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        let firstScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1000-i5.jpg")
+        let unrelatedPendingScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1005-i5.jpg")
+        let realtimeScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1010-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: firstScreenshot)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            if MockURLProtocol.requestCount == 1 {
+                firstRequestStarted.signal()
+                _ = releaseFirstRequest.wait(timeout: .now() + 5)
+            }
+
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"category\\":\\"专注工作\\",\\"summary\\":\\"追加 pending 队列\\"}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            dailyReportSummaryService: DailyReportSummaryService(database: database, settingsStore: store, session: session),
+            session: session
+        )
+
+        service.start()
+        service.runNow()
+        #expect(await waitForSemaphore(firstRequestStarted, timeoutSeconds: 5))
+
+        store.analysisStartupMode = .realtime
+        try writeTestScreenshotPlaceholder(to: unrelatedPendingScreenshot)
+        try writeTestScreenshotPlaceholder(to: realtimeScreenshot)
+        NotificationCenter.default.post(name: .screenshotFileSaved, object: realtimeScreenshot)
+
+        let didAppendRealtimeScreenshot = await waitUntil(timeoutSeconds: 4) {
+            service.currentState.totalCount == 3
+        }
+        #expect(didAppendRealtimeScreenshot)
+
+        releaseFirstRequest.signal()
+        let didFinish = await waitUntil(timeoutSeconds: 8) {
+            !service.currentState.isRunning
+        }
+
+        #expect(didFinish)
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_runs;", databaseURL: databaseURL) == 1)
+        #expect(try fetchInt("SELECT total_items FROM analysis_runs LIMIT 1;", databaseURL: databaseURL) == 3)
+        #expect(try fetchInt("SELECT success_count FROM analysis_runs LIMIT 1;", databaseURL: databaseURL) == 3)
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_results;", databaseURL: databaseURL) == 3)
+        #expect(!FileManager.default.fileExists(atPath: unrelatedPendingScreenshot.path))
+        #expect(!FileManager.default.fileExists(atPath: realtimeScreenshot.path))
+    }
+
+    @MainActor
+    @Test func realtimeAnalysisWithoutActiveRunScansPendingScreenshots() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "screenshot-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .realtime
+
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        let oldPendingScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1000-i5.jpg")
+        let realtimeScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1005-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: oldPendingScreenshot)
+        try writeTestScreenshotPlaceholder(to: realtimeScreenshot)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"category\\":\\"专注工作\\",\\"summary\\":\\"扫描 pending 截图\\"}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            dailyReportSummaryService: DailyReportSummaryService(database: database, settingsStore: store, session: session),
+            session: session
+        )
+
+        service.start()
+        NotificationCenter.default.post(name: .screenshotFileSaved, object: realtimeScreenshot)
+
+        let didFinish = await waitUntil(timeoutSeconds: 8) {
+            MockURLProtocol.requestCount >= 2 && !service.currentState.isRunning
+        }
+
+        #expect(didFinish)
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_runs;", databaseURL: databaseURL) == 1)
+        #expect(try fetchInt("SELECT total_items FROM analysis_runs LIMIT 1;", databaseURL: databaseURL) == 2)
+        #expect(try fetchInt("SELECT success_count FROM analysis_runs LIMIT 1;", databaseURL: databaseURL) == 2)
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_results;", databaseURL: databaseURL) == 2)
+        #expect(!FileManager.default.fileExists(atPath: oldPendingScreenshot.path))
+        #expect(!FileManager.default.fileExists(atPath: realtimeScreenshot.path))
+    }
+
+    @MainActor
     @Test func cancellingAnalysisStopsAppendingNewScreenshotsToCancelledRun() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory
@@ -1125,6 +1298,101 @@ struct DeskBriefTests {
         #expect(try fetchOptionalString("SELECT status FROM analysis_runs ORDER BY id ASC LIMIT 1;", databaseURL: databaseURL) == "cancelled")
         #expect(try fetchOptionalString("SELECT status FROM analysis_runs ORDER BY id DESC LIMIT 1;", databaseURL: databaseURL) == "succeeded")
         #expect(!FileManager.default.fileExists(atPath: secondScreenshot.path))
+    }
+
+    @MainActor
+    @Test func realtimeRequestsDuringCancellationCoalesceIntoPendingScanRun() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let firstRequestStarted = DispatchSemaphore(value: 0)
+        let releaseFirstRequest = DispatchSemaphore(value: 0)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "screenshot-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .realtime
+
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        let firstScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1000-i5.jpg")
+        let secondScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1005-i5.jpg")
+        let thirdScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1010-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: firstScreenshot)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            if MockURLProtocol.requestCount == 1 {
+                firstRequestStarted.signal()
+                _ = releaseFirstRequest.wait(timeout: .now() + 5)
+            }
+
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"category\\":\\"专注工作\\",\\"summary\\":\\"合并后续 pending 扫描\\"}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            dailyReportSummaryService: DailyReportSummaryService(database: database, settingsStore: store, session: session),
+            session: session
+        )
+
+        service.start()
+        service.runNow()
+        #expect(await waitForSemaphore(firstRequestStarted, timeoutSeconds: 5))
+
+        service.cancelCurrentRun()
+        try writeTestScreenshotPlaceholder(to: secondScreenshot)
+        try writeTestScreenshotPlaceholder(to: thirdScreenshot)
+        NotificationCenter.default.post(name: .screenshotFileSaved, object: secondScreenshot)
+        NotificationCenter.default.post(name: .screenshotFileSaved, object: thirdScreenshot)
+        try? await Task.sleep(for: .milliseconds(1300))
+
+        releaseFirstRequest.signal()
+        let didFinishQueuedRun = await waitUntil(timeoutSeconds: 8) {
+            MockURLProtocol.requestCount >= 4 && !service.currentState.isRunning
+        }
+
+        #expect(didFinishQueuedRun)
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_runs;", databaseURL: databaseURL) == 2)
+        #expect(try fetchInt("SELECT total_items FROM analysis_runs ORDER BY id ASC LIMIT 1;", databaseURL: databaseURL) == 1)
+        #expect(try fetchInt("SELECT total_items FROM analysis_runs ORDER BY id DESC LIMIT 1;", databaseURL: databaseURL) == 3)
+        #expect(try fetchOptionalString("SELECT status FROM analysis_runs ORDER BY id ASC LIMIT 1;", databaseURL: databaseURL) == "cancelled")
+        #expect(try fetchOptionalString("SELECT status FROM analysis_runs ORDER BY id DESC LIMIT 1;", databaseURL: databaseURL) == "succeeded")
+        #expect(!FileManager.default.fileExists(atPath: firstScreenshot.path))
+        #expect(!FileManager.default.fileExists(atPath: secondScreenshot.path))
+        #expect(!FileManager.default.fileExists(atPath: thirdScreenshot.path))
     }
 
     @MainActor
