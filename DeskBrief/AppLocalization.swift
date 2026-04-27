@@ -241,9 +241,9 @@ enum L10n {
             .settingsTabGeneral: "通用",
             .settingsTabReport: "报告",
             .settingsCaptureAutoAnalysis: "分析启动模式",
-            .analysisStartupModeManual: "不自动分析",
-            .analysisStartupModeScheduled: "定时分析",
-            .analysisStartupModeRealtime: "实时分析",
+            .analysisStartupModeManual: "不自动启动",
+            .analysisStartupModeScheduled: "定时启动",
+            .analysisStartupModeRealtime: "截屏后立即启动",
             .settingsCaptureRequireCharger: "仅在充电时自动分析",
             .settingsCaptureAnalysisTime: "定时分析时间",
             .settingsCaptureTestingScreenshot: "正在测试截屏…",
@@ -251,7 +251,7 @@ enum L10n {
             .settingsCaptureOpenAppLocation: "打开 App 位置",
             .settingsCaptureOpenScreenshotsFolder: "打开截屏文件夹",
             .settingsCaptureTestResult: "测试结果",
-            .settingsCaptureInterval: "截图间隔",
+            .settingsCaptureInterval: "截屏间隔",
             .settingsCaptureMinutesPlaceholder: "分钟",
             .settingsCaptureMinutesUnit: "分钟",
             .settingsModelTitle: "模型设置",
@@ -291,7 +291,7 @@ enum L10n {
             .commonCancel: "取消",
             .settingsModelTestResult: "测试结果",
             .settingsModelWaitingForModel: "正在分析，可能需要等待模型加载",
-            .settingsModelNoTempScreenshot: "测试模型时未生成临时截图",
+            .settingsModelNoTempScreenshot: "测试模型时未生成临时截屏",
             .settingsModelTimingRequest: "请求耗时",
             .settingsModelTimingServerProcessing: "服务端处理耗时",
             .settingsModelTimingModelLoad: "模型加载耗时",
@@ -307,8 +307,8 @@ enum L10n {
             .settingsReportWeekStart: "一周的第一天",
             .settingsCountdown: "倒计时：%d秒",
             .statusAccessibilityDescription: "每日工作总结",
-            .menuNoPending: "当前没有待分析的截图",
-            .menuOpenScreenshotsFolder: "打开截图文件夹",
+            .menuNoPending: "当前没有待分析的截屏",
+            .menuOpenScreenshotsFolder: "打开截屏文件夹",
             .menuShowLogs: "显示日志",
             .menuShowErrorsCount: "显示%d个错误",
             .menuAnalysisStartupMode: "分析启动模式",
@@ -329,8 +329,8 @@ enum L10n {
             .menuSummaryPausingStoppingGeneration: "正在暂停从 %@ 开始的截屏分析（正在停止生成，%d/%d）",
             .menuSummaryPausingUnloadingModel: "正在暂停从 %@ 开始的截屏分析（正在卸载模型，%d/%d）",
             .menuSummaryAnalyzing: "正在分析从 %@ 开始的截屏（%d/%d）",
-            .menuSummaryPending: "当前截图从 %@ 开始，共 %d 张",
-            .menuNextCaptureAt: "下一次会在%@进行截图",
+            .menuSummaryPending: "当前截屏从 %@ 开始，共 %d 张",
+            .menuNextCaptureAt: "下一次会在%@进行截屏",
             .logsEmptyTitle: "当前没有日志",
             .logsEmptyDescription: "这里会显示分析错误，以及后续模型调试日志。",
             .logsCopyAll: "全部复制",
@@ -380,17 +380,17 @@ enum L10n {
             .reportSummarizing: "总结中…",
             .reportDailySummaryTitle: "日报总结",
             .reportTemporarySummary: "临时总结",
-            .reportAbsenceSummaryPlaceholder: "该时间段没有截图，用户离开了工位或未在电脑前活动。",
+            .reportAbsenceSummaryPlaceholder: "该时间段没有截屏，用户离开了工位或未在电脑前活动。",
             .reportDailySummaryInvalidResponse: "模型返回无法解析为有效的日报 JSON 总结结果",
             .reportDailySummaryNoActivity: "当天没有可用于总结的活动记录",
             .analysisHTTPError: "接口返回错误 (%d)：%@",
             .analysisNeedsCategoryRule: "至少需要配置一条有效的分析类别和描述",
             .analysisNeedsBaseURL: "请先配置模型接口地址",
             .analysisNeedsModelName: "请先配置模型名称",
-            .analysisScreenshotMissing: "截图文件不存在，无法继续分析",
+            .analysisScreenshotMissing: "截屏文件不存在，无法继续分析",
             .analysisCancelledByUser: "用户手动暂停分析",
-            .analysisPausedAfterFailures: "连续 5 张截图处理失败，已暂停当前分析",
-            .analysisPartialFailures: "部分截图分析失败，请检查网络、模型接口或返回格式",
+            .analysisPausedAfterFailures: "连续 5 张截屏处理失败，已暂停当前分析",
+            .analysisPartialFailures: "部分截屏分析失败，请检查网络、模型接口或返回格式",
             .analysisInvalidCategory: "模型返回无法解析为有效的 JSON 分析结果",
             .analysisInvalidBaseURL: "模型接口地址不合法",
             .analysisInvalidHTTPResponse: "模型接口没有返回有效的 HTTP 响应",
@@ -409,10 +409,10 @@ enum L10n {
             .analysisLMStudioNoText: "LM Studio API 没有返回可读文本",
             .analysisNoResponseData: "模型接口没有返回数据",
             .analysisAppleIntelligenceUnavailable: "Apple Intelligence 当前不可用：%@",
-            .analysisAppleIntelligenceNoOCRTextSummary: "截图中未识别到足够文字，已按 OCR 结果为空处理。",
-            .analysisOCRNoTextSummary: "截图中未识别到足够文字，已按 OCR 结果为空处理。",
+            .analysisAppleIntelligenceNoOCRTextSummary: "截屏中未识别到足够文字，已按 OCR 结果为空处理。",
+            .analysisOCRNoTextSummary: "截屏中未识别到足够文字，已按 OCR 结果为空处理。",
             .screenshotPermissionDenied: "没有获得屏幕录制权限",
-            .screenshotPreviewUnreadable: "测试截图完成，但无法读取预览图像",
+            .screenshotPreviewUnreadable: "测试截屏完成，但无法读取预览图像",
             .screenshotCommandFailed: "系统 screencapture 命令执行失败",
         ],
         .english: [
@@ -424,9 +424,9 @@ enum L10n {
             .settingsTabGeneral: "General",
             .settingsTabReport: "Report",
             .settingsCaptureAutoAnalysis: "Analysis startup mode",
-            .analysisStartupModeManual: "Do Not Analyze Automatically",
-            .analysisStartupModeScheduled: "Scheduled Analysis",
-            .analysisStartupModeRealtime: "Realtime Analysis",
+            .analysisStartupModeManual: "Do Not Auto Start",
+            .analysisStartupModeScheduled: "Scheduled Start",
+            .analysisStartupModeRealtime: "Start Immediately After Screenshot",
             .settingsCaptureRequireCharger: "Only run automatic analysis while charging",
             .settingsCaptureAnalysisTime: "Scheduled analysis time",
             .settingsCaptureTestingScreenshot: "Testing screenshot…",
@@ -733,8 +733,8 @@ enum L10n {
         switch language {
         case .simplifiedChinese:
             return """
-            你是一个工作桌面截图分类助手，请严格从下面的候选类别中选择唯一一个最匹配的类别。然后对工作内容进行一个简短的描述。
-            不要过度思考，只关注截图主要部分。
+            你是一个工作桌面截屏分类助手，请严格从下面的候选类别中选择唯一一个最匹配的类别。然后对工作内容进行一个简短的描述。
+            不要过度思考，只关注截屏主要部分。
 
             候选类别：
             \(list)
@@ -744,7 +744,7 @@ enum L10n {
 
             返回要求：
             1. 返回的category必须与候选类别完全一致
-            2. 返回格式：包含以下字段的JSON {"category": 分析得出的类别, "summary": 对截图简短的描述}
+            2. 返回格式：包含以下字段的JSON {"category": 分析得出的类别, "summary": 对截屏简短的描述}
             3. 不要返回 Markdown、解释、思考过程或其他多余文本
             """
         case .english:
@@ -822,8 +822,8 @@ enum L10n {
         switch language {
         case .simplifiedChinese:
             return """
-            你是一个工作桌面截图分类助手，请严格从下面的候选类别中选择唯一一个最匹配的类别。然后对工作内容进行一个简短的描述。
-            你无法直接查看原始截图，只能根据 OCR 识别出的文字进行判断。不要过度思考，只关注主要内容，不要编造 OCR 中没有出现的视觉细节。
+            你是一个工作桌面截屏分类助手，请严格从下面的候选类别中选择唯一一个最匹配的类别。然后对工作内容进行一个简短的描述。
+            你无法直接查看原始截屏，只能根据 OCR 识别出的文字进行判断。不要过度思考，只关注主要内容，不要编造 OCR 中没有出现的视觉细节。
 
             候选类别：
             \(list)
@@ -833,11 +833,11 @@ enum L10n {
 
             输出要求：
             1. 返回的 category 必须与候选类别完全一致
-            2. summary 必须是对截图主要工作内容的简短描述
+            2. summary 必须是对截屏主要工作内容的简短描述
             3. 如果信息不足，请给出最保守的判断；若候选类别中有 PRESERVED_OTHER，可优先考虑它
             4. \(outputMode == .structuredSchema
                 ? "按提供的结构化 schema 返回，不要额外输出解释、Markdown 或思考过程"
-                : "返回格式：包含以下字段的 JSON {\"category\": 分析得出的类别, \"summary\": 对截图简短的描述}，不要额外输出解释、Markdown 或思考过程")
+                : "返回格式：包含以下字段的 JSON {\"category\": 分析得出的类别, \"summary\": 对截屏简短的描述}，不要额外输出解释、Markdown 或思考过程")
 
             OCR 文字：
             \(trimmedText)

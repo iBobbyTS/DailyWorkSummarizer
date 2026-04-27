@@ -25,7 +25,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 ## Screenshot Analysis Settings
 
 - The capture section keeps the screenshot interval and automatic-analysis controls in one settings surface.
-- Analysis startup mode is the primary control for automatic analysis behavior.
+- Analysis startup mode is the primary control for automatic startup behavior and should leave enough picker width for the longest localized option.
 - Scheduled analysis time is only visible when the startup mode is scheduled analysis.
 - The charger requirement is displayed below scheduled analysis time and is disabled only when automatic analysis is off.
 - Utility actions such as test screenshot and opening folders live below the settings surface, not inside it.

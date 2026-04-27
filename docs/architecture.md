@@ -104,7 +104,7 @@ This separation allows the app to use different providers, credentials, or model
 
 - The app is intentionally local-first.
 - There is no dependency injection framework; services are wired manually at launch.
-- The app relies on OS facilities for screen capture, OCR, Keychain access, and Apple Intelligence availability.
+- The app relies on OS facilities for screenshot capture, OCR, Keychain access, and Apple Intelligence availability.
 - The current codebase favors direct service composition over protocol-heavy abstraction.
 - Provider-specific HTTP payloads are centralized in `LLMService.swift`, with LM Studio v1 request helpers isolated in `LMStudioAPI.swift`.
 - Runtime debugging logs are persisted in SQLite rather than kept only in memory, so the log window survives relaunches and supports later instrumentation.

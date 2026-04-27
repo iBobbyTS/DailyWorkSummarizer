@@ -924,12 +924,12 @@ struct DeskBriefTests {
     }
 
     @Test func analysisStartupModeTitlesAreLocalized() async throws {
-        #expect(AnalysisStartupMode.manual.title(in: .simplifiedChinese) == "不自动分析")
-        #expect(AnalysisStartupMode.scheduled.title(in: .simplifiedChinese) == "定时分析")
-        #expect(AnalysisStartupMode.realtime.title(in: .simplifiedChinese) == "实时分析")
-        #expect(AnalysisStartupMode.manual.title(in: .english) == "Do Not Analyze Automatically")
-        #expect(AnalysisStartupMode.scheduled.title(in: .english) == "Scheduled Analysis")
-        #expect(AnalysisStartupMode.realtime.title(in: .english) == "Realtime Analysis")
+        #expect(AnalysisStartupMode.manual.title(in: .simplifiedChinese) == "不自动启动")
+        #expect(AnalysisStartupMode.scheduled.title(in: .simplifiedChinese) == "定时启动")
+        #expect(AnalysisStartupMode.realtime.title(in: .simplifiedChinese) == "截屏后立即启动")
+        #expect(AnalysisStartupMode.manual.title(in: .english) == "Do Not Auto Start")
+        #expect(AnalysisStartupMode.scheduled.title(in: .english) == "Scheduled Start")
+        #expect(AnalysisStartupMode.realtime.title(in: .english) == "Start Immediately After Screenshot")
     }
 
     @Test func chargerRequirementAppliesOnlyToAutomaticAnalysisTriggers() async throws {
@@ -1233,7 +1233,7 @@ struct DeskBriefTests {
               "choices": [
                 {
                   "message": {
-                    "content": "{\\"category\\":\\"专注工作\\",\\"summary\\":\\"扫描 pending 截图\\"}"
+                    "content": "{\\"category\\":\\"专注工作\\",\\"summary\\":\\"扫描 pending 截屏\\"}"
                   },
                   "finish_reason": "stop"
                 }
@@ -2312,7 +2312,7 @@ struct DeskBriefTests {
             #expect(prompt.contains("会议沟通"))
             #expect(prompt.contains("同步日报边界规则"))
             #expect(!prompt.contains(absenceCategoryName))
-            #expect(!prompt.contains("该时间段没有截图"))
+            #expect(!prompt.contains("该时间段没有截屏"))
 
             let payload = """
             {

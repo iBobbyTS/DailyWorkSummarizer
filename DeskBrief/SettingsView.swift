@@ -23,7 +23,7 @@ struct SettingsView: View {
         static let imageAnalysisMethodPickerWidth: CGFloat = 320
         static let reportPickerWidth: CGFloat = 160
         static let categoryColorWidth: CGFloat = 72
-        static let analysisStartupModePickerWidth: CGFloat = 180
+        static let analysisStartupModePickerWidth: CGFloat = 260
         static let plainIntegerFormatter: NumberFormatter = {
             let formatter = NumberFormatter()
             formatter.numberStyle = .decimal

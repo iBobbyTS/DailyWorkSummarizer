@@ -15,6 +15,8 @@ The goal is to help a maintainer understand the product, architecture, model int
   Local storage layout, persistence details, recommended test commands, and debugging shortcuts.
 - `ui-design.md`
   UI structure, spacing, control alignment, localization, and verification conventions.
+- `glossary.md`
+  Common Simplified Chinese and English product terms for UI, prompts, docs, and tests.
 
 ## Scope and depth
 

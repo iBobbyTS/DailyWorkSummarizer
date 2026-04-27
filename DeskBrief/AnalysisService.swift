@@ -980,7 +980,7 @@ final class AnalysisService {
         switch language {
         case .simplifiedChinese:
             categoryDescription = "必须从候选类别中选择一个完全匹配的类别名。"
-            summaryDescription = "对截图主要工作内容的简短描述。"
+            summaryDescription = "对截屏主要工作内容的简短描述。"
         case .english:
             categoryDescription = "Choose exactly one category name from the candidate list."
             summaryDescription = "A short description of the main work shown in the screenshot."
