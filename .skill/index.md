@@ -17,7 +17,7 @@
 
 - 这是原生 macOS Xcode 项目，不是 Node 项目，也没有以 Docker 作为主开发入口。
 - 运行 `xcodebuild` 时总是显式传 `-derivedDataPath /tmp/DeskBriefDerivedData`，避免沙箱环境下写默认 `~/Library/Developer/Xcode/DerivedData` 时报权限问题。
-- 涉及 `AnalysisModelSettings`、`AppSettingsSnapshot`、`SettingsStore.snapshot` 的字段变更时，先全局搜索手写初始化点，尤其是 `DeskBriefTests/`。
+- 涉及 `ModelProfileSettings`、`AppSettingsSnapshot`、`SettingsStore.snapshot` 的字段变更时，先全局搜索手写初始化点，尤其是 `DeskBriefTests/`。
 - 涉及模型配置时，始终同时检查两套配置：
   - 截屏分析：`provider` / `imageAnalysisMethod` / `apiBaseURL` / `modelName`
-  - 工作内容总结：`workContentProvider` / `workContentImageAnalysisMethod` / `workContentAPIBaseURL` / `workContentModelName`
+  - 工作内容总结：`workContentSummaryProvider` / `workContentSummaryAPIBaseURL` / `workContentSummaryModelName`

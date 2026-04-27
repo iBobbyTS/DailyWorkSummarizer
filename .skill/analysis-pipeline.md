@@ -73,7 +73,7 @@
 - 当 provider 是 `appleIntelligence` 时，截屏分析始终走 OCR-first，本地不会直接把图片字节送进 `FoundationModels`。
 - 日报汇总始终是文本链路，不读取图片。
 - 日报汇总读取当天 `captured_at` 结果时，会额外读取当天开始前最后一条结果；如果这条结果按 `duration_minutes_snapshot` 跨入当天，会裁剪成从当天 00:00 开始的活动项。当天内跨到次日的结果也裁剪到当天结束。日报汇总不需要读取次日第一条结果，因为截屏结果自身已经保存了持续时长。
-- `workContentImageAnalysisMethod` 是历史配置字段；`DailyReportSummaryService` 当前不会根据它决定不同请求体，设置页也不再在“工作内容总结”里展示图像分析方法。
+- 工作内容总结始终走文本请求，不保留图像分析方法配置；设置页不在“工作内容总结”里展示截图专属分析控件。
 
 排查顺序：
 

@@ -4,7 +4,7 @@ import SwiftUI
 
 struct SettingsView: View {
     private enum ModelCopyDestination: String, Identifiable {
-        case workContentAnalysis
+        case workContentSummary
         case screenshotAnalysis
 
         var id: String { rawValue }
@@ -78,8 +78,8 @@ struct SettingsView: View {
             screenshotAnalysisTab
                 .tabItem { Text(text(.settingsTabScreenshotAnalysis)) }
 
-            workContentAnalysisTab
-                .tabItem { Text(text(.settingsTabWorkContentAnalysis)) }
+            workContentSummaryTab
+                .tabItem { Text(text(.settingsTabWorkContentSummary)) }
 
             generalTab
                 .tabItem { Text(text(.settingsTabGeneral)) }
@@ -107,10 +107,10 @@ struct SettingsView: View {
     private var screenshotAnalysisTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
-                Text(text(.settingsTabCapture))
+                Text(text(.settingsTabScreenshot))
                     .font(.title2.weight(.semibold))
 
-                captureSection
+                screenshotSection
 
                 modelConfigurationSection(
                     provider: $settingsStore.provider,
@@ -122,8 +122,8 @@ struct SettingsView: View {
                         get: { settingsStore.lmStudioContextLength },
                         set: { settingsStore.lmStudioContextLength = $0 }
                     ),
-                    copyButtonTitle: text(.settingsModelCopyToWorkContent),
-                    onCopy: { pendingModelCopyDestination = .workContentAnalysis },
+                    copyButtonTitle: text(.settingsModelCopyToWorkContentSummary),
+                    onCopy: { pendingModelCopyDestination = .workContentSummary },
                     showImageAnalysisMethod: true,
                     showTestingPanel: true
                 )
@@ -142,18 +142,18 @@ struct SettingsView: View {
         }
     }
 
-    private var workContentAnalysisTab: some View {
+    private var workContentSummaryTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
                 modelConfigurationSection(
-                    provider: $settingsStore.workContentProvider,
-                    imageAnalysisMethod: $settingsStore.workContentImageAnalysisMethod,
-                    apiBaseURL: $settingsStore.workContentAPIBaseURL,
-                    modelName: $settingsStore.workContentModelName,
-                    apiKey: $settingsStore.workContentAPIKey,
+                    provider: $settingsStore.workContentSummaryProvider,
+                    imageAnalysisMethod: .constant(.ocr),
+                    apiBaseURL: $settingsStore.workContentSummaryAPIBaseURL,
+                    modelName: $settingsStore.workContentSummaryModelName,
+                    apiKey: $settingsStore.workContentSummaryAPIKey,
                     lmStudioContextLength: Binding(
-                        get: { settingsStore.workContentLMStudioContextLength },
-                        set: { settingsStore.workContentLMStudioContextLength = $0 }
+                        get: { settingsStore.workContentSummaryLMStudioContextLength },
+                        set: { settingsStore.workContentSummaryLMStudioContextLength = $0 }
                     ),
                     copyButtonTitle: text(.settingsModelCopyToScreenshotAnalysis),
                     onCopy: { pendingModelCopyDestination = .screenshotAnalysis },
@@ -164,7 +164,7 @@ struct SettingsView: View {
                 Divider()
                     .padding(.vertical, 4)
 
-                Text(text(.settingsAnalysisSummaryTitle))
+                Text(text(.settingsSummaryTitle))
                     .font(.title2.weight(.semibold))
 
                 summarySection
@@ -175,7 +175,7 @@ struct SettingsView: View {
         }
     }
 
-    private var captureSection: some View {
+    private var screenshotSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 intervalRow
@@ -183,7 +183,7 @@ struct SettingsView: View {
                 Divider()
 
                 HStack(spacing: 12) {
-                    Text(text(.settingsCaptureAutoAnalysis))
+                    Text(text(.settingsAnalysisStartupMode))
                     Spacer()
                     Picker("", selection: $settingsStore.analysisStartupMode) {
                         ForEach(AnalysisStartupMode.allCases) { mode in
@@ -202,7 +202,7 @@ struct SettingsView: View {
                     Divider()
 
                     HStack(spacing: 12) {
-                        Text(text(.settingsCaptureAnalysisTime))
+                        Text(text(.settingsAnalysisScheduledTime))
                         Spacer()
                         DatePicker(
                             "",
@@ -219,7 +219,7 @@ struct SettingsView: View {
                 Divider()
 
                 HStack(spacing: 12) {
-                    Text(text(.settingsCaptureRequireCharger))
+                    Text(text(.settingsAnalysisRequireCharger))
                     Spacer()
                     Toggle("", isOn: $settingsStore.autoAnalysisRequiresCharger)
                         .labelsHidden()
@@ -242,9 +242,9 @@ struct SettingsView: View {
                         if isCapturingPreview {
                             ProgressView()
                                 .controlSize(.small)
-                            Text(text(.settingsCaptureTestingScreenshot))
+                            Text(text(.settingsScreenshotTesting))
                         } else {
-                            Label(text(.settingsCaptureTestScreenshot), systemImage: "camera")
+                            Label(text(.settingsScreenshotTest), systemImage: "camera")
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -253,21 +253,21 @@ struct SettingsView: View {
                     Button {
                         openAppLocation()
                     } label: {
-                        Label(text(.settingsCaptureOpenAppLocation), systemImage: "folder")
+                        Label(text(.settingsOpenAppLocation), systemImage: "folder")
                     }
                     .buttonStyle(.bordered)
 
                     Button {
                         openScreenshotsFolder()
                     } label: {
-                        Label(text(.settingsCaptureOpenScreenshotsFolder), systemImage: "photo.on.rectangle")
+                        Label(text(.settingsScreenshotOpenFolder), systemImage: "photo.on.rectangle")
                     }
                     .buttonStyle(.bordered)
                 }
 
                 if let previewImage {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(text(.settingsCaptureTestResult))
+                        Text(text(.settingsScreenshotPreviewResult))
                             .font(.headline)
 
                         Image(nsImage: previewImage)
@@ -303,7 +303,7 @@ struct SettingsView: View {
 
     private var summarySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(text(.settingsAnalysisSummaryHint))
+            Text(text(.settingsSummaryHint))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
@@ -311,14 +311,14 @@ struct SettingsView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.gray.opacity(0.08))
 
-                if settingsStore.analysisSummaryInstruction.isEmpty {
-                    Text(text(.settingsAnalysisSummaryPlaceholder))
+                if settingsStore.summaryInstruction.isEmpty {
+                    Text(text(.settingsSummaryPlaceholder))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 12)
                 }
 
-                TextEditor(text: $settingsStore.analysisSummaryInstruction)
+                TextEditor(text: $settingsStore.summaryInstruction)
                     .scrollContentBackground(.hidden)
                     .padding(8)
             }
@@ -592,7 +592,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(labeledValue(text(.settingsAnalysisResultCategory), modelTestResult.response.category))
                             .fixedSize(horizontal: false, vertical: true)
-                        Text(labeledValue(text(.settingsAnalysisResultSummary), modelTestResult.response.summary))
+                        Text(labeledValue(text(.settingsResultSummary), modelTestResult.response.summary))
                             .fixedSize(horizontal: false, vertical: true)
 
                         ForEach(modelTestTimingLines(for: modelTestResult), id: \.self) { line in
@@ -664,7 +664,7 @@ struct SettingsView: View {
             let sliderWidth = max(140, controlGroupWidth - Layout.numberFieldWidth - 40)
 
             HStack(spacing: 12) {
-                Text(text(.settingsCaptureInterval))
+                Text(text(.settingsScreenshotInterval))
                 Spacer()
                 HStack(spacing: 12) {
                     Slider(
@@ -678,7 +678,7 @@ struct SettingsView: View {
                     .frame(width: sliderWidth)
 
                     TextField(
-                        text(.settingsCaptureMinutesPlaceholder),
+                        text(.settingsScreenshotMinutesPlaceholder),
                         value: Binding(
                             get: { settingsStore.screenshotIntervalMinutes },
                             set: { settingsStore.screenshotIntervalMinutes = $0 }
@@ -688,7 +688,7 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
                     .frame(width: Layout.numberFieldWidth)
 
-                    Text(text(.settingsCaptureMinutesUnit))
+                    Text(text(.settingsScreenshotMinutesUnit))
                         .foregroundStyle(.secondary)
                         .fixedSize()
                 }
@@ -876,8 +876,8 @@ struct SettingsView: View {
 
     private func copyConfirmationMessage(for destination: ModelCopyDestination) -> String {
         switch destination {
-        case .workContentAnalysis:
-            return text(.settingsModelCopyToWorkContentConfirmMessage)
+        case .workContentSummary:
+            return text(.settingsModelCopyToWorkContentSummaryConfirmMessage)
         case .screenshotAnalysis:
             return text(.settingsModelCopyToScreenshotAnalysisConfirmMessage)
         }
@@ -885,10 +885,10 @@ struct SettingsView: View {
 
     private func copyModelConfiguration(to destination: ModelCopyDestination) {
         switch destination {
-        case .workContentAnalysis:
-            settingsStore.copyScreenshotAnalysisModelToWorkContent()
+        case .workContentSummary:
+            settingsStore.copyScreenshotAnalysisModelToWorkContentSummary()
         case .screenshotAnalysis:
-            settingsStore.copyWorkContentModelToScreenshotAnalysis()
+            settingsStore.copyWorkContentSummaryModelToScreenshotAnalysis()
         }
     }
 

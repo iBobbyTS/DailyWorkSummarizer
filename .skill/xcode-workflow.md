@@ -48,11 +48,11 @@ xcodebuild test \
 
 常见回归点：
 
-- 新增 `AnalysisModelSettings` 或 `AppSettingsSnapshot` 字段后，`DeskBriefTests.swift` 里的手写初始化很容易报 `Missing argument for parameter ... in call`。
+- 新增 `ModelProfileSettings` 或 `AppSettingsSnapshot` 字段后，`DeskBriefTests.swift` 里的手写初始化很容易报 `Missing argument for parameter ... in call`。
 - 出现这类错误时，先搜：
 
 ```sh
-rg -n "AnalysisModelSettings\\(|AppSettingsSnapshot\\(" DeskBrief DeskBriefTests DeskBriefUITests
+rg -n "ModelProfileSettings\\(|AppSettingsSnapshot\\(" DeskBrief DeskBriefTests DeskBriefUITests
 ```
 
 - 设置相关改动除了测试，还要同步检查：

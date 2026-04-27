@@ -12,7 +12,7 @@ enum AppDefaults {
     static let maxPageSize = 31
     static let screenshotFileExtension = "jpg"
     static let apiKeyAccount = "model-api-key.screenshot-analysis"
-    static let workContentAPIKeyAccount = "model-api-key.work-content-analysis"
+    static let workContentSummaryAPIKeyAccount = "model-api-key.work-content-summary"
     static let defaultImageAnalysisMethod: ImageAnalysisMethod = .multimodal
     nonisolated static let absenceCategoryName = "离开"
     static let preservedOtherCategoryName = "PRESERVED_OTHER"
@@ -58,7 +58,7 @@ enum AppDefaults {
         return "#\(rawHex.uppercased())"
     }
 
-    static func defaultAnalysisSummaryInstruction(language: AppLanguage) -> String {
+    static func defaultSummaryInstruction(language: AppLanguage) -> String {
         switch language {
         case .simplifiedChinese:
             return "注意观察画面里所打开项目的名称、课程名称等信息，进行简要描述"
@@ -222,7 +222,7 @@ enum ModelProvider: String, CaseIterable, Codable, Identifiable {
     }
 }
 
-enum CaptureScope: String, Codable {
+enum ScreenshotScope: String, Codable {
     case activeDisplay = "active_display"
 
     var title: String {
@@ -232,7 +232,7 @@ enum CaptureScope: String, Codable {
     func title(in language: AppLanguage) -> String {
         switch self {
         case .activeDisplay:
-            return L10n.string(.captureScopeActiveDisplay, language: language)
+            return L10n.string(.screenshotScopeActiveDisplay, language: language)
         }
     }
 }
@@ -349,7 +349,7 @@ struct CategoryRule: Identifiable, Codable, Hashable {
     }
 }
 
-struct AnalysisModelSettings: Equatable {
+struct ModelProfileSettings: Equatable {
     let provider: ModelProvider
     let apiBaseURL: String
     let modelName: String
@@ -364,37 +364,37 @@ struct AppSettingsSnapshot {
     let analysisStartupMode: AnalysisStartupMode
     let autoAnalysisRequiresCharger: Bool
     let appLanguage: AppLanguage
-    let analysisSummaryInstruction: String
-    let screenshotAnalysisModelSettings: AnalysisModelSettings
-    let workContentAnalysisModelSettings: AnalysisModelSettings
+    let summaryInstruction: String
+    let screenshotAnalysisModelProfile: ModelProfileSettings
+    let workContentSummaryModelProfile: ModelProfileSettings
     let categoryRules: [CategoryRule]
 
-    var captureScope: CaptureScope {
+    var screenshotScope: ScreenshotScope {
         .activeDisplay
     }
 
     var provider: ModelProvider {
-        screenshotAnalysisModelSettings.provider
+        screenshotAnalysisModelProfile.provider
     }
 
     var apiBaseURL: String {
-        screenshotAnalysisModelSettings.apiBaseURL
+        screenshotAnalysisModelProfile.apiBaseURL
     }
 
     var modelName: String {
-        screenshotAnalysisModelSettings.modelName
+        screenshotAnalysisModelProfile.modelName
     }
 
     var apiKey: String {
-        screenshotAnalysisModelSettings.apiKey
+        screenshotAnalysisModelProfile.apiKey
     }
 
     var lmStudioContextLength: Int {
-        screenshotAnalysisModelSettings.lmStudioContextLength
+        screenshotAnalysisModelProfile.lmStudioContextLength
     }
 
     var imageAnalysisMethod: ImageAnalysisMethod {
-        screenshotAnalysisModelSettings.imageAnalysisMethod
+        screenshotAnalysisModelProfile.imageAnalysisMethod
     }
 
     var validCategoryRules: [CategoryRule] {

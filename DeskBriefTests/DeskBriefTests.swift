@@ -535,8 +535,8 @@ struct DeskBriefTests {
             analysisStartupMode: .scheduled,
             autoAnalysisRequiresCharger: false,
             appLanguage: .simplifiedChinese,
-            analysisSummaryInstruction: AppDefaults.defaultAnalysisSummaryInstruction(language: .simplifiedChinese),
-            screenshotAnalysisModelSettings: AnalysisModelSettings(
+            summaryInstruction: AppDefaults.defaultSummaryInstruction(language: .simplifiedChinese),
+            screenshotAnalysisModelProfile: ModelProfileSettings(
                 provider: .openAI,
                 apiBaseURL: "",
                 modelName: "",
@@ -544,7 +544,7 @@ struct DeskBriefTests {
                 lmStudioContextLength: AppDefaults.lmStudioContextLength,
                 imageAnalysisMethod: .ocr
             ),
-            workContentAnalysisModelSettings: AnalysisModelSettings(
+            workContentSummaryModelProfile: ModelProfileSettings(
                 provider: .openAI,
                 apiBaseURL: "",
                 modelName: "",
@@ -702,28 +702,28 @@ struct DeskBriefTests {
 
     @Test func settingsTerminologySeparatesScreenshotAnalysisAndWorkContentSummary() async throws {
         #expect(L10n.string(.settingsTabScreenshotAnalysis, language: .simplifiedChinese) == "截屏分析")
-        #expect(L10n.string(.settingsTabWorkContentAnalysis, language: .simplifiedChinese) == "工作内容总结")
-        #expect(L10n.string(.settingsModelCopyToWorkContent, language: .simplifiedChinese) == "复制到“工作内容总结”")
+        #expect(L10n.string(.settingsTabWorkContentSummary, language: .simplifiedChinese) == "工作内容总结")
+        #expect(L10n.string(.settingsModelCopyToWorkContentSummary, language: .simplifiedChinese) == "复制到“工作内容总结”")
         #expect(L10n.string(.settingsModelCopyToScreenshotAnalysis, language: .simplifiedChinese) == "复制到“截屏分析”")
 
         #expect(L10n.string(.settingsTabScreenshotAnalysis, language: .english) == "Screenshot Analysis")
-        #expect(L10n.string(.settingsTabWorkContentAnalysis, language: .english) == "Work Content Summary")
-        #expect(L10n.string(.settingsModelCopyToWorkContent, language: .english) == "Copy to Work Content Summary")
+        #expect(L10n.string(.settingsTabWorkContentSummary, language: .english) == "Work Content Summary")
+        #expect(L10n.string(.settingsModelCopyToWorkContentSummary, language: .english) == "Copy to Work Content Summary")
         #expect(L10n.string(.settingsModelCopyToScreenshotAnalysis, language: .english) == "Copy to Screenshot Analysis")
 
         let legacyChineseWorkContentTerm = "工作内容" + "分析"
         let legacyEnglishWorkContentTerm = "Work Content " + "Analysis"
         let visibleWorkContentStrings = [
-            L10n.string(.settingsTabWorkContentAnalysis, language: .simplifiedChinese),
-            L10n.string(.settingsModelCopyToWorkContent, language: .simplifiedChinese),
-            L10n.string(.settingsModelCopyToWorkContentConfirmMessage, language: .simplifiedChinese)
+            L10n.string(.settingsTabWorkContentSummary, language: .simplifiedChinese),
+            L10n.string(.settingsModelCopyToWorkContentSummary, language: .simplifiedChinese),
+            L10n.string(.settingsModelCopyToWorkContentSummaryConfirmMessage, language: .simplifiedChinese)
         ]
         #expect(visibleWorkContentStrings.allSatisfy { !$0.contains(legacyChineseWorkContentTerm) })
 
         let visibleEnglishWorkContentStrings = [
-            L10n.string(.settingsTabWorkContentAnalysis, language: .english),
-            L10n.string(.settingsModelCopyToWorkContent, language: .english),
-            L10n.string(.settingsModelCopyToWorkContentConfirmMessage, language: .english)
+            L10n.string(.settingsTabWorkContentSummary, language: .english),
+            L10n.string(.settingsModelCopyToWorkContentSummary, language: .english),
+            L10n.string(.settingsModelCopyToWorkContentSummaryConfirmMessage, language: .english)
         ]
         #expect(visibleEnglishWorkContentStrings.allSatisfy { !$0.contains(legacyEnglishWorkContentTerm) })
     }
@@ -876,7 +876,7 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
         }
 
@@ -885,16 +885,16 @@ struct DeskBriefTests {
         let updatedInstruction = "最近在做操作系统课程项目和 DeskBrief 重构"
 
         #expect(
-            store.analysisSummaryInstruction == AppDefaults.defaultAnalysisSummaryInstruction(language: .simplifiedChinese)
+            store.summaryInstruction == AppDefaults.defaultSummaryInstruction(language: .simplifiedChinese)
         )
 
-        store.analysisSummaryInstruction = updatedInstruction
+        store.summaryInstruction = updatedInstruction
 
         let reloadedStore = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
 
-        #expect(store.snapshot.analysisSummaryInstruction == updatedInstruction)
-        #expect(reloadedStore.analysisSummaryInstruction == updatedInstruction)
-        #expect(reloadedStore.workContentProvider == store.provider)
+        #expect(store.snapshot.summaryInstruction == updatedInstruction)
+        #expect(reloadedStore.summaryInstruction == updatedInstruction)
+        #expect(reloadedStore.workContentSummaryProvider == store.provider)
     }
 
     @MainActor
@@ -909,7 +909,7 @@ struct DeskBriefTests {
             defer {
                 userDefaults.removePersistentDomain(forName: suiteName)
                 keychain.set("", for: AppDefaults.apiKeyAccount)
-                keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+                keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
                 try? FileManager.default.removeItem(at: databaseURL)
             }
 
@@ -934,7 +934,7 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
         }
 
@@ -1010,7 +1010,7 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
             try? FileManager.default.removeItem(at: supportURL)
             MockURLProtocol.reset()
@@ -1051,7 +1051,7 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
             try? FileManager.default.removeItem(at: supportURL)
             MockURLProtocol.reset()
@@ -1140,7 +1140,7 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
             try? FileManager.default.removeItem(at: supportURL)
             MockURLProtocol.reset()
@@ -1234,7 +1234,7 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
             try? FileManager.default.removeItem(at: supportURL)
             MockURLProtocol.reset()
@@ -1313,7 +1313,7 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
             try? FileManager.default.removeItem(at: supportURL)
             MockURLProtocol.reset()
@@ -1404,7 +1404,7 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
             try? FileManager.default.removeItem(at: supportURL)
             MockURLProtocol.reset()
@@ -1497,7 +1497,7 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
             try? FileManager.default.removeItem(at: supportURL)
             MockURLProtocol.reset()
@@ -1576,7 +1576,7 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
         }
 
@@ -1628,7 +1628,7 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
         }
 
@@ -1641,25 +1641,21 @@ struct DeskBriefTests {
         store.apiKey = "screenshot-key"
         store.lmStudioContextLength = 8192
         store.imageAnalysisMethod = .multimodal
-        store.workContentImageAnalysisMethod = .ocr
+        store.copyScreenshotAnalysisModelToWorkContentSummary()
 
-        store.copyScreenshotAnalysisModelToWorkContent()
+        #expect(store.workContentSummaryProvider == .anthropic)
+        #expect(store.workContentSummaryAPIBaseURL == "https://screenshot.example.com")
+        #expect(store.workContentSummaryModelName == "claude-screenshot")
+        #expect(store.workContentSummaryAPIKey == "screenshot-key")
 
-        #expect(store.workContentProvider == .anthropic)
-        #expect(store.workContentAPIBaseURL == "https://screenshot.example.com")
-        #expect(store.workContentModelName == "claude-screenshot")
-        #expect(store.workContentAPIKey == "screenshot-key")
-        #expect(store.workContentImageAnalysisMethod == .ocr)
-
-        store.workContentProvider = .lmStudio
-        store.workContentAPIBaseURL = "http://127.0.0.1:1234"
-        store.workContentModelName = "work-content-model"
-        store.workContentAPIKey = "work-content-key"
-        store.workContentLMStudioContextLength = 12000
-        store.workContentImageAnalysisMethod = .ocr
+        store.workContentSummaryProvider = .lmStudio
+        store.workContentSummaryAPIBaseURL = "http://127.0.0.1:1234"
+        store.workContentSummaryModelName = "work-content-model"
+        store.workContentSummaryAPIKey = "work-content-key"
+        store.workContentSummaryLMStudioContextLength = 12000
         store.imageAnalysisMethod = .multimodal
 
-        store.copyWorkContentModelToScreenshotAnalysis()
+        store.copyWorkContentSummaryModelToScreenshotAnalysis()
 
         #expect(store.provider == .lmStudio)
         #expect(store.apiBaseURL == "http://127.0.0.1:1234")
@@ -2224,19 +2220,19 @@ struct DeskBriefTests {
     }
 
     @MainActor
-    @Test func dailyReportSummaryServiceUsesWorkContentModelAndMarksIncompleteDayTemporary() async throws {
+    @Test func dailyReportSummaryServiceUsesWorkContentSummaryModelAndMarksIncompleteDayTemporary() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DeskBriefTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         let keychain = KeychainStore(service: suiteName)
         let calendar = makeTestCalendar()
         let dayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
-        let captureTime = calendar.date(byAdding: .hour, value: 9, to: dayStart)!
+        let screenshotTime = calendar.date(byAdding: .hour, value: 9, to: dayStart)!
 
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
             MockURLProtocol.reset()
         }
@@ -2246,14 +2242,14 @@ struct DeskBriefTests {
         store.provider = .anthropic
         store.apiBaseURL = "https://screenshot.invalid"
         store.modelName = "screenshot-model"
-        store.workContentProvider = .openAI
-        store.workContentAPIBaseURL = "https://work-content.example.com"
-        store.workContentModelName = "work-content-model"
-        store.analysisSummaryInstruction = "请突出项目名"
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://work-content.example.com"
+        store.workContentSummaryModelName = "work-content-model"
+        store.summaryInstruction = "请突出项目名"
 
         _ = try makeAnalysisRun(database: database)
         try database.insertAnalysisResult(
-            capturedAt: captureTime,
+            capturedAt: screenshotTime,
             categoryName: "专注工作",
             summaryText: "开发 DeskBrief 日报功能",
             durationMinutesSnapshot: 30
@@ -2309,16 +2305,16 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
             MockURLProtocol.reset()
         }
 
         let database = try AppDatabase(databaseURL: databaseURL)
         let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
-        store.workContentProvider = .openAI
-        store.workContentAPIBaseURL = "https://work-content.example.com"
-        store.workContentModelName = "daily-report-model"
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://work-content.example.com"
+        store.workContentSummaryModelName = "daily-report-model"
 
         _ = try makeAnalysisRun(database: database)
         try database.insertAnalysisResult(
@@ -2393,16 +2389,16 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
             MockURLProtocol.reset()
         }
 
         let database = try AppDatabase(databaseURL: databaseURL)
         let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
-        store.workContentProvider = .openAI
-        store.workContentAPIBaseURL = "https://work-content.example.com"
-        store.workContentModelName = "daily-report-model"
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://work-content.example.com"
+        store.workContentSummaryModelName = "daily-report-model"
 
         _ = try makeAnalysisRun(database: database)
         try database.insertAnalysisResult(
@@ -2483,16 +2479,16 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
             MockURLProtocol.reset()
         }
 
         let database = try AppDatabase(databaseURL: databaseURL)
         let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
-        store.workContentProvider = .openAI
-        store.workContentAPIBaseURL = "https://work-content.example.com"
-        store.workContentModelName = "daily-report-model"
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://work-content.example.com"
+        store.workContentSummaryModelName = "daily-report-model"
 
         let session = makeMockSession { request in
             MockURLProtocol.requestCount += 1
@@ -2531,16 +2527,16 @@ struct DeskBriefTests {
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
             keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentAPIKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
             try? FileManager.default.removeItem(at: databaseURL)
             MockURLProtocol.reset()
         }
 
         let database = try AppDatabase(databaseURL: databaseURL)
         let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
-        store.workContentProvider = .openAI
-        store.workContentAPIBaseURL = "https://work-content.example.com"
-        store.workContentModelName = "daily-report-model"
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://work-content.example.com"
+        store.workContentSummaryModelName = "daily-report-model"
 
         _ = try makeAnalysisRun(database: database)
         try database.insertAnalysisResult(
@@ -2772,8 +2768,8 @@ private func makeModelSettings(
     apiBaseURL: String,
     modelName: String,
     apiKey: String = ""
-) -> AnalysisModelSettings {
-    AnalysisModelSettings(
+) -> ModelProfileSettings {
+    ModelProfileSettings(
         provider: provider,
         apiBaseURL: apiBaseURL,
         modelName: modelName,

@@ -48,27 +48,27 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
 
 enum L10n {
     enum Key: String {
-        case settingsTabCapture
+        case settingsTabScreenshot
         case settingsTabModel
         case settingsTabAnalysis
         case settingsTabScreenshotAnalysis
-        case settingsTabWorkContentAnalysis
+        case settingsTabWorkContentSummary
         case settingsTabGeneral
         case settingsTabReport
-        case settingsCaptureAutoAnalysis
+        case settingsAnalysisStartupMode
         case analysisStartupModeManual
         case analysisStartupModeScheduled
         case analysisStartupModeRealtime
-        case settingsCaptureRequireCharger
-        case settingsCaptureAnalysisTime
-        case settingsCaptureTestingScreenshot
-        case settingsCaptureTestScreenshot
-        case settingsCaptureOpenAppLocation
-        case settingsCaptureOpenScreenshotsFolder
-        case settingsCaptureTestResult
-        case settingsCaptureInterval
-        case settingsCaptureMinutesPlaceholder
-        case settingsCaptureMinutesUnit
+        case settingsAnalysisRequireCharger
+        case settingsAnalysisScheduledTime
+        case settingsScreenshotTesting
+        case settingsScreenshotTest
+        case settingsOpenAppLocation
+        case settingsScreenshotOpenFolder
+        case settingsScreenshotPreviewResult
+        case settingsScreenshotInterval
+        case settingsScreenshotMinutesPlaceholder
+        case settingsScreenshotMinutesUnit
         case settingsModelTitle
         case settingsModelService
         case settingsModelBaseURL
@@ -81,11 +81,11 @@ enum L10n {
         case settingsModelOfficialUntested
         case settingsModelCategoriesTitle
         case settingsAnalysisCategoryTitle
-        case settingsAnalysisSummaryTitle
-        case settingsAnalysisSummaryHint
-        case settingsAnalysisSummaryPlaceholder
+        case settingsSummaryTitle
+        case settingsSummaryHint
+        case settingsSummaryPlaceholder
         case settingsAnalysisResultCategory
-        case settingsAnalysisResultSummary
+        case settingsResultSummary
         case settingsAnalysisReservedPrefixError
         case settingsModelCategoryColor
         case settingsModelCustomColor
@@ -97,10 +97,10 @@ enum L10n {
         case settingsModelTesting
         case settingsModelTest
         case settingsModelCopyPrompt
-        case settingsModelCopyToWorkContent
+        case settingsModelCopyToWorkContentSummary
         case settingsModelCopyToScreenshotAnalysis
         case settingsModelCopyConfirmTitle
-        case settingsModelCopyToWorkContentConfirmMessage
+        case settingsModelCopyToWorkContentSummaryConfirmMessage
         case settingsModelCopyToScreenshotAnalysisConfirmMessage
         case commonConfirm
         case commonCancel
@@ -145,7 +145,7 @@ enum L10n {
         case menuSummaryPausingUnloadingModel
         case menuSummaryAnalyzing
         case menuSummaryPending
-        case menuNextCaptureAt
+        case menuNextScreenshotAt
         case logsEmptyTitle
         case logsEmptyDescription
         case logsCopyAll
@@ -166,7 +166,7 @@ enum L10n {
         case settingsAppleIntelligenceOCROnly
         case imageAnalysisMethodOCR
         case imageAnalysisMethodMultimodal
-        case captureScopeActiveDisplay
+        case screenshotScopeActiveDisplay
         case reportKindDay
         case reportKindWeek
         case reportKindMonth
@@ -233,27 +233,27 @@ enum L10n {
 
     private static let tables: [AppLanguage: [Key: String]] = [
         .simplifiedChinese: [
-            .settingsTabCapture: "截屏",
+            .settingsTabScreenshot: "截屏",
             .settingsTabModel: "模型",
             .settingsTabAnalysis: "分析",
             .settingsTabScreenshotAnalysis: "截屏分析",
-            .settingsTabWorkContentAnalysis: "工作内容总结",
+            .settingsTabWorkContentSummary: "工作内容总结",
             .settingsTabGeneral: "通用",
             .settingsTabReport: "报告",
-            .settingsCaptureAutoAnalysis: "分析启动模式",
+            .settingsAnalysisStartupMode: "分析启动模式",
             .analysisStartupModeManual: "不自动启动",
             .analysisStartupModeScheduled: "定时启动",
             .analysisStartupModeRealtime: "截屏后立即启动",
-            .settingsCaptureRequireCharger: "仅在充电时自动分析",
-            .settingsCaptureAnalysisTime: "定时分析时间",
-            .settingsCaptureTestingScreenshot: "正在测试截屏…",
-            .settingsCaptureTestScreenshot: "测试截屏",
-            .settingsCaptureOpenAppLocation: "打开 App 位置",
-            .settingsCaptureOpenScreenshotsFolder: "打开截屏文件夹",
-            .settingsCaptureTestResult: "测试结果",
-            .settingsCaptureInterval: "截屏间隔",
-            .settingsCaptureMinutesPlaceholder: "分钟",
-            .settingsCaptureMinutesUnit: "分钟",
+            .settingsAnalysisRequireCharger: "仅在充电时自动分析",
+            .settingsAnalysisScheduledTime: "定时分析时间",
+            .settingsScreenshotTesting: "正在测试截屏…",
+            .settingsScreenshotTest: "测试截屏",
+            .settingsOpenAppLocation: "打开 App 位置",
+            .settingsScreenshotOpenFolder: "打开截屏文件夹",
+            .settingsScreenshotPreviewResult: "测试结果",
+            .settingsScreenshotInterval: "截屏间隔",
+            .settingsScreenshotMinutesPlaceholder: "分钟",
+            .settingsScreenshotMinutesUnit: "分钟",
             .settingsModelTitle: "模型设置",
             .settingsModelService: "模型服务",
             .settingsModelBaseURL: "接口地址",
@@ -266,11 +266,11 @@ enum L10n {
             .settingsModelOfficialUntested: "官方 API 未经过测试",
             .settingsModelCategoriesTitle: "分析分类",
             .settingsAnalysisCategoryTitle: "类别",
-            .settingsAnalysisSummaryTitle: "总结",
-            .settingsAnalysisSummaryHint: "请描述你最近在做什么项目，方便模型进行更准确的归纳",
-            .settingsAnalysisSummaryPlaceholder: "注意观察画面里所打开项目的名称、课程名称等信息，进行简要描述",
+            .settingsSummaryTitle: "总结",
+            .settingsSummaryHint: "请描述你最近在做什么项目，方便模型进行更准确的归纳",
+            .settingsSummaryPlaceholder: "注意观察画面里所打开项目的名称、课程名称等信息，进行简要描述",
             .settingsAnalysisResultCategory: "类别",
-            .settingsAnalysisResultSummary: "总结",
+            .settingsResultSummary: "总结",
             .settingsAnalysisReservedPrefixError: "不允许使用 PRESERVED_ 开头的类别。",
             .settingsModelCategoryColor: "颜色",
             .settingsModelCustomColor: "自定义颜色",
@@ -282,10 +282,10 @@ enum L10n {
             .settingsModelTesting: "正在测试模型…",
             .settingsModelTest: "测试模型",
             .settingsModelCopyPrompt: "复制 Prompt",
-            .settingsModelCopyToWorkContent: "复制到“工作内容总结”",
+            .settingsModelCopyToWorkContentSummary: "复制到“工作内容总结”",
             .settingsModelCopyToScreenshotAnalysis: "复制到“截屏分析”",
             .settingsModelCopyConfirmTitle: "确认复制模型配置",
-            .settingsModelCopyToWorkContentConfirmMessage: "确认后会覆盖“工作内容总结”里的模型配置。",
+            .settingsModelCopyToWorkContentSummaryConfirmMessage: "确认后会覆盖“工作内容总结”里的模型配置。",
             .settingsModelCopyToScreenshotAnalysisConfirmMessage: "确认后会覆盖“截屏分析”里的模型配置。",
             .commonConfirm: "确认",
             .commonCancel: "取消",
@@ -330,7 +330,7 @@ enum L10n {
             .menuSummaryPausingUnloadingModel: "正在停止本次分析，从 %@ 开始的截屏分析（正在卸载模型，%d/%d）",
             .menuSummaryAnalyzing: "正在分析从 %@ 开始的截屏（%d/%d）",
             .menuSummaryPending: "当前截屏从 %@ 开始，共 %d 张",
-            .menuNextCaptureAt: "下一次会在%@进行截屏",
+            .menuNextScreenshotAt: "下一次会在%@进行截屏",
             .logsEmptyTitle: "当前没有日志",
             .logsEmptyDescription: "这里会显示分析错误，以及后续模型调试日志。",
             .logsCopyAll: "全部复制",
@@ -351,7 +351,7 @@ enum L10n {
             .settingsAppleIntelligenceOCROnly: "Apple Intelligence 不支持图像理解，仅支持 OCR 后分析文字。",
             .imageAnalysisMethodOCR: "OCR（大模型仅做语言分析）",
             .imageAnalysisMethodMultimodal: "多模态（使用包含视觉能力的大模型）",
-            .captureScopeActiveDisplay: "当前活跃的屏幕",
+            .screenshotScopeActiveDisplay: "当前活跃的屏幕",
             .reportKindDay: "日报",
             .reportKindWeek: "周报",
             .reportKindMonth: "月报",
@@ -416,27 +416,27 @@ enum L10n {
             .screenshotCommandFailed: "系统 screencapture 命令执行失败",
         ],
         .english: [
-            .settingsTabCapture: "Capture",
+            .settingsTabScreenshot: "Screenshot",
             .settingsTabModel: "Model",
             .settingsTabAnalysis: "Analysis",
             .settingsTabScreenshotAnalysis: "Screenshot Analysis",
-            .settingsTabWorkContentAnalysis: "Work Content Summary",
+            .settingsTabWorkContentSummary: "Work Content Summary",
             .settingsTabGeneral: "General",
             .settingsTabReport: "Report",
-            .settingsCaptureAutoAnalysis: "Analysis startup mode",
+            .settingsAnalysisStartupMode: "Analysis startup mode",
             .analysisStartupModeManual: "Do Not Auto Start",
             .analysisStartupModeScheduled: "Scheduled Start",
             .analysisStartupModeRealtime: "Start Immediately After Screenshot",
-            .settingsCaptureRequireCharger: "Only run automatic analysis while charging",
-            .settingsCaptureAnalysisTime: "Scheduled analysis time",
-            .settingsCaptureTestingScreenshot: "Testing screenshot…",
-            .settingsCaptureTestScreenshot: "Test Screenshot",
-            .settingsCaptureOpenAppLocation: "Open App Location",
-            .settingsCaptureOpenScreenshotsFolder: "Open Screenshots Folder",
-            .settingsCaptureTestResult: "Preview Result",
-            .settingsCaptureInterval: "Screenshot interval",
-            .settingsCaptureMinutesPlaceholder: "min",
-            .settingsCaptureMinutesUnit: "min",
+            .settingsAnalysisRequireCharger: "Only run automatic analysis while charging",
+            .settingsAnalysisScheduledTime: "Scheduled analysis time",
+            .settingsScreenshotTesting: "Testing screenshot…",
+            .settingsScreenshotTest: "Test Screenshot",
+            .settingsOpenAppLocation: "Open App Location",
+            .settingsScreenshotOpenFolder: "Open Screenshots Folder",
+            .settingsScreenshotPreviewResult: "Preview Result",
+            .settingsScreenshotInterval: "Screenshot interval",
+            .settingsScreenshotMinutesPlaceholder: "min",
+            .settingsScreenshotMinutesUnit: "min",
             .settingsModelTitle: "Model Settings",
             .settingsModelService: "Model provider",
             .settingsModelBaseURL: "Base URL",
@@ -449,11 +449,11 @@ enum L10n {
             .settingsModelOfficialUntested: "Official APIs have not been tested",
             .settingsModelCategoriesTitle: "Analysis categories",
             .settingsAnalysisCategoryTitle: "Category",
-            .settingsAnalysisSummaryTitle: "Summary",
-            .settingsAnalysisSummaryHint: "Describe the project or coursework you've been working on recently so the model can summarize more accurately.",
-            .settingsAnalysisSummaryPlaceholder: "Pay attention to the project name, course name, and other visible context in the screenshot, then write a brief description.",
+            .settingsSummaryTitle: "Summary",
+            .settingsSummaryHint: "Describe the project or coursework you've been working on recently so the model can summarize more accurately.",
+            .settingsSummaryPlaceholder: "Pay attention to the project name, course name, and other visible context in the screenshot, then write a brief description.",
             .settingsAnalysisResultCategory: "Category",
-            .settingsAnalysisResultSummary: "Summary",
+            .settingsResultSummary: "Summary",
             .settingsAnalysisReservedPrefixError: "Category names cannot start with PRESERVED_.",
             .settingsModelCategoryColor: "Color",
             .settingsModelCustomColor: "Custom Color",
@@ -465,10 +465,10 @@ enum L10n {
             .settingsModelTesting: "Testing model…",
             .settingsModelTest: "Test Model",
             .settingsModelCopyPrompt: "Copy Prompt",
-            .settingsModelCopyToWorkContent: "Copy to Work Content Summary",
+            .settingsModelCopyToWorkContentSummary: "Copy to Work Content Summary",
             .settingsModelCopyToScreenshotAnalysis: "Copy to Screenshot Analysis",
             .settingsModelCopyConfirmTitle: "Confirm model config copy",
-            .settingsModelCopyToWorkContentConfirmMessage: "This will overwrite the model configuration in Work Content Summary.",
+            .settingsModelCopyToWorkContentSummaryConfirmMessage: "This will overwrite the model configuration in Work Content Summary.",
             .settingsModelCopyToScreenshotAnalysisConfirmMessage: "This will overwrite the model configuration in Screenshot Analysis.",
             .commonConfirm: "Confirm",
             .commonCancel: "Cancel",
@@ -513,7 +513,7 @@ enum L10n {
             .menuSummaryPausingUnloadingModel: "Stopping screenshot analysis started at %@ (unloading model, %d/%d)",
             .menuSummaryAnalyzing: "Analyzing screenshots starting at %@ (%d/%d)",
             .menuSummaryPending: "Pending screenshots since %@, %d total",
-            .menuNextCaptureAt: "Next screenshot at %@",
+            .menuNextScreenshotAt: "Next screenshot at %@",
             .logsEmptyTitle: "No Logs",
             .logsEmptyDescription: "Analysis errors and later model-debugging logs will appear here.",
             .logsCopyAll: "Copy All",
@@ -534,7 +534,7 @@ enum L10n {
             .settingsAppleIntelligenceOCROnly: "Apple Intelligence does not support direct image understanding. It only supports OCR-first text analysis.",
             .imageAnalysisMethodOCR: "OCR (LLM text-only analysis)",
             .imageAnalysisMethodMultimodal: "Multimodal (vision-capable LLM)",
-            .captureScopeActiveDisplay: "Current active display",
+            .screenshotScopeActiveDisplay: "Current active display",
             .reportKindDay: "Day",
             .reportKindWeek: "Week",
             .reportKindMonth: "Month",
@@ -727,7 +727,7 @@ enum L10n {
         .joined(separator: "\n")
         let trimmedInstruction = summaryInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedInstruction = trimmedInstruction.isEmpty
-            ? AppDefaults.defaultAnalysisSummaryInstruction(language: language)
+            ? AppDefaults.defaultSummaryInstruction(language: language)
             : trimmedInstruction
 
         switch language {
@@ -815,7 +815,7 @@ enum L10n {
         .joined(separator: "\n")
         let trimmedInstruction = summaryInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedInstruction = trimmedInstruction.isEmpty
-            ? AppDefaults.defaultAnalysisSummaryInstruction(language: language)
+            ? AppDefaults.defaultSummaryInstruction(language: language)
             : trimmedInstruction
         let trimmedText = String(recognizedText.prefix(6000))
 
@@ -879,7 +879,7 @@ enum L10n {
         let activityList = activityLines.map { "- \($0)" }.joined(separator: "\n")
         let trimmedInstruction = summaryInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedInstruction = trimmedInstruction.isEmpty
-            ? AppDefaults.defaultAnalysisSummaryInstruction(language: language)
+            ? AppDefaults.defaultSummaryInstruction(language: language)
             : trimmedInstruction
 
         switch language {

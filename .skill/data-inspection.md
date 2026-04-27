@@ -36,7 +36,7 @@
 - `Keychain`
   保存两套 API key：
   - 截屏分析：`model-api-key.screenshot-analysis`
-  - 工作内容总结：`model-api-key.work-content-analysis`
+  - 工作内容总结：`model-api-key.work-content-summary`
 
 常用命令：
 

@@ -19,7 +19,7 @@ struct LLMTokenUsage: Equatable {
 }
 
 struct LLMServiceRequest {
-    let settings: AnalysisModelSettings
+    let settings: ModelProfileSettings
     let appLanguage: AppLanguage
     let prompt: String
     let imageData: Data?

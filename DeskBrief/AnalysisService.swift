@@ -71,8 +71,8 @@ final class AnalysisService {
         let id: Int64
         let settings: AppSettingsSnapshot
         let prompt: String
-        var captures: [ScreenshotFileRecord]
-        var capturedPaths: Set<String>
+        var screenshots: [ScreenshotFileRecord]
+        var screenshotPaths: Set<String>
         var currentIndex = 0
         var successCount = 0
         var failureCount = 0
@@ -85,42 +85,42 @@ final class AnalysisService {
         var didLogLMStudioCancellationObservation = false
         var isAcceptingAppends = true
 
-        init(id: Int64, settings: AppSettingsSnapshot, prompt: String, captures: [ScreenshotFileRecord]) {
+        init(id: Int64, settings: AppSettingsSnapshot, prompt: String, screenshots: [ScreenshotFileRecord]) {
             self.id = id
             self.settings = settings
             self.prompt = prompt
-            self.captures = captures
-            self.capturedPaths = Set(captures.map { $0.url.path })
+            self.screenshots = screenshots
+            self.screenshotPaths = Set(screenshots.map { $0.url.path })
         }
 
         var startedAt: Date? {
-            captures.first?.capturedAt
+            screenshots.first?.capturedAt
         }
 
         var totalCount: Int {
-            captures.count
+            screenshots.count
         }
 
-        var hasRemainingCaptures: Bool {
-            currentIndex < captures.count
+        var hasRemainingScreenshots: Bool {
+            currentIndex < screenshots.count
         }
 
-        func nextCapture() -> ScreenshotFileRecord? {
-            guard currentIndex < captures.count else {
+        func nextScreenshot() -> ScreenshotFileRecord? {
+            guard currentIndex < screenshots.count else {
                 return nil
             }
             defer { currentIndex += 1 }
-            return captures[currentIndex]
+            return screenshots[currentIndex]
         }
 
         @discardableResult
-        func appendMissingCaptures(_ pendingCaptures: [ScreenshotFileRecord]) -> Int {
-            let newCaptures = pendingCaptures.filter { capturedPaths.insert($0.url.path).inserted }
-            guard !newCaptures.isEmpty else {
+        func appendMissingScreenshots(_ pendingScreenshots: [ScreenshotFileRecord]) -> Int {
+            let newScreenshots = pendingScreenshots.filter { screenshotPaths.insert($0.url.path).inserted }
+            guard !newScreenshots.isEmpty else {
                 return 0
             }
-            captures.append(contentsOf: newCaptures)
-            return newCaptures.count
+            screenshots.append(contentsOf: newScreenshots)
+            return newScreenshots.count
         }
     }
 
@@ -243,7 +243,7 @@ final class AnalysisService {
         let snapshot = settingsStore.snapshot
         return buildPrompt(
             with: snapshot.validCategoryRules,
-            summaryInstruction: snapshot.analysisSummaryInstruction,
+            summaryInstruction: snapshot.summaryInstruction,
             language: snapshot.appLanguage
         )
     }
@@ -268,7 +268,7 @@ final class AnalysisService {
 
         let prompt = buildPrompt(
             with: snapshot.validCategoryRules,
-            summaryInstruction: snapshot.analysisSummaryInstruction,
+            summaryInstruction: snapshot.summaryInstruction,
             language: snapshot.appLanguage
         )
         do {
@@ -360,7 +360,7 @@ final class AnalysisService {
 
         if let activeAnalysisRun {
             if activeAnalysisRun.isAcceptingAppends {
-                appendPendingCaptures(to: activeAnalysisRun)
+                appendPendingScreenshots(to: activeAnalysisRun)
             } else {
                 rememberPendingRequestAfterCurrentRun(trigger)
             }
@@ -368,8 +368,8 @@ final class AnalysisService {
         }
 
         let snapshot = settingsStore.snapshot
-        let pendingCaptures = pendingScreenshotFiles(defaultDurationMinutes: snapshot.screenshotIntervalMinutes)
-        guard !pendingCaptures.isEmpty else {
+        let pendingScreenshots = pendingScreenshotFiles(defaultDurationMinutes: snapshot.screenshotIntervalMinutes)
+        guard !pendingScreenshots.isEmpty else {
             if trigger == .scheduled {
                 scheduleNextRun()
             }
@@ -378,13 +378,13 @@ final class AnalysisService {
 
         let prompt = buildPrompt(
             with: snapshot.validCategoryRules,
-            summaryInstruction: snapshot.analysisSummaryInstruction,
+            summaryInstruction: snapshot.summaryInstruction,
             language: snapshot.appLanguage
         )
 
         guard let runID = try? database.createAnalysisRun(
             modelName: snapshot.modelName,
-            totalItems: pendingCaptures.count
+            totalItems: pendingScreenshots.count
         ) else {
             return
         }
@@ -393,7 +393,7 @@ final class AnalysisService {
             id: runID,
             settings: snapshot,
             prompt: prompt,
-            captures: pendingCaptures
+            screenshots: pendingScreenshots
         )
         activeAnalysisRun = run
         updateRuntimeState(
@@ -472,16 +472,16 @@ final class AnalysisService {
         }
 
         while true {
-            while let capture = run.nextCapture() {
+            while let screenshot = run.nextScreenshot() {
                 if Task.isCancelled {
                     recordLMStudioCancellationObservationIfNeeded()
                     run.wasCancelled = true
                     break
                 }
 
-                let fileURL = capture.url
-                let capturedAt = capture.capturedAt
-                let durationMinutes = capture.durationMinutes
+                let fileURL = screenshot.url
+                let capturedAt = screenshot.capturedAt
+                let durationMinutes = screenshot.durationMinutes
 
                 guard FileManager.default.fileExists(atPath: fileURL.path) else {
                     run.failureCount += 1
@@ -557,7 +557,7 @@ final class AnalysisService {
                 break
             }
 
-            if await waitForAdditionalCaptures(to: run) {
+            if await waitForAdditionalScreenshots(to: run) {
                 continue
             }
 
@@ -634,9 +634,9 @@ final class AnalysisService {
     }
 
     @discardableResult
-    private func appendPendingCaptures(to run: ActiveAnalysisRun) -> Int {
-        let captures = pendingScreenshotFiles(defaultDurationMinutes: run.settings.screenshotIntervalMinutes)
-        let appendedCount = run.appendMissingCaptures(captures)
+    private func appendPendingScreenshots(to run: ActiveAnalysisRun) -> Int {
+        let screenshots = pendingScreenshotFiles(defaultDurationMinutes: run.settings.screenshotIntervalMinutes)
+        let appendedCount = run.appendMissingScreenshots(screenshots)
         guard appendedCount > 0 else {
             return 0
         }
@@ -660,24 +660,24 @@ final class AnalysisService {
         }
     }
 
-    private func waitForAdditionalCaptures(to run: ActiveAnalysisRun) async -> Bool {
+    private func waitForAdditionalScreenshots(to run: ActiveAnalysisRun) async -> Bool {
         guard realtimeAnalysisTimer != nil else {
-            return run.hasRemainingCaptures
+            return run.hasRemainingScreenshots
         }
 
         for _ in 0..<20 {
             if Task.isCancelled {
                 return false
             }
-            if run.hasRemainingCaptures {
+            if run.hasRemainingScreenshots {
                 return true
             }
             if realtimeAnalysisTimer == nil {
-                return run.hasRemainingCaptures
+                return run.hasRemainingScreenshots
             }
             try? await Task.sleep(for: .milliseconds(100))
         }
-        return run.hasRemainingCaptures
+        return run.hasRemainingScreenshots
     }
 
     private func buildPrompt(
@@ -751,7 +751,7 @@ final class AnalysisService {
             let response = try await analyzeImageWithAppleIntelligence(
                 recognizedText: recognizedText,
                 validRules: settings.validCategoryRules,
-                summaryInstruction: settings.analysisSummaryInstruction,
+                summaryInstruction: settings.summaryInstruction,
                 language: settings.appLanguage
             )
             return AnalysisExecutionResult(
@@ -781,7 +781,7 @@ final class AnalysisService {
             }
             requestPrompt = buildOCRAnalysisPrompt(
                 validRules: settings.validCategoryRules,
-                summaryInstruction: settings.analysisSummaryInstruction,
+                summaryInstruction: settings.summaryInstruction,
                 recognizedText: recognizedText,
                 language: settings.appLanguage
             )
@@ -796,7 +796,7 @@ final class AnalysisService {
         do {
             llmResponse = try await llmService.send(
                 LLMServiceRequest(
-                    settings: settings.screenshotAnalysisModelSettings,
+                    settings: settings.screenshotAnalysisModelProfile,
                     appLanguage: settings.appLanguage,
                     prompt: requestPrompt,
                     imageData: requestImageData,
@@ -876,7 +876,7 @@ final class AnalysisService {
         do {
             llmResponse = try await llmService.send(
                 LLMServiceRequest(
-                    settings: AnalysisModelSettings(
+                    settings: ModelProfileSettings(
                         provider: .appleIntelligence,
                         apiBaseURL: "",
                         modelName: "",

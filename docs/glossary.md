@@ -6,7 +6,7 @@ This glossary keeps DeskBrief's common Simplified Chinese and English product te
 
 - Use `截屏` for the Chinese noun and adjective form of screenshots. Do not use `截图`.
 - Use `screenshot` for the English noun and adjective form.
-- Use `capture` only for the action or workflow of taking/saving a screenshot, such as `Capture`, `captured`, or `screenshot capture`.
+- Use `capture` only for the action or workflow of taking/saving a screenshot, such as `captured` or `screenshot capture`.
 - Use `分析` / `analyze` for screenshot-analysis actions. Use `总结` / `summarize` for work-content and daily-report summary actions. Do not use legacy work-content analysis wording as a product term.
 - Keep feature names in title case in English UI labels, and concise sentence-style wording in Chinese UI labels.
 
@@ -18,11 +18,11 @@ This glossary keeps DeskBrief's common Simplified Chinese and English product te
 | 截屏 | Screenshot | Noun/adjective for saved screen images. |
 | 截屏分析 | Screenshot Analysis | Settings tab and model profile for analyzing screenshots. |
 | 工作内容总结 | Work Content Summary | Settings tab and model profile for daily-report summarization. |
-| 截屏间隔 | Screenshot interval | Time between periodic screenshot captures. |
+| 截屏间隔 | Screenshot interval | Time between periodic screenshots. |
 | 测试截屏 | Test Screenshot | Button label for preview capture. |
 | 正在测试截屏 | Testing screenshot | In-progress state for test screenshot capture. |
 | 打开截屏文件夹 | Open Screenshots Folder | Folder command. |
-| 当前活跃的屏幕 | Current active display | Capture scope label. |
+| 当前活跃的屏幕 | Current active display | Screenshot scope label. |
 | 屏幕录制权限 | Screen recording permission | macOS permission required for screenshot capture. |
 
 ## Analysis Startup

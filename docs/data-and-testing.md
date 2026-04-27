@@ -8,9 +8,9 @@ The app stores runtime data under Application Support:
   `~/Library/Application Support/DeskBrief/desk-brief.sqlite`
 - Screenshot directory
   `~/Library/Application Support/DeskBrief/screenshots/`
-- Preview captures
+- Preview screenshots
   `~/Library/Application Support/DeskBrief/screenshots/preview/`
-- Model-test temporary captures
+- Model-test temporary screenshots
   `~/Library/Application Support/DeskBrief/screenshots/temp/`
 
 ## Database tables
@@ -57,14 +57,14 @@ UserDefaults stores lightweight preferences such as:
 Keychain stores API keys for the two model profiles:
 
 - screenshot analysis key
-- work-content analysis key
+- work-content summary key
 
 ## File conventions
 
 - Screenshot files are saved as JPEG.
 - The filename format is `yyyyMMdd-HHmm-i<minutes>.jpg`.
-- Preview captures add a `-preview` suffix.
-- Model-test captures add a `-model-test` suffix.
+- Preview screenshots add a `-preview` suffix.
+- Model-test screenshots add a `-model-test` suffix.
 
 The filename is not just cosmetic: the app derives capture time and duration metadata from it when loading pending screenshot files.
 

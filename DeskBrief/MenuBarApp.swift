@@ -379,11 +379,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             return
         }
 
-        if let earliestCapture = pendingScreenshots.first?.capturedAt {
+        if let earliestScreenshotTime = pendingScreenshots.first?.capturedAt {
             statusSummaryItem.title = text(
                 .menuSummaryPending,
                 arguments: [
-                    statusDateFormatter(language: language).string(from: earliestCapture),
+                    statusDateFormatter(language: language).string(from: earliestScreenshotTime),
                     pendingScreenshots.count,
                 ],
                 language: language
@@ -393,10 +393,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             return
         }
 
-        if let nextCaptureDate = screenshotService?.nextCaptureDate {
+        if let nextScreenshotDate = screenshotService?.nextScreenshotDate {
             statusSummaryItem.title = text(
-                .menuNextCaptureAt,
-                arguments: [statusDateFormatter(language: language).string(from: nextCaptureDate)],
+                .menuNextScreenshotAt,
+                arguments: [statusDateFormatter(language: language).string(from: nextScreenshotDate)],
                 language: language
             )
         } else {

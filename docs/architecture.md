@@ -31,9 +31,9 @@ The app is centered around a small set of long-lived services created at launch 
 - Services are created and started.
 - The menu bar UI reflects pending screenshots, active analysis state, and the log viewer entry point.
 
-### 2. Capture flow
+### 2. Screenshot capture flow
 
-- `ScreenshotService` schedules captures using the configured screenshot interval.
+- `ScreenshotService` schedules screenshot captures using the configured screenshot interval.
 - Before writing a screenshot, it checks whether the mouse location and frontmost app remain unchanged from the previous interval.
 - If the user appears away, the app skips that capture without writing a screenshot or database record.
 - Otherwise it saves a JPEG for the preferred display into Application Support.

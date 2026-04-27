@@ -4,7 +4,7 @@ import Foundation
 
 @MainActor
 final class ScreenshotService {
-    struct PreviewCaptureResult {
+    struct ScreenshotPreviewResult {
         let image: NSImage
         let fileURL: URL
     }
@@ -14,7 +14,7 @@ final class ScreenshotService {
     private let userDefaults: UserDefaults
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
-    private(set) var nextCaptureDate: Date?
+    private(set) var nextScreenshotDate: Date?
 
     init(database: AppDatabase, settingsStore: SettingsStore, userDefaults: UserDefaults = .standard) {
         self.database = database
@@ -46,7 +46,7 @@ final class ScreenshotService {
         scheduleTimer(captureImmediately: false)
     }
 
-    func capturePreview() throws -> PreviewCaptureResult {
+    func capturePreview() throws -> ScreenshotPreviewResult {
         guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
             throw NSError(
                 domain: "ScreenshotService",
@@ -69,7 +69,7 @@ final class ScreenshotService {
                 userInfo: [NSLocalizedDescriptionKey: text(.screenshotPreviewUnreadable)]
             )
         }
-        return PreviewCaptureResult(image: image, fileURL: finalURL)
+        return ScreenshotPreviewResult(image: image, fileURL: finalURL)
     }
 
     func openScreenshotsFolder() {
@@ -103,12 +103,12 @@ final class ScreenshotService {
         }
 
         let seconds = TimeInterval(snapshot.screenshotIntervalMinutes * 60)
-        nextCaptureDate = Date().addingTimeInterval(seconds)
+        nextScreenshotDate = Date().addingTimeInterval(seconds)
         timer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.performCapture(scheduledAt: Date(), settings: self.settingsStore.snapshot)
-                self.nextCaptureDate = Date().addingTimeInterval(seconds)
+                self.nextScreenshotDate = Date().addingTimeInterval(seconds)
                 NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
             }
         }

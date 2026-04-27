@@ -159,7 +159,7 @@ final class DailyReportSummaryService {
         activityDaySet: Set<Date>
     ) async throws -> DailyReportRecord {
         let language = snapshot.appLanguage
-        let settings = snapshot.workContentAnalysisModelSettings
+        let settings = snapshot.workContentSummaryModelProfile
 
         if settings.provider.requiresRemoteConfiguration {
             guard !settings.apiBaseURL.isEmpty else {
@@ -188,7 +188,7 @@ final class DailyReportSummaryService {
             dayStart: dayStart,
             activityItems: activityItems,
             categories: categories,
-            summaryInstruction: snapshot.analysisSummaryInstruction,
+            summaryInstruction: snapshot.summaryInstruction,
             language: language
         )
         let payload = try await requestSummary(prompt: prompt, settings: settings, language: language)
@@ -286,7 +286,7 @@ final class DailyReportSummaryService {
 
     private func requestSummary(
         prompt: String,
-        settings: AnalysisModelSettings,
+        settings: ModelProfileSettings,
         language: AppLanguage
     ) async throws -> String {
         do {
