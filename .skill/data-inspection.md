@@ -2,7 +2,7 @@
 
 适用场景：
 
-- 确认截图有没有真正落盘
+- 确认截屏有没有真正落盘
 - 查分析运行记录、分类结果、日报结果
 - 排查设置持久化问题
 - 快速验证某个功能改动是否影响 SQLite 或本地文件
@@ -12,9 +12,9 @@
 - Application Support 目录：`~/Library/Application Support/DeskBrief/`
 - SQLite 数据库：`~/Library/Application Support/DeskBrief/desk-brief.sqlite`
 - Sandboxed App SQLite 数据库：`~/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite`
-- 正式截图目录：`~/Library/Application Support/DeskBrief/screenshots/`
-- 预览截图目录：`~/Library/Application Support/DeskBrief/screenshots/preview/`
-- 模型测试临时截图目录：`~/Library/Application Support/DeskBrief/screenshots/temp/`
+- 正式截屏目录：`~/Library/Application Support/DeskBrief/screenshots/`
+- 预览截屏目录：`~/Library/Application Support/DeskBrief/screenshots/preview/`
+- 模型测试临时截屏目录：`~/Library/Application Support/DeskBrief/screenshots/temp/`
 
 数据库主表：
 
@@ -35,8 +35,8 @@
   保存定时、语言、provider、base URL、model name、imageAnalysisMethod 等普通设置。
 - `Keychain`
   保存两套 API key：
-  - 截图分析：`model-api-key.screenshot-analysis`
-  - 工作内容分析：`model-api-key.work-content-analysis`
+  - 截屏分析：`model-api-key.screenshot-analysis`
+  - 工作内容总结：`model-api-key.work-content-analysis`
 
 常用命令：
 
@@ -79,7 +79,7 @@ ls -lah "$HOME/Library/Application Support/DeskBrief/screenshots" | tail
 
 额外事实：
 
-- 截图文件名格式是 `yyyyMMdd-HHmm-i<minutes>.jpg`。
-- 预览截图会带 `-preview` 后缀。
-- 模型测试临时截图会带 `-model-test` 后缀。
+- 截屏文件名格式是 `yyyyMMdd-HHmm-i<minutes>.jpg`。
+- 预览截屏会带 `-preview` 后缀。
+- 模型测试临时截屏会带 `-model-test` 后缀。
 - `AppDatabase.listScreenshotFiles` 通过文件名反推时间和时长，所以改文件命名规则时必须同步更新解析逻辑。

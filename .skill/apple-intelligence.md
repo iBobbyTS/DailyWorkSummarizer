@@ -20,7 +20,7 @@
 
 - provider 枚举：`ModelProvider.appleIntelligence`
 - 可选性判断：`AppleIntelligenceSupport.currentStatus(for:)`
-- 截图分析：
+- 截屏分析：
   - 先 Vision OCR
   - 再走 `LanguageModelSession.streamResponse`
   - use case 是 `SystemLanguageModel(useCase: .contentTagging)`
@@ -31,7 +31,7 @@
 
 必须记住的约束：
 
-- 这个项目当前没有把截图图片直接输入到 `FoundationModels`。
+- 这个项目当前没有把截屏图片直接输入到 `FoundationModels`。
 - 当 provider 是 `appleIntelligence` 时，`imageAnalysisMethod` 会被强制归一化成 `.ocr`。
 - 所以如果看到 UI 里 Apple Intelligence 对应的图像分析方式不可编辑，这是预期行为，不是 bug。
 

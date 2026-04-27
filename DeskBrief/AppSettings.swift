@@ -357,7 +357,6 @@ final class SettingsStore: ObservableObject {
         workContentModelName = modelName
         workContentAPIKey = apiKey
         workContentLMStudioContextLength = lmStudioContextLength
-        workContentImageAnalysisMethod = imageAnalysisMethod
     }
 
     func copyWorkContentModelToScreenshotAnalysis() {
@@ -366,7 +365,6 @@ final class SettingsStore: ObservableObject {
         modelName = workContentModelName
         apiKey = workContentAPIKey
         lmStudioContextLength = workContentLMStudioContextLength
-        imageAnalysisMethod = workContentImageAnalysisMethod
     }
 
     private func saveCategoryRules() {

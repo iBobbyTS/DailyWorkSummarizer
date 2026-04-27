@@ -124,6 +124,7 @@ struct SettingsView: View {
                     ),
                     copyButtonTitle: text(.settingsModelCopyToWorkContent),
                     onCopy: { pendingModelCopyDestination = .workContentAnalysis },
+                    showImageAnalysisMethod: true,
                     showTestingPanel: true
                 )
 
@@ -156,6 +157,7 @@ struct SettingsView: View {
                     ),
                     copyButtonTitle: text(.settingsModelCopyToScreenshotAnalysis),
                     onCopy: { pendingModelCopyDestination = .screenshotAnalysis },
+                    showImageAnalysisMethod: false,
                     showTestingPanel: false
                 )
 
@@ -337,6 +339,7 @@ struct SettingsView: View {
         lmStudioContextLength: Binding<Int>,
         copyButtonTitle: String,
         onCopy: @escaping () -> Void,
+        showImageAnalysisMethod: Bool,
         showTestingPanel: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
@@ -362,23 +365,25 @@ struct SettingsView: View {
                     .frame(width: fieldWidth, alignment: .trailing)
                 }
 
-                Divider()
+                if showImageAnalysisMethod {
+                    Divider()
 
-                proportionalFieldRow(text(.settingsModelImageAnalysisMethod)) { fieldWidth in
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        Picker("", selection: imageAnalysisMethod) {
-                            ForEach(ImageAnalysisMethod.allCases) { option in
-                                Text(option.title(in: language)).tag(option)
+                    proportionalFieldRow(text(.settingsModelImageAnalysisMethod)) { fieldWidth in
+                        HStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            Picker("", selection: imageAnalysisMethod) {
+                                ForEach(ImageAnalysisMethod.allCases) { option in
+                                    Text(option.title(in: language)).tag(option)
+                                }
                             }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                            .fixedSize()
+                            .disabled(provider.wrappedValue == .appleIntelligence)
+                            .frame(width: Layout.imageAnalysisMethodPickerWidth, alignment: .trailing)
                         }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        .fixedSize()
-                        .disabled(provider.wrappedValue == .appleIntelligence)
-                        .frame(width: Layout.imageAnalysisMethodPickerWidth, alignment: .trailing)
+                        .frame(width: fieldWidth, alignment: .trailing)
                     }
-                    .frame(width: fieldWidth, alignment: .trailing)
                 }
 
                 if provider.wrappedValue.requiresRemoteConfiguration {

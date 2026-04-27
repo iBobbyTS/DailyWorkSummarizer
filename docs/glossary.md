@@ -7,6 +7,7 @@ This glossary keeps DeskBrief's common Simplified Chinese and English product te
 - Use `截屏` for the Chinese noun and adjective form of screenshots. Do not use `截图`.
 - Use `screenshot` for the English noun and adjective form.
 - Use `capture` only for the action or workflow of taking/saving a screenshot, such as `Capture`, `captured`, or `screenshot capture`.
+- Use `分析` / `analyze` for screenshot-analysis actions. Use `总结` / `summarize` for work-content and daily-report summary actions. Do not use legacy work-content analysis wording as a product term.
 - Keep feature names in title case in English UI labels, and concise sentence-style wording in Chinese UI labels.
 
 ## Core Product
@@ -16,7 +17,7 @@ This glossary keeps DeskBrief's common Simplified Chinese and English product te
 | DeskBrief | DeskBrief | Product name. Do not translate. |
 | 截屏 | Screenshot | Noun/adjective for saved screen images. |
 | 截屏分析 | Screenshot Analysis | Settings tab and model profile for analyzing screenshots. |
-| 工作内容分析 | Work Content Analysis | Settings tab and model profile for daily-report summarization. |
+| 工作内容总结 | Work Content Summary | Settings tab and model profile for daily-report summarization. |
 | 截屏间隔 | Screenshot interval | Time between periodic screenshot captures. |
 | 测试截屏 | Test Screenshot | Button label for preview capture. |
 | 正在测试截屏 | Testing screenshot | In-progress state for test screenshot capture. |
@@ -35,9 +36,9 @@ This glossary keeps DeskBrief's common Simplified Chinese and English product te
 | 定时分析时间 | Scheduled analysis time | Time field shown for scheduled start. |
 | 仅在充电时自动分析 | Only run automatic analysis while charging | Charger requirement for automatic triggers. |
 | 立即分析 | Analyze Now | Manual menu action. |
-| 暂停分析 | Pause Analysis | Manual pause action. |
+| 停止本次分析 | Stop Current Analysis | Manual stop action for the current analysis run. |
 | 正在分析 | Analyzing | Current run status. |
-| 正在暂停 | Stopping | Transitional pause status. |
+| 正在停止本次分析 | Stopping | Transitional stop status for the current analysis run. |
 | 待分析的截屏 | Screenshots pending analysis | Pending queue wording. |
 
 ## Model Settings

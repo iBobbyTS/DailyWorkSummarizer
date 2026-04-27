@@ -684,11 +684,11 @@ struct DeskBriefTests {
     @Test func pausingStagesUseDistinctMenuLabels() async throws {
         #expect(
             L10n.string(.menuAnalyzeNowPausingStoppingGeneration, language: .simplifiedChinese)
-                == "正在暂停（正在停止生成）"
+                == "正在停止本次分析（正在停止生成）"
         )
         #expect(
             L10n.string(.menuAnalyzeNowPausingUnloadingModel, language: .simplifiedChinese)
-                == "正在暂停（正在卸载模型）"
+                == "正在停止本次分析（正在卸载模型）"
         )
         #expect(
             L10n.string(.menuAnalyzeNowPausingStoppingGeneration, language: .english)
@@ -698,6 +698,34 @@ struct DeskBriefTests {
             L10n.string(.menuAnalyzeNowPausingUnloadingModel, language: .english)
                 == "Stopping (Unloading Model)"
         )
+    }
+
+    @Test func settingsTerminologySeparatesScreenshotAnalysisAndWorkContentSummary() async throws {
+        #expect(L10n.string(.settingsTabScreenshotAnalysis, language: .simplifiedChinese) == "截屏分析")
+        #expect(L10n.string(.settingsTabWorkContentAnalysis, language: .simplifiedChinese) == "工作内容总结")
+        #expect(L10n.string(.settingsModelCopyToWorkContent, language: .simplifiedChinese) == "复制到“工作内容总结”")
+        #expect(L10n.string(.settingsModelCopyToScreenshotAnalysis, language: .simplifiedChinese) == "复制到“截屏分析”")
+
+        #expect(L10n.string(.settingsTabScreenshotAnalysis, language: .english) == "Screenshot Analysis")
+        #expect(L10n.string(.settingsTabWorkContentAnalysis, language: .english) == "Work Content Summary")
+        #expect(L10n.string(.settingsModelCopyToWorkContent, language: .english) == "Copy to Work Content Summary")
+        #expect(L10n.string(.settingsModelCopyToScreenshotAnalysis, language: .english) == "Copy to Screenshot Analysis")
+
+        let legacyChineseWorkContentTerm = "工作内容" + "分析"
+        let legacyEnglishWorkContentTerm = "Work Content " + "Analysis"
+        let visibleWorkContentStrings = [
+            L10n.string(.settingsTabWorkContentAnalysis, language: .simplifiedChinese),
+            L10n.string(.settingsModelCopyToWorkContent, language: .simplifiedChinese),
+            L10n.string(.settingsModelCopyToWorkContentConfirmMessage, language: .simplifiedChinese)
+        ]
+        #expect(visibleWorkContentStrings.allSatisfy { !$0.contains(legacyChineseWorkContentTerm) })
+
+        let visibleEnglishWorkContentStrings = [
+            L10n.string(.settingsTabWorkContentAnalysis, language: .english),
+            L10n.string(.settingsModelCopyToWorkContent, language: .english),
+            L10n.string(.settingsModelCopyToWorkContentConfirmMessage, language: .english)
+        ]
+        #expect(visibleEnglishWorkContentStrings.allSatisfy { !$0.contains(legacyEnglishWorkContentTerm) })
     }
 
     @Test func runtimeErrorRecordingFiltersOutNonAPIErrors() async throws {
@@ -1612,6 +1640,8 @@ struct DeskBriefTests {
         store.modelName = "claude-screenshot"
         store.apiKey = "screenshot-key"
         store.lmStudioContextLength = 8192
+        store.imageAnalysisMethod = .multimodal
+        store.workContentImageAnalysisMethod = .ocr
 
         store.copyScreenshotAnalysisModelToWorkContent()
 
@@ -1619,12 +1649,15 @@ struct DeskBriefTests {
         #expect(store.workContentAPIBaseURL == "https://screenshot.example.com")
         #expect(store.workContentModelName == "claude-screenshot")
         #expect(store.workContentAPIKey == "screenshot-key")
+        #expect(store.workContentImageAnalysisMethod == .ocr)
 
         store.workContentProvider = .lmStudio
         store.workContentAPIBaseURL = "http://127.0.0.1:1234"
         store.workContentModelName = "work-content-model"
         store.workContentAPIKey = "work-content-key"
         store.workContentLMStudioContextLength = 12000
+        store.workContentImageAnalysisMethod = .ocr
+        store.imageAnalysisMethod = .multimodal
 
         store.copyWorkContentModelToScreenshotAnalysis()
 
@@ -1633,6 +1666,7 @@ struct DeskBriefTests {
         #expect(store.modelName == "work-content-model")
         #expect(store.apiKey == "work-content-key")
         #expect(store.lmStudioContextLength == 12000)
+        #expect(store.imageAnalysisMethod == .multimodal)
     }
 
     @Test func databaseMigratesAnalysisRunsToCompactSchema() async throws {

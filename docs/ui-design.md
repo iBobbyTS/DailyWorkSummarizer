@@ -12,7 +12,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 
 ## Settings Layout
 
-- `SettingsView` uses tabs for product areas: screenshot analysis, work content analysis, general, and report.
+- `SettingsView` uses tabs for product areas: screenshot analysis, work content summary, general, and report.
 - Each tab uses a leading-aligned vertical layout with `Layout.sectionSpacing` between major sections.
 - Section titles use `title2` semibold and should introduce the controls immediately below them.
 - Group related settings inside one rounded settings surface with row dividers.
@@ -31,6 +31,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - Utility actions such as test screenshot and opening folders live below the settings surface, not inside it.
 - The divider below the capture section should maintain the same vertical spacing above and below.
 - Category rows expose a compact color control before the name field. The control should offer the built-in 16-color preset palette and use the native macOS color picker for custom colors.
+- The image-analysis method picker belongs only to screenshot analysis. Work content summary uses a text-only model profile and should not expose screenshot-specific analysis controls.
 
 ## Menu Bar UI
 

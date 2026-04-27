@@ -215,8 +215,8 @@ final class AnalysisService {
         activeAnalysisRun?.isAcceptingAppends = false
         if activeRunSettings?.provider == .lmStudio {
             recordLMStudioLog(
-                chinese: "用户点击了暂停分析。",
-                english: "User requested to pause analysis."
+                chinese: "用户点击了停止本次分析。",
+                english: "User requested to stop current analysis."
             )
         }
         updateRuntimeState(
