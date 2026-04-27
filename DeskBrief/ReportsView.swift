@@ -77,7 +77,10 @@ final class ReportsViewModel: ObservableObject {
 
     func reload() {
         let persistedItems = (try? database.fetchReportSourceItems()) ?? []
-        sourceItems = Self.itemsIncludingDerivedAbsences(from: persistedItems)
+        sourceItems = Self.itemsIncludingDerivedAbsences(
+            from: persistedItems,
+            calendar: .reportCalendar
+        )
         rebuildRanges()
     }
 
@@ -264,7 +267,7 @@ final class ReportsViewModel: ObservableObject {
 
     nonisolated static func itemsIncludingDerivedAbsences(
         from persistedItems: [ReportSourceItem],
-        calendar: Calendar = .reportCalendar
+        calendar: Calendar
     ) -> [ReportSourceItem] {
         let anchors = persistedItems.sorted { lhs, rhs in
             if lhs.capturedAt == rhs.capturedAt {

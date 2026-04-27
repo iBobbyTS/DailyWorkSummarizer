@@ -13,7 +13,7 @@ enum AppDefaults {
     static let apiKeyAccount = "model-api-key.screenshot-analysis"
     static let workContentAPIKeyAccount = "model-api-key.work-content-analysis"
     static let defaultImageAnalysisMethod: ImageAnalysisMethod = .multimodal
-    static let absenceCategoryName = "离开"
+    nonisolated static let absenceCategoryName = "离开"
     static let preservedOtherCategoryName = "PRESERVED_OTHER"
     nonisolated static let temporaryReportPrefix = "TEMP_"
 
@@ -653,7 +653,7 @@ extension Date {
 }
 
 extension ReportSourceItem {
-    var endAt: Date {
+    nonisolated var endAt: Date {
         capturedAt.addingTimeInterval(TimeInterval(durationMinutes * 60))
     }
 }
