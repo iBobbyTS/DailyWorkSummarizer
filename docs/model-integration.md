@@ -30,6 +30,7 @@ It is responsible for:
 - exposing a provider contract summary through `LLMService.providerContract(for:)`
 
 LM Studio keeps one extra helper layer in `LMStudioAPI.swift` because the app also uses LM Studio's native model-management endpoints.
+Model lifecycle calls are intentionally kept outside `LLMService.send(_:)`: feature services must explicitly load an LM Studio model before sending chat requests.
 
 ## Screenshot analysis modes
 
@@ -136,8 +137,6 @@ Important constraint:
 - The app passes a configurable `context_length`.
 - The app always sets `store: false`, so LM Studio does not persist request history and the app does not continue prior chats with `previous_response_id`.
 - Timing diagnostics are surfaced more explicitly than for other providers.
-- On a user-initiated pause, the app first cancels the active generation request and only starts the unload call after the request has finished cancelling.
-- The unload step remains asynchronous so the UI stays responsive, but the pause state does not return to idle until the unload attempt finishes.
 - LM Studio pause and unload diagnostics are also written into `app_logs` with source `lm_studio` so the log window can be used for local debugging.
 - Request parameters used by the app:
   - `Authorization`
@@ -151,6 +150,52 @@ Important constraint:
   - `output[].content`
   - `stats`
   - `response_id`
+
+## LM Studio model lifecycle
+
+LM Studio does not rely on implicit loading through chat requests. Each business entry point that may send LM Studio chat requests first uses `LMStudioModelLifecycle`.
+
+Explicit lifecycle calls:
+
+- Load:
+  `POST /api/v1/models/load`
+  with `model`, `context_length`, and `echo_load_config: true`.
+- Unload:
+  `POST /api/v1/models/unload`
+  with the loaded model `instance_id`.
+- Fallback unload:
+  when the app did not capture an `instance_id`, it reads `GET /api/v1/models` and matches a loaded instance by trimmed model name plus `context_length`.
+
+Entry-point behavior:
+
+- Screenshot analysis loads the LM Studio analysis model once before a run and reuses it for all screenshots in that run.
+- The settings model test path uses `load -> chat -> unload`.
+- Independent daily-summary generation uses `load -> summary chat -> unload` when its profile is LM Studio.
+- Automatic daily-summary generation after a screenshot-analysis run can reuse, switch, or release the analysis model depending on the two model profiles.
+
+Automatic analysis-to-summary handoff rules:
+
+- LM Studio analysis plus LM Studio summary with equivalent configuration:
+  keep the analysis model loaded, run the summary, and leave the shared instance loaded.
+- LM Studio analysis plus LM Studio summary with different configuration:
+  unload the analysis model, load the summary model, run the summary, and leave the summary instance loaded.
+- LM Studio analysis plus non-LM Studio summary:
+  unload the analysis model before running the summary.
+- Non-LM Studio analysis plus LM Studio summary:
+  load the summary model before generation and unload it after generation.
+- Non-LM Studio analysis plus non-LM Studio summary:
+  no LM Studio lifecycle calls.
+
+LM Studio configuration equivalence compares:
+
+- normalized chat endpoint from `ModelProvider.lmStudio.requestURL(from:)`
+- trimmed model name
+- `lmStudioContextLength`
+
+The API key is not part of equivalence. Load, unload, and chat requests still use the API key from their own model profile.
+
+On a user-initiated pause, the app first cancels the active generation request and only starts the unload call after the request has finished cancelling.
+The pause state does not return to idle until the unload attempt finishes.
 
 ## Configuration model
 

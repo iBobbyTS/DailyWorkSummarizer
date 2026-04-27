@@ -37,6 +37,12 @@ enum DailyReportSummaryServiceError: LocalizedError {
     }
 }
 
+enum DailyReportLMStudioLifecyclePolicy {
+    case automaticUnload
+    case alreadyLoadedKeepLoaded
+    case loadAndKeepLoaded
+}
+
 private actor AsyncLock {
     private var isLocked = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -73,23 +79,35 @@ final class DailyReportSummaryService {
     private let database: AppDatabase
     private let settingsStore: SettingsStore
     private let llmService: LLMService
+    private let lmStudioLifecycle: LMStudioModelLifecycle
     private let lock = AsyncLock()
 
     init(
         database: AppDatabase,
         settingsStore: SettingsStore,
+        logStore: AppLogStore? = nil,
         session: URLSession? = nil
     ) {
         self.database = database
         self.settingsStore = settingsStore
         let resolvedSession = session ?? Self.makeSession()
         self.llmService = LLMService(session: resolvedSession)
+        self.lmStudioLifecycle = LMStudioModelLifecycle(session: resolvedSession) { [weak settingsStore, weak logStore] chinese, english in
+            Task { @MainActor in
+                guard let logStore else { return }
+                let language = settingsStore?.appLanguage ?? .current
+                let message = language == .simplifiedChinese ? chinese : english
+                logStore.add(level: .log, source: .lmStudio, message: message)
+            }
+        }
     }
 
-    func summarizeMissingDailyReportsIfNeeded() async {
+    func summarizeMissingDailyReportsIfNeeded(
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .automaticUnload
+    ) async {
         do {
             try await lock.withLock {
-                try await summarizeMissingDailyReportsLocked()
+                try await summarizeMissingDailyReportsLocked(lmStudioLifecyclePolicy: lmStudioLifecyclePolicy)
             }
         } catch {
             return
@@ -98,7 +116,7 @@ final class DailyReportSummaryService {
 
     func summarizeDay(_ dayStart: Date) async throws -> DailyReportRecord {
         try await lock.withLock {
-            try await summarizeDayLocked(dayStart)
+            try await summarizeDayLocked(dayStart, lmStudioLifecyclePolicy: .automaticUnload)
         }
     }
 
@@ -112,7 +130,9 @@ final class DailyReportSummaryService {
         return URLSession(configuration: configuration)
     }
 
-    private func summarizeMissingDailyReportsLocked() async throws {
+    private func summarizeMissingDailyReportsLocked(
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
+    ) async throws {
         let snapshot = await MainActor.run { settingsStore.snapshot }
         let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
         let reportableDayStarts = try fetchReportableActivityDayStarts(calendar: calendar)
@@ -129,31 +149,44 @@ final class DailyReportSummaryService {
         }
 
         let activityDaySet = Set(reportableDayStarts)
-        for dayStart in pendingDays {
-            do {
-                _ = try await summarizeDayLocked(
-                    dayStart,
-                    snapshot: snapshot,
-                    activityDaySet: activityDaySet
-                )
-            } catch {
-                continue
+        try await withLMStudioLifecycleIfNeeded(
+            settings: snapshot.workContentSummaryModelProfile,
+            policy: lmStudioLifecyclePolicy
+        ) {
+            for dayStart in pendingDays {
+                do {
+                    _ = try await summarizeDayContentLocked(
+                        dayStart,
+                        snapshot: snapshot,
+                        activityDaySet: activityDaySet
+                    )
+                } catch {
+                    continue
+                }
             }
         }
     }
 
-    private func summarizeDayLocked(_ dayStart: Date) async throws -> DailyReportRecord {
+    private func summarizeDayLocked(
+        _ dayStart: Date,
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
+    ) async throws -> DailyReportRecord {
         let snapshot = await MainActor.run { settingsStore.snapshot }
         let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
         let activityDaySet = Set(try fetchReportableActivityDayStarts(calendar: calendar))
-        return try await summarizeDayLocked(
-            dayStart,
-            snapshot: snapshot,
-            activityDaySet: activityDaySet
-        )
+        return try await withLMStudioLifecycleIfNeeded(
+            settings: snapshot.workContentSummaryModelProfile,
+            policy: lmStudioLifecyclePolicy
+        ) {
+            try await summarizeDayContentLocked(
+                dayStart,
+                snapshot: snapshot,
+                activityDaySet: activityDaySet
+            )
+        }
     }
 
-    private func summarizeDayLocked(
+    private func summarizeDayContentLocked(
         _ dayStart: Date,
         snapshot: AppSettingsSnapshot,
         activityDaySet: Set<Date>
@@ -217,6 +250,34 @@ final class DailyReportSummaryService {
         )
 
         return record
+    }
+
+    private func withLMStudioLifecycleIfNeeded<T>(
+        settings: ModelProfileSettings,
+        policy: DailyReportLMStudioLifecyclePolicy,
+        operation: () async throws -> T
+    ) async throws -> T {
+        guard settings.provider == .lmStudio else {
+            return try await operation()
+        }
+
+        switch policy {
+        case .alreadyLoadedKeepLoaded:
+            return try await operation()
+        case .loadAndKeepLoaded:
+            _ = try await lmStudioLifecycle.load(settings: settings)
+            return try await operation()
+        case .automaticUnload:
+            let loadedModel = try await lmStudioLifecycle.load(settings: settings)
+            do {
+                let result = try await operation()
+                try? await lmStudioLifecycle.unload(settings: settings, instanceID: loadedModel.instanceID)
+                return result
+            } catch {
+                try? await lmStudioLifecycle.unload(settings: settings, instanceID: loadedModel.instanceID)
+                throw error
+            }
+        }
     }
 
     private func buildPrompt(

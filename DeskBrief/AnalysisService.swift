@@ -130,6 +130,7 @@ final class AnalysisService {
     private let dailyReportSummaryService: DailyReportSummaryService
     private let session: URLSession
     private let llmService: LLMService
+    private let lmStudioLifecycle: LMStudioModelLifecycle
     private var timer: Timer?
     private var realtimeAnalysisTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
@@ -159,6 +160,14 @@ final class AnalysisService {
         let resolvedSession = session ?? Self.makeIsolatedSession()
         self.session = resolvedSession
         self.llmService = LLMService(session: resolvedSession)
+        self.lmStudioLifecycle = LMStudioModelLifecycle(session: resolvedSession) { [weak settingsStore, weak logStore] chinese, english in
+            Task { @MainActor in
+                guard let logStore else { return }
+                let language = settingsStore?.appLanguage ?? .current
+                let message = language == .simplifiedChinese ? chinese : english
+                logStore.add(level: .log, source: .lmStudio, message: message)
+            }
+        }
     }
 
     deinit {
@@ -271,8 +280,16 @@ final class AnalysisService {
             summaryInstruction: snapshot.summaryInstruction,
             language: snapshot.appLanguage
         )
+        var loadedModel: LMStudioLoadedModel?
         do {
+            loadedModel = try await loadScreenshotAnalysisModelIfNeeded(for: snapshot)
             let result = try await analyzeImageDetailed(at: imageFileURL, settings: snapshot, prompt: prompt)
+            if let loadedModel {
+                try? await lmStudioLifecycle.unload(
+                    settings: snapshot.screenshotAnalysisModelProfile,
+                    instanceID: loadedModel.instanceID
+                )
+            }
             return ModelTestResult(
                 provider: snapshot.provider,
                 imageAnalysisMethod: snapshot.provider == .appleIntelligence ? .ocr : snapshot.imageAnalysisMethod,
@@ -283,6 +300,12 @@ final class AnalysisService {
                 reasoningText: result.reasoningText
             )
         } catch {
+            if let loadedModel {
+                try? await lmStudioLifecycle.unload(
+                    settings: snapshot.screenshotAnalysisModelProfile,
+                    instanceID: loadedModel.instanceID
+                )
+            }
             if Self.shouldRecordRuntimeError(error) {
                 logStore.add(level: .error, source: .analysis, message: error.localizedDescription)
             }
@@ -462,6 +485,23 @@ final class AnalysisService {
             }
         }
 
+        let loadedAnalysisModel: LMStudioLoadedModel?
+        do {
+            loadedAnalysisModel = try await loadScreenshotAnalysisModelIfNeeded(for: snapshot)
+        } catch {
+            if Self.shouldRecordRuntimeError(error) {
+                logStore.add(level: .error, source: .analysis, message: error.localizedDescription)
+            }
+            try? database.finishAnalysisRun(
+                id: run.id,
+                status: "failed",
+                successCount: 0,
+                failureCount: run.totalCount,
+                errorMessage: error.localizedDescription
+            )
+            return
+        }
+
         func recordLMStudioCancellationObservationIfNeeded() {
             guard snapshot.provider == .lmStudio, !run.didLogLMStudioCancellationObservation else { return }
             run.didLogLMStudioCancellationObservation = true
@@ -589,7 +629,11 @@ final class AnalysisService {
                     stoppingStage: unloadingStage
                 )
             }
-            await stopModelIfNeeded(for: snapshot)
+            await unloadScreenshotAnalysisModelIfNeeded(
+                for: snapshot,
+                loadedInstanceID: loadedAnalysisModel?.instanceID,
+                cancelActiveRequest: true
+            )
             return
         }
 
@@ -604,7 +648,11 @@ final class AnalysisService {
                 averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
                 errorMessage: message
             )
-            await stopModelIfNeeded(for: snapshot)
+            await unloadScreenshotAnalysisModelIfNeeded(
+                for: snapshot,
+                loadedInstanceID: loadedAnalysisModel?.instanceID,
+                cancelActiveRequest: true
+            )
             return
         }
 
@@ -625,8 +673,57 @@ final class AnalysisService {
             averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
             errorMessage: run.failureCount > 0 ? localized(.analysisPartialFailures, language: snapshot.appLanguage) : nil
         )
+        await summarizeMissingReportsAfterAnalysis(
+            snapshot: snapshot,
+            loadedAnalysisModel: loadedAnalysisModel
+        )
+    }
+
+    private func loadScreenshotAnalysisModelIfNeeded(for snapshot: AppSettingsSnapshot) async throws -> LMStudioLoadedModel? {
+        guard snapshot.provider == .lmStudio else {
+            return nil
+        }
+
+        return try await lmStudioLifecycle.load(settings: snapshot.screenshotAnalysisModelProfile)
+    }
+
+    private func summarizeMissingReportsAfterAnalysis(
+        snapshot: AppSettingsSnapshot,
+        loadedAnalysisModel: LMStudioLoadedModel?
+    ) async {
+        let analysisSettings = snapshot.screenshotAnalysisModelProfile
+        let summarySettings = snapshot.workContentSummaryModelProfile
+
+        if analysisSettings.provider == .lmStudio {
+            if summarySettings.provider == .lmStudio {
+                if LMStudioAPI.hasEquivalentLoadConfiguration(analysisSettings, summarySettings) {
+                    await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded(
+                        lmStudioLifecyclePolicy: .alreadyLoadedKeepLoaded
+                    )
+                    return
+                }
+
+                await unloadScreenshotAnalysisModelIfNeeded(
+                    for: snapshot,
+                    loadedInstanceID: loadedAnalysisModel?.instanceID,
+                    cancelActiveRequest: false
+                )
+                await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded(
+                    lmStudioLifecyclePolicy: .loadAndKeepLoaded
+                )
+                return
+            }
+
+            await unloadScreenshotAnalysisModelIfNeeded(
+                for: snapshot,
+                loadedInstanceID: loadedAnalysisModel?.instanceID,
+                cancelActiveRequest: false
+            )
+            await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded()
+            return
+        }
+
         await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded()
-        await stopModelIfNeeded(for: snapshot)
     }
 
     private func pendingScreenshotFiles(defaultDurationMinutes: Int) -> [ScreenshotFileRecord] {
@@ -1159,102 +1256,42 @@ final class AnalysisService {
         }
     }
 
-    private func stopModelIfNeeded(for settings: AppSettingsSnapshot) async {
+    private func unloadScreenshotAnalysisModelIfNeeded(
+        for settings: AppSettingsSnapshot,
+        loadedInstanceID: String?,
+        cancelActiveRequest: Bool
+    ) async {
         if settings.provider == .lmStudio {
             let lastInstanceID = lastLMStudioModelInstanceID ?? "未记录"
             recordLMStudioLog(
                 chinese: "进入 LM Studio 清理阶段，Task.isCancelled=\(Task.isCancelled)，最近一次 chat 的 model_instance_id=\(lastInstanceID)。",
                 english: "Entering LM Studio cleanup. Task.isCancelled=\(Task.isCancelled), last chat model_instance_id=\(lastInstanceID)."
             )
-            recordLMStudioLog(
-                chinese: "再次向当前 LM Studio 请求发送取消。",
-                english: "Sending cancellation to the current LM Studio request again."
-            )
+            if cancelActiveRequest {
+                recordLMStudioLog(
+                    chinese: "再次向当前 LM Studio 请求发送取消。",
+                    english: "Sending cancellation to the current LM Studio request again."
+                )
+            }
         }
-        llmService.cancelActiveRemoteRequest()
 
-        guard settings.provider == .lmStudio,
-              let modelsURL = LMStudioAPI.modelsURL(from: settings.apiBaseURL) else {
+        if cancelActiveRequest {
+            llmService.cancelActiveRemoteRequest()
+        }
+
+        guard settings.provider == .lmStudio else {
             return
         }
 
         do {
-            recordLMStudioLog(
-                chinese: "开始请求 LM Studio /api/v1/models。",
-                english: "Requesting LM Studio /api/v1/models."
-            )
-            let listRequest = makeJSONRequest(url: modelsURL, method: "GET", apiKey: settings.apiKey)
-            let result = try await performDataRequest(for: listRequest)
-            guard let httpResponse = result.response as? HTTPURLResponse else {
-                recordLMStudioLog(
-                    chinese: "LM Studio /api/v1/models 未返回有效的 HTTP 响应。",
-                    english: "LM Studio /api/v1/models did not return a valid HTTP response."
-                )
-                return
-            }
-
-            let listResponseBody = Self.truncatedDebugText(String(decoding: result.data, as: UTF8.self))
-            guard (200..<300).contains(httpResponse.statusCode) else {
-                recordLMStudioLog(
-                    chinese: "LM Studio /api/v1/models 返回 \(httpResponse.statusCode)，响应：\(listResponseBody)",
-                    english: "LM Studio /api/v1/models returned \(httpResponse.statusCode). Body: \(listResponseBody)"
-                )
-                return
-            }
-
-            let modelsCount = LMStudioAPI.modelsCount(from: result.data) ?? 0
-            recordLMStudioLog(
-                chinese: "LM Studio /api/v1/models 成功，返回 \(modelsCount) 个模型。",
-                english: "LM Studio /api/v1/models succeeded and returned \(modelsCount) models."
-            )
-
-            guard let instanceID = LMStudioAPI.extractLoadedInstanceID(from: result.data, modelName: settings.modelName) else {
-                let lastInstanceID = lastLMStudioModelInstanceID ?? "未记录"
-                recordLMStudioLog(
-                    chinese: "未能为 modelName=\(settings.modelName) 匹配到已加载实例。最近一次 chat 的 model_instance_id=\(lastInstanceID)。",
-                    english: "Could not match a loaded instance for modelName=\(settings.modelName). Last chat model_instance_id=\(lastInstanceID)."
-                )
-                return
-            }
-
-            recordLMStudioLog(
-                chinese: "已匹配待卸载实例 \(instanceID)（modelName=\(settings.modelName)）。",
-                english: "Matched loaded instance \(instanceID) for modelName=\(settings.modelName)."
-            )
-
-            let unloadURL = modelsURL.appendingPathComponent("unload")
-            var unloadRequest = makeJSONRequest(url: unloadURL, method: "POST", apiKey: settings.apiKey)
-            unloadRequest.httpBody = try JSONSerialization.data(withJSONObject: ["instance_id": instanceID])
-            recordLMStudioLog(
-                chinese: "开始请求 LM Studio /api/v1/models/unload，instance_id=\(instanceID)。",
-                english: "Requesting LM Studio /api/v1/models/unload with instance_id=\(instanceID)."
-            )
-            let unloadResult = try await performDataRequest(for: unloadRequest)
-            guard let unloadHTTPResponse = unloadResult.response as? HTTPURLResponse else {
-                recordLMStudioLog(
-                    chinese: "LM Studio unload 未返回有效的 HTTP 响应。",
-                    english: "LM Studio unload did not return a valid HTTP response."
-                )
-                return
-            }
-
-            let unloadResponseBody = Self.truncatedDebugText(String(decoding: unloadResult.data, as: UTF8.self))
-            guard (200..<300).contains(unloadHTTPResponse.statusCode) else {
-                recordLMStudioLog(
-                    chinese: "LM Studio unload 返回 \(unloadHTTPResponse.statusCode)，响应：\(unloadResponseBody)",
-                    english: "LM Studio unload returned \(unloadHTTPResponse.statusCode). Body: \(unloadResponseBody)"
-                )
-                return
-            }
-
-            recordLMStudioLog(
-                chinese: "LM Studio unload 成功，instance_id=\(instanceID)。",
-                english: "LM Studio unload succeeded for instance_id=\(instanceID)."
+            try await lmStudioLifecycle.unload(
+                settings: settings.screenshotAnalysisModelProfile,
+                instanceID: loadedInstanceID
             )
         } catch {
             recordLMStudioLog(
-                chinese: "LM Studio 清理阶段发生错误：\(error.localizedDescription)",
-                english: "LM Studio cleanup failed: \(error.localizedDescription)"
+                chinese: "LM Studio 模型卸载失败：\(error.localizedDescription)",
+                english: "LM Studio model unload failed: \(error.localizedDescription)"
             )
             return
         }
@@ -1294,6 +1331,7 @@ final class AnalysisService {
         case AnalysisServiceError.invalidResponse,
              AnalysisServiceError.httpError,
              AnalysisServiceError.lengthTruncated,
+             is LMStudioModelLifecycleError,
              is URLError:
             return true
         default:

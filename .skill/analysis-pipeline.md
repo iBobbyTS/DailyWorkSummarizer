@@ -47,8 +47,10 @@
 
 日报汇总的关键入口：
 
-- `summarizeMissingDailyReportsIfNeeded()`
+- `summarizeMissingDailyReportsIfNeeded(lmStudioLifecyclePolicy:)`
 - `summarizeDay(_:)`
+- `summarizeDayLocked(_:lmStudioLifecyclePolicy:)`
+- `withLMStudioLifecycleIfNeeded(settings:policy:operation:)`
 - `requestSummary(prompt:settings:language:)`
 - `extractDailyReportResponse`
 
@@ -57,6 +59,9 @@
 - `LLMService.providerContract(for:)`
 - `LLMService.send(_:)`
 - `LMStudioAPI.parseChatResponse(from:)`
+- `LMStudioModelLifecycle.load(settings:)`
+- `LMStudioModelLifecycle.unload(settings:instanceID:)`
+- `LMStudioAPI.hasEquivalentLoadConfiguration(_:_:)`
 - `AppLogStore.add(level:source:message:)`
 
 当前行为边界：
@@ -74,6 +79,16 @@
 - 日报汇总始终是文本链路，不读取图片。
 - 日报汇总读取当天 `captured_at` 结果时，会额外读取当天开始前最后一条结果；如果这条结果按 `duration_minutes_snapshot` 跨入当天，会裁剪成从当天 00:00 开始的活动项。当天内跨到次日的结果也裁剪到当天结束。日报汇总不需要读取次日第一条结果，因为截屏结果自身已经保存了持续时长。
 - 工作内容总结始终走文本请求，不保留图像分析方法配置；设置页不在“工作内容总结”里展示截图专属分析控件。
+- LM Studio 不在 `LLMService.send(_:)` 内隐式加载；所有业务入口必须先显式调用 `LMStudioModelLifecycle.load`，成功后再发 chat。
+- 截屏分析 run 如果使用 LM Studio，只在 run 开始前加载一次分析模型，run 内多个截屏复用这次加载。
+- 设置页模型测试如果使用 LM Studio，顺序必须是 `load -> chat -> unload`。
+- 手动日报总结或普通补总结如果使用 LM Studio，顺序必须是 `load -> summary chat -> unload`。
+- 截屏分析自动衔接工作内容总结时：
+  - 分析和总结都是 LM Studio 且 endpoint/model/context 完全一致：不 unload、不 reload，直接总结，结束后仍保留该实例。
+  - 分析和总结都是 LM Studio 但配置不同：先卸载分析实例，再加载总结实例，结束后保留总结实例。
+  - 只有分析是 LM Studio：分析结束后先卸载，再跑总结。
+  - 只有总结是 LM Studio：总结开始前加载，结束后卸载。
+- LM Studio 配置等价只比较 `ModelProvider.lmStudio.requestURL(from:)` 规范化后的 chat endpoint、trimmed `modelName`、`lmStudioContextLength`；API key 不参与等价判断，但各请求仍使用自己 profile 的 key。
 
 排查顺序：
 
@@ -86,7 +101,7 @@
 - 要排查暂停、卸载或 provider 异常：
   先打开菜单里的“显示日志”，再结合 `app_logs` 表确认错误和调试事件是否真的落库。
 - 用户手动暂停分析：
-  先看 `AnalysisRuntimeState.stoppingStage`，LM Studio 正确顺序应该是先取消当前生成，再在取消完成后调用 unload；调试时优先筛选 `source = lm_studio` 的日志。
+  先看 `AnalysisRuntimeState.stoppingStage`，LM Studio 正确顺序应该是先取消当前生成，再在取消完成后调用 unload；如果没有已记录的 `instance_id`，`LMStudioModelLifecycle` 会读取 `/api/v1/models` 并按模型名和 context length 匹配 loaded instance；调试时优先筛选 `source = lm_studio` 的日志。
 
 改动时容易漏的点：
 

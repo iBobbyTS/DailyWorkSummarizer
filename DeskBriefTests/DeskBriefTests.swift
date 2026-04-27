@@ -52,6 +52,29 @@ struct DeskBriefTests {
         #expect(body["context_length"] as? Int == 12000)
     }
 
+    @Test func lmStudioLoadRequestAndResponseParsing() async throws {
+        let bodyData = try LMStudioAPI.buildLoadRequestBody(
+            modelName: "qwen3.5-8b",
+            contextLength: 12000
+        )
+        let body = try #require(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
+        let payload = """
+        {
+          "type": "llm",
+          "instance_id": "qwen3.5-8b-loaded",
+          "status": "loaded",
+          "load_config": {
+            "context_length": 12000
+          }
+        }
+        """
+
+        #expect(body["model"] as? String == "qwen3.5-8b")
+        #expect(body["context_length"] as? Int == 12000)
+        #expect(body["echo_load_config"] as? Bool == true)
+        #expect(LMStudioAPI.parseLoadResponseInstanceID(from: Data(payload.utf8)) == "qwen3.5-8b-loaded")
+    }
+
     @Test func lmStudioMultimodalChatRequestUsesTextAndImageInputItems() async throws {
         let bodyData = try LMStudioAPI.buildChatRequestBody(
             modelName: "qwen3.5-vl",
@@ -210,6 +233,48 @@ struct DeskBriefTests {
                 from: Data(payload.utf8),
                 modelName: "qwen3.5-27b-instruct"
             ) == "instance-123"
+        )
+    }
+
+    @Test func lmStudioLoadedInstanceMatchingRespectsContextLength() async throws {
+        let payload = """
+        {
+          "models": [
+            {
+              "key": "qwen3.5-27b",
+              "selected_variant": "qwen3.5-27b-instruct",
+              "loaded_instances": [
+                {
+                  "id": "short-context",
+                  "config": {
+                    "context_length": 6000
+                  }
+                },
+                {
+                  "id": "long-context",
+                  "config": {
+                    "context_length": 12000
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """
+
+        #expect(
+            LMStudioAPI.extractLoadedInstanceID(
+                from: Data(payload.utf8),
+                modelName: "qwen3.5-27b-instruct",
+                contextLength: 12000
+            ) == "long-context"
+        )
+        #expect(
+            LMStudioAPI.extractLoadedInstanceID(
+                from: Data(payload.utf8),
+                modelName: "qwen3.5-27b-instruct",
+                contextLength: 32000
+            ) == nil
         )
     }
 
@@ -1566,6 +1631,182 @@ struct DeskBriefTests {
     }
 
     @MainActor
+    @Test func lmStudioAnalysisAndSummarySameConfigurationKeepsModelLoaded() async throws {
+        let paths = try await runAnalysisLifecycleScenario(
+            analysisProvider: .lmStudio,
+            summaryProvider: .lmStudio,
+            summaryMatchesAnalysis: true
+        )
+
+        #expect(paths == ["/api/v1/models/load", "/api/v1/chat", "/api/v1/chat"])
+    }
+
+    @MainActor
+    @Test func lmStudioAnalysisAndDifferentLMStudioSummarySwitchesModels() async throws {
+        let paths = try await runAnalysisLifecycleScenario(
+            analysisProvider: .lmStudio,
+            summaryProvider: .lmStudio,
+            summaryMatchesAnalysis: false
+        )
+
+        #expect(paths == ["/api/v1/models/load", "/api/v1/chat", "/api/v1/models/unload", "/api/v1/models/load", "/api/v1/chat"])
+    }
+
+    @MainActor
+    @Test func lmStudioAnalysisUnloadsBeforeNonLMStudioSummary() async throws {
+        let paths = try await runAnalysisLifecycleScenario(
+            analysisProvider: .lmStudio,
+            summaryProvider: .openAI
+        )
+
+        #expect(paths == ["/api/v1/models/load", "/api/v1/chat", "/api/v1/models/unload", "/v1/chat/completions"])
+    }
+
+    @MainActor
+    @Test func nonLMStudioAnalysisLoadsAndUnloadsLMStudioSummary() async throws {
+        let paths = try await runAnalysisLifecycleScenario(
+            analysisProvider: .openAI,
+            summaryProvider: .lmStudio
+        )
+
+        #expect(paths == ["/v1/chat/completions", "/api/v1/models/load", "/api/v1/chat", "/api/v1/models/unload"])
+    }
+
+    @MainActor
+    @Test func lmStudioSettingsModelTestLoadsAndUnloadsExplicitly() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .lmStudio
+        store.apiBaseURL = "http://127.0.0.1:1234"
+        store.modelName = "analysis-model"
+        store.imageAnalysisMethod = .multimodal
+
+        let screenshotURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("jpg")
+        try writeTestScreenshotPlaceholder(to: screenshotURL)
+        defer { try? FileManager.default.removeItem(at: screenshotURL) }
+
+        let session = makeMockSession { request in
+            try lmStudioLifecycleTestResponse(for: request)
+        }
+        let logStore = AppLogStore(database: database)
+        let summaryService = DailyReportSummaryService(
+            database: database,
+            settingsStore: store,
+            logStore: logStore,
+            session: session
+        )
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: logStore,
+            dailyReportSummaryService: summaryService,
+            session: session
+        )
+
+        _ = try await service.testCurrentSettings(with: screenshotURL)
+
+        #expect(MockURLProtocol.requestPaths == ["/api/v1/models/load", "/api/v1/chat", "/api/v1/models/unload"])
+    }
+
+    private func runAnalysisLifecycleScenario(
+        analysisProvider: ModelProvider,
+        summaryProvider: ModelProvider,
+        summaryMatchesAnalysis: Bool = false
+    ) async throws -> [String] {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let dayOne = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
+        let dayTwo = calendar.date(byAdding: .day, value: 1, to: dayOne)!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = analysisProvider
+        store.apiBaseURL = analysisProvider == .lmStudio ? "http://127.0.0.1:1234" : "https://analysis.example.com"
+        store.modelName = "analysis-model"
+        store.lmStudioContextLength = 6000
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .manual
+
+        store.workContentSummaryProvider = summaryProvider
+        store.workContentSummaryAPIBaseURL = summaryProvider == .lmStudio
+            ? "http://127.0.0.1:1234"
+            : "https://summary.example.com"
+        store.workContentSummaryModelName = summaryMatchesAnalysis ? "analysis-model" : "summary-model"
+        store.workContentSummaryLMStudioContextLength = summaryMatchesAnalysis ? 6000 : 12000
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: dayOne)!,
+            categoryName: "专注工作",
+            summaryText: "实现前一天功能",
+            durationMinutesSnapshot: 30
+        )
+
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        let screenshotURL = screenshotsDirectory.appendingPathComponent("20260313-1000-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: screenshotURL)
+
+        let session = makeMockSession { request in
+            try lmStudioLifecycleTestResponse(for: request)
+        }
+        let logStore = AppLogStore(database: database)
+        let summaryService = DailyReportSummaryService(
+            database: database,
+            settingsStore: store,
+            logStore: logStore,
+            session: session
+        )
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: logStore,
+            dailyReportSummaryService: summaryService,
+            session: session
+        )
+
+        service.runNow()
+        let didFinish = await waitUntil(timeoutSeconds: 8) {
+            !service.currentState.isRunning
+        }
+
+        #expect(didFinish)
+        #expect(try database.fetchDailyReport(for: dayOne) != nil)
+        return MockURLProtocol.requestPaths
+    }
+
+    @MainActor
     @Test func settingsStoreKeepsPreservedOtherLastAndRejectsReservedPrefixNames() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DeskBriefTests.\(UUID().uuidString)"
@@ -2805,6 +3046,91 @@ private func makeHTTPResponse(
     return (response, Data(body.utf8))
 }
 
+private func lmStudioLifecycleTestResponse(for request: URLRequest) throws -> (HTTPURLResponse, Data) {
+    let path = try #require(request.url?.path)
+    let requestBody = requestBodyData(from: request)
+    let body = try requestBody.flatMap {
+        try JSONSerialization.jsonObject(with: $0) as? [String: Any]
+    } ?? [:]
+
+    switch path {
+    case "/api/v1/models/load":
+        let model = try #require(body["model"] as? String)
+        #expect(body["context_length"] as? Int != nil)
+        #expect(body["echo_load_config"] as? Bool == true)
+        return try makeHTTPResponse(
+            url: try #require(request.url),
+            body: """
+            {
+              "type": "llm",
+              "instance_id": "\(model)-instance",
+              "status": "loaded"
+            }
+            """
+        )
+    case "/api/v1/models/unload":
+        let instanceID = try #require(body["instance_id"] as? String)
+        return try makeHTTPResponse(
+            url: try #require(request.url),
+            body: #"{"instance_id":"\#(instanceID)"}"#
+        )
+    case "/api/v1/chat":
+        if body["input"] is String {
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: """
+                {
+                  "model_instance_id": "summary-model-instance",
+                  "output": [
+                    {
+                      "type": "message",
+                      "content": "{\\"dailySummary\\":\\"完成了前一天日报总结\\",\\"categorySummaries\\":{\\"专注工作\\":\\"总结了前一天专注工作\\"}}"
+                    }
+                  ]
+                }
+                """
+            )
+        }
+
+        return try makeHTTPResponse(
+            url: try #require(request.url),
+            body: """
+            {
+              "model_instance_id": "analysis-model-instance",
+              "output": [
+                {
+                  "type": "message",
+                  "content": "{\\"category\\":\\"专注工作\\",\\"summary\\":\\"完成截屏分析\\"}"
+                }
+              ]
+            }
+            """
+        )
+    case "/v1/chat/completions":
+        let model = try #require(body["model"] as? String)
+        let responseText = model == "summary-model"
+            ? #"{\"dailySummary\":\"完成了前一天日报总结\",\"categorySummaries\":{\"专注工作\":\"总结了前一天专注工作\"}}"#
+            : #"{\"category\":\"专注工作\",\"summary\":\"完成截屏分析\"}"#
+        return try makeHTTPResponse(
+            url: try #require(request.url),
+            body: """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "\(responseText)"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+        )
+    default:
+        throw URLError(.badURL)
+    }
+}
+
 private func requestBodyData(from request: URLRequest) -> Data? {
     if let body = request.httpBody {
         return body
@@ -2837,11 +3163,13 @@ private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     static var requestHandler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
     static var requestCount = 0
     static var lastRequestedModel: String?
+    static var requestPaths: [String] = []
 
     static func reset() {
         requestHandler = nil
         requestCount = 0
         lastRequestedModel = nil
+        requestPaths = []
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -2859,6 +3187,9 @@ private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
         }
 
         do {
+            if let path = request.url?.path {
+                Self.requestPaths.append(path)
+            }
             let (response, data) = try handler(request)
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)

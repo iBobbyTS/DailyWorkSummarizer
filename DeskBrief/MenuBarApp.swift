@@ -57,7 +57,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             self.settingsStore = settingsStore
             self.logStore = logStore
             self.screenshotService = ScreenshotService(database: database, settingsStore: settingsStore)
-            let dailyReportSummaryService = DailyReportSummaryService(database: database, settingsStore: settingsStore)
+            let dailyReportSummaryService = DailyReportSummaryService(
+                database: database,
+                settingsStore: settingsStore,
+                logStore: logStore
+            )
             self.dailyReportSummaryService = dailyReportSummaryService
             self.analysisService = AnalysisService(
                 database: database,
