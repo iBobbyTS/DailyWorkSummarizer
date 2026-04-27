@@ -98,6 +98,15 @@ final class ReportsViewModel: ObservableObject {
         settingsStore.appLanguage
     }
 
+    var categoryColorMap: [String: Color] {
+        var colors: [String: Color] = [:]
+        for rule in settingsStore.categoryRules {
+            colors[rule.name] = rule.displayColor
+        }
+        colors[AppDefaults.absenceCategoryName] = Color(hexRGB: AppDefaults.absenceCategoryColorHex)
+        return colors
+    }
+
     var selectedRange: ReportRange? {
         allRanges.first(where: { $0.id == selectedRangeID })
     }
@@ -645,8 +654,12 @@ struct ReportsView: View {
     }
 
     private var rightPanel: some View {
+        let configuredCategoryColors = viewModel.categoryColorMap
         let categoryColors = Dictionary(uniqueKeysWithValues: viewModel.chartItems.enumerated().map { index, item in
-            (item.category, Self.palette[index % Self.palette.count])
+            (
+                item.category,
+                configuredCategoryColors[item.category] ?? Color(hexRGB: AppDefaults.categoryColorPreset(at: index))
+            )
         })
         let barChartItems = viewModel.chartItems.filter { $0.category != AppDefaults.absenceCategoryName }
         let visibleLegendItems = viewModel.selectedVisualization == .barChart ? barChartItems : viewModel.chartItems
@@ -723,7 +736,7 @@ struct ReportsView: View {
                 WrappingFlowLayout(horizontalSpacing: 10, verticalSpacing: 10) {
                     ForEach(Array(visibleLegendItems.enumerated()), id: \.element.category) { index, item in
                         legendItem(
-                            color: Self.palette[index % Self.palette.count],
+                            color: categoryColors[item.category] ?? Color(hexRGB: AppDefaults.categoryColorPreset(at: index)),
                             item: item
                         )
                     }
@@ -740,7 +753,7 @@ struct ReportsView: View {
                                 x: .value(text(.reportCategoryAxis), displayCategory(item.category)),
                                 y: .value(text(.reportTotalHoursAxis), item.hours)
                             )
-                            .foregroundStyle(Self.palette[index % Self.palette.count])
+                            .foregroundStyle(categoryColors[item.category] ?? Color(hexRGB: AppDefaults.categoryColorPreset(at: index)))
                             .annotation(position: .top) {
                                 Text(item.hours.durationText(for: viewModel.selectedKind, language: language))
                                     .font(.caption)
@@ -924,14 +937,6 @@ struct ReportsView: View {
         L10n.displayCategoryName(categoryName, language: language)
     }
 
-    private static let palette: [Color] = [
-        Color(red: 0.18, green: 0.45, blue: 0.78),
-        Color(red: 0.86, green: 0.44, blue: 0.24),
-        Color(red: 0.26, green: 0.62, blue: 0.38),
-        Color(red: 0.67, green: 0.38, blue: 0.72),
-        Color(red: 0.82, green: 0.68, blue: 0.18),
-        Color(red: 0.18, green: 0.63, blue: 0.68),
-    ]
 }
 
 private struct WrappingFlowLayout: Layout {

@@ -89,7 +89,7 @@ final class AppDatabase: @unchecked Sendable {
     func fetchCategoryRules() throws -> [CategoryRule] {
         try queue.sync {
             let statement = try prepareStatement("""
-                SELECT id, name, description
+                SELECT id, name, description, color_hex
                 FROM category_rules
                 ORDER BY sort_order ASC;
             """)
@@ -100,7 +100,15 @@ final class AppDatabase: @unchecked Sendable {
                 let idString = string(at: 0, from: statement)
                 let name = string(at: 1, from: statement)
                 let description = string(at: 2, from: statement)
-                result.append(CategoryRule(id: UUID(uuidString: idString) ?? UUID(), name: name, description: description))
+                let colorHex = string(at: 3, from: statement)
+                result.append(
+                    CategoryRule(
+                        id: UUID(uuidString: idString) ?? UUID(),
+                        name: name,
+                        description: description,
+                        colorHex: colorHex
+                    )
+                )
             }
             return result
         }
@@ -112,8 +120,8 @@ final class AppDatabase: @unchecked Sendable {
             do {
                 try executeLocked("DELETE FROM category_rules;")
                 let statement = try prepareStatement("""
-                    INSERT INTO category_rules (id, name, description, sort_order)
-                    VALUES (?, ?, ?, ?);
+                    INSERT INTO category_rules (id, name, description, color_hex, sort_order)
+                    VALUES (?, ?, ?, ?, ?);
                 """)
                 defer { sqlite3_finalize(statement) }
 
@@ -124,7 +132,8 @@ final class AppDatabase: @unchecked Sendable {
                     bind(rule.id.uuidString, at: 1, to: statement)
                     bind(rule.name, at: 2, to: statement)
                     bind(rule.description, at: 3, to: statement)
-                    sqlite3_bind_int64(statement, 4, Int64(index))
+                    bind(rule.colorHex, at: 4, to: statement)
+                    sqlite3_bind_int64(statement, 5, Int64(index))
 
                     guard sqlite3_step(statement) == SQLITE_DONE else {
                         throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
@@ -562,6 +571,7 @@ final class AppDatabase: @unchecked Sendable {
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
+                color_hex TEXT NOT NULL,
                 sort_order INTEGER NOT NULL
             );
         """)
@@ -686,6 +696,7 @@ final class AppDatabase: @unchecked Sendable {
             "id",
             "name",
             "description",
+            "color_hex",
             "sort_order",
         ]
         guard columns != expectedColumns else {
@@ -698,25 +709,48 @@ final class AppDatabase: @unchecked Sendable {
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
+                color_hex TEXT NOT NULL,
                 sort_order INTEGER NOT NULL
             );
         """)
         let legacyColumns = Set(columns)
+        let colorHexExpression = categoryRuleColorHexMigrationExpression(legacyColumns: legacyColumns)
         try executeLocked("""
             INSERT INTO category_rules (
                 id,
                 name,
                 description,
+                color_hex,
                 sort_order
             )
             SELECT
                 \(legacyColumns.contains("id") ? "id" : "lower(hex(randomblob(16)))"),
                 \(legacyColumns.contains("name") ? "name" : "''"),
                 \(legacyColumns.contains("description") ? "description" : "''"),
+                \(colorHexExpression),
                 \(legacyColumns.contains("sort_order") ? "sort_order" : "0")
             FROM category_rules_legacy;
         """)
         try executeLocked("DROP TABLE category_rules_legacy;")
+    }
+
+    private func categoryRuleColorHexMigrationExpression(legacyColumns: Set<String>) -> String {
+        guard !legacyColumns.contains("color_hex") else {
+            return "color_hex"
+        }
+
+        let sortOrderExpression = legacyColumns.contains("sort_order") ? "ABS(sort_order)" : "0"
+        let cases = AppDefaults.categoryColorPresets.enumerated()
+            .map { index, colorHex in
+                "WHEN \(index) THEN '\(colorHex)'"
+            }
+            .joined(separator: "\n                ")
+        return """
+        CASE ((\(sortOrderExpression)) % \(AppDefaults.categoryColorPresets.count))
+                \(cases)
+                ELSE '\(AppDefaults.defaultCategoryColorHex)'
+                END
+        """
     }
 
     private func migrateAnalysisResultsIfNeeded() throws {

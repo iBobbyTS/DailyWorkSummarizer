@@ -16,7 +16,7 @@ The app stores runtime data under Application Support:
 ## Database tables
 
 - `category_rules`
-  User-defined category definitions and ordering, without timestamp metadata.
+  User-defined category definitions, fixed display colors, and ordering, without timestamp metadata.
 - `analysis_runs`
   One compact record per analysis batch, including run status, model name, item counts, average item duration, and run-level error text.
   `total_items` can grow during an active run when new screenshots are appended to the same queue.

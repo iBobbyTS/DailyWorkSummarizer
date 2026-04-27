@@ -565,6 +565,25 @@ struct DeskBriefTests {
         #expect(components.minute == 30)
     }
 
+    @Test func reportDurationsUseSharedMinuteHourAndHourOnlyThresholds() async throws {
+        let fiftyNineMinutes = 59.0 / 60.0
+        let sixtyMinutes = 60.0 / 60.0
+        let fiveThousandNineHundredNinetyNineMinutes = 5_999.0 / 60.0
+        let sixThousandThirtyMinutes = 6_030.0 / 60.0
+
+        for kind in ReportKind.allCases {
+            #expect(fiftyNineMinutes.durationText(for: kind, language: .simplifiedChinese) == "59 分钟")
+            #expect(sixtyMinutes.durationText(for: kind, language: .simplifiedChinese) == "1 小时")
+            #expect(fiveThousandNineHundredNinetyNineMinutes.durationText(for: kind, language: .simplifiedChinese) == "99 小时 59 分")
+            #expect(sixThousandThirtyMinutes.durationText(for: kind, language: .simplifiedChinese) == "100 小时")
+
+            #expect(fiftyNineMinutes.durationText(for: kind, language: .english) == "59 minutes")
+            #expect(sixtyMinutes.durationText(for: kind, language: .english) == "1 hr")
+            #expect(fiveThousandNineHundredNinetyNineMinutes.durationText(for: kind, language: .english) == "99 hrs 59 min")
+            #expect(sixThousandThirtyMinutes.durationText(for: kind, language: .english) == "100 hrs")
+        }
+    }
+
     @Test func captureSkipsWhenMouseLocationAndFrontmostAppAreUnchanged() async throws {
         let shouldSkip = ScreenshotService.shouldSkipCapture(
             currentMouseLocation: CGPoint(x: 120, y: 240),
@@ -730,9 +749,15 @@ struct DeskBriefTests {
         #expect(chineseRules.last?.name == AppDefaults.preservedOtherCategoryName)
         #expect(englishRules.last?.name == AppDefaults.preservedOtherCategoryName)
         #expect(chineseRules.last?.description == AppDefaults.preservedOtherCategoryDescription(language: .simplifiedChinese))
+        #expect(chineseRules.map(\.colorHex) == [
+            AppDefaults.categoryColorPreset(at: 0),
+            AppDefaults.categoryColorPreset(at: 1),
+            AppDefaults.categoryColorPreset(at: 2),
+            AppDefaults.categoryColorPreset(at: 15),
+        ])
     }
 
-    @Test func databaseMigratesCategoryRulesToOrderingOnlySchema() async throws {
+    @Test func databaseMigratesCategoryRulesToColorSchema() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: databaseURL) }
 
@@ -768,11 +793,15 @@ struct DeskBriefTests {
         let columns = try columnNames(in: "category_rules", databaseURL: databaseURL)
         let rules = try database.fetchCategoryRules()
 
-        #expect(columns == ["id", "name", "description", "sort_order"])
+        #expect(columns == ["id", "name", "description", "color_hex", "sort_order"])
         #expect(!columns.contains("created_at"))
         #expect(!columns.contains("updated_at"))
         #expect(rules.map(\.name) == ["专注工作", "会议沟通"])
         #expect(rules.map(\.description) == ["写代码", "同步信息"])
+        #expect(rules.map(\.colorHex) == [
+            AppDefaults.categoryColorPreset(at: 0),
+            AppDefaults.categoryColorPreset(at: 1),
+        ])
     }
 
     @MainActor
@@ -1512,14 +1541,20 @@ struct DeskBriefTests {
 
         store.addCategoryRule()
         let newlyAddedRule = try #require(store.categoryRules.dropLast().last)
+        #expect(newlyAddedRule.colorHex == AppDefaults.categoryColorPreset(at: 1))
         store.updateCategoryRuleName(id: newlyAddedRule.id, name: "课程学习")
+        store.updateCategoryRuleColor(id: newlyAddedRule.id, colorHex: "123abc")
 
         let preservedRuleID = try #require(store.categoryRules.last?.id)
         store.updateCategoryRuleDescription(id: preservedRuleID, description: "用户自定义的其他内容描述")
 
         #expect(store.categoryRules.last?.name == AppDefaults.preservedOtherCategoryName)
         #expect(store.categoryRules.dropLast().last?.name == "课程学习")
+        #expect(store.categoryRules.dropLast().last?.colorHex == "#123ABC")
         #expect(store.categoryRules.last?.description == "用户自定义的其他内容描述")
+
+        let persistedRules = try database.fetchCategoryRules()
+        #expect(persistedRules.dropLast().last?.colorHex == "#123ABC")
     }
 
     @MainActor

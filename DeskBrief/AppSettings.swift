@@ -289,7 +289,10 @@ final class SettingsStore: ObservableObject {
     func addCategoryRule() {
         clearCategoryRulesValidationMessage()
         let insertIndex = max(categoryRules.count - 1, 0)
-        categoryRules.insert(CategoryRule(), at: insertIndex)
+        categoryRules.insert(
+            CategoryRule(colorHex: AppDefaults.categoryColorPreset(at: insertIndex)),
+            at: insertIndex
+        )
         saveCategoryRules()
     }
 
@@ -316,6 +319,16 @@ final class SettingsStore: ObservableObject {
     func updateCategoryRuleDescription(id: UUID, description: String) {
         guard let index = categoryRules.firstIndex(where: { $0.id == id }) else { return }
         categoryRules[index].description = description
+        clearCategoryRulesValidationMessage()
+        saveCategoryRules()
+    }
+
+    func updateCategoryRuleColor(id: UUID, colorHex: String) {
+        guard let index = categoryRules.firstIndex(where: { $0.id == id }),
+              let normalizedColorHex = AppDefaults.normalizedCategoryColorHex(colorHex) else {
+            return
+        }
+        categoryRules[index].colorHex = normalizedColorHex
         clearCategoryRulesValidationMessage()
         saveCategoryRules()
     }
@@ -380,17 +393,31 @@ final class SettingsStore: ObservableObject {
     }
 
     private static func normalizedCategoryRules(_ rules: [CategoryRule], language: AppLanguage) -> [CategoryRule] {
-        let preservedDescription = rules
-            .first(where: { $0.isPreservedOther })?
+        let preservedSource = rules.first { $0.isPreservedOther }
+        let preservedDescription = preservedSource?
             .description
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let preservedColorHex = AppDefaults.normalizedCategoryColorHex(preservedSource?.colorHex)
+            ?? AppDefaults.categoryColorPreset(at: 15)
+        let editableRules = rules
+            .filter { !$0.isPreservedOther }
+            .enumerated()
+            .map { index, rule in
+                CategoryRule(
+                    id: rule.id,
+                    name: rule.name,
+                    description: rule.description,
+                    colorHex: AppDefaults.normalizedCategoryColorHex(rule.colorHex)
+                        ?? AppDefaults.categoryColorPreset(at: index)
+                )
+            }
         let preservedRule = CategoryRule(
             name: AppDefaults.preservedOtherCategoryName,
             description: (preservedDescription?.isEmpty == false)
                 ? preservedDescription!
-                : AppDefaults.preservedOtherCategoryDescription(language: language)
+                : AppDefaults.preservedOtherCategoryDescription(language: language),
+            colorHex: preservedColorHex
         )
-        let editableRules = rules.filter { !$0.isPreservedOther }
         return editableRules + [preservedRule]
     }
 

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 
@@ -16,6 +17,46 @@ enum AppDefaults {
     nonisolated static let absenceCategoryName = "离开"
     static let preservedOtherCategoryName = "PRESERVED_OTHER"
     nonisolated static let temporaryReportPrefix = "TEMP_"
+    nonisolated static let absenceCategoryColorHex = "#8E8E93"
+    nonisolated static let categoryColorPresets = [
+        "#2F7DD1",
+        "#E1733B",
+        "#45A564",
+        "#B260C4",
+        "#D7B72D",
+        "#35A6B2",
+        "#D94C6A",
+        "#7A64D8",
+        "#4B8E3F",
+        "#D0832F",
+        "#4C78A8",
+        "#9D755D",
+        "#72B7B2",
+        "#F58518",
+        "#54A24B",
+        "#8E8E93",
+    ]
+    nonisolated static var defaultCategoryColorHex: String {
+        categoryColorPresets[0]
+    }
+
+    nonisolated static func categoryColorPreset(at index: Int) -> String {
+        categoryColorPresets[((index % categoryColorPresets.count) + categoryColorPresets.count) % categoryColorPresets.count]
+    }
+
+    nonisolated static func normalizedCategoryColorHex(_ colorHex: String?) -> String? {
+        guard let colorHex else {
+            return nil
+        }
+
+        let trimmed = colorHex.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawHex = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
+        guard rawHex.count == 6,
+              rawHex.allSatisfy({ $0.isHexDigit }) else {
+            return nil
+        }
+        return "#\(rawHex.uppercased())"
+    }
 
     static func defaultAnalysisSummaryInstruction(language: AppLanguage) -> String {
         switch language {
@@ -30,16 +71,16 @@ enum AppDefaults {
         switch language {
         case .simplifiedChinese:
             return [
-                CategoryRule(name: "专注工作", description: "正在编码、写文档、阅读技术资料或完成明确的工作任务"),
-                CategoryRule(name: "会议沟通", description: "正在开会、聊天、回消息或处理协作沟通类事项"),
-                CategoryRule(name: "休息离开", description: "离开工位、娱乐浏览或进行与工作无关的活动"),
+                CategoryRule(name: "专注工作", description: "正在编码、写文档、阅读技术资料或完成明确的工作任务", colorHex: categoryColorPreset(at: 0)),
+                CategoryRule(name: "会议沟通", description: "正在开会、聊天、回消息或处理协作沟通类事项", colorHex: categoryColorPreset(at: 1)),
+                CategoryRule(name: "休息离开", description: "离开工位、娱乐浏览或进行与工作无关的活动", colorHex: categoryColorPreset(at: 2)),
                 preservedOtherCategoryRule(language: language),
             ]
         case .english:
             return [
-                CategoryRule(name: "Focused Work", description: "Coding, writing docs, reading technical materials, or completing clearly defined work"),
-                CategoryRule(name: "Meetings & Communication", description: "Meetings, chatting, replying to messages, or other collaboration-heavy tasks"),
-                CategoryRule(name: "Break / Away", description: "Away from the desk, casual browsing, entertainment, or non-work activities"),
+                CategoryRule(name: "Focused Work", description: "Coding, writing docs, reading technical materials, or completing clearly defined work", colorHex: categoryColorPreset(at: 0)),
+                CategoryRule(name: "Meetings & Communication", description: "Meetings, chatting, replying to messages, or other collaboration-heavy tasks", colorHex: categoryColorPreset(at: 1)),
+                CategoryRule(name: "Break / Away", description: "Away from the desk, casual browsing, entertainment, or non-work activities", colorHex: categoryColorPreset(at: 2)),
                 preservedOtherCategoryRule(language: language),
             ]
         }
@@ -57,7 +98,8 @@ enum AppDefaults {
     static func preservedOtherCategoryRule(language: AppLanguage) -> CategoryRule {
         CategoryRule(
             name: preservedOtherCategoryName,
-            description: preservedOtherCategoryDescription(language: language)
+            description: preservedOtherCategoryDescription(language: language),
+            colorHex: categoryColorPreset(at: 15)
         )
     }
 }
@@ -243,8 +285,8 @@ enum ReportVisualization: String, CaseIterable, Identifiable {
 
 enum DurationDisplayStyle {
     case minute
+    case hourOnly
     case hourAndMinute
-    case dayAndHour
 }
 
 enum ReportWeekStart: String, CaseIterable, Codable, Identifiable {
@@ -280,11 +322,18 @@ struct CategoryRule: Identifiable, Codable, Hashable {
     var id: UUID
     var name: String
     var description: String
+    var colorHex: String
 
-    init(id: UUID = UUID(), name: String = "", description: String = "") {
+    init(
+        id: UUID = UUID(),
+        name: String = "",
+        description: String = "",
+        colorHex: String = AppDefaults.defaultCategoryColorHex
+    ) {
         self.id = id
         self.name = name
         self.description = description
+        self.colorHex = AppDefaults.normalizedCategoryColorHex(colorHex) ?? AppDefaults.defaultCategoryColorHex
     }
 
     var isPreservedOther: Bool {
@@ -293,6 +342,10 @@ struct CategoryRule: Identifiable, Codable, Hashable {
 
     func displayName(in language: AppLanguage) -> String {
         isPreservedOther ? L10n.displayCategoryName(name, language: language) : name
+    }
+
+    var displayColor: Color {
+        Color(hexRGB: colorHex)
     }
 }
 
@@ -664,24 +717,45 @@ extension Double {
         return L10n.durationText(totalMinutes: totalMinutes, style: style, language: language)
     }
 
-    func durationText(for kind: ReportKind, language: AppLanguage = .current) -> String {
+    func durationText(for _: ReportKind, language: AppLanguage = .current) -> String {
         let totalMinutes = max(Int((self * 60).rounded()), 0)
         let style: DurationDisplayStyle
 
-        switch kind {
-        case .day, .week:
-            style = totalMinutes >= 60 ? .hourAndMinute : .minute
-        case .month, .year:
-            if totalMinutes >= 24 * 60 {
-                style = .dayAndHour
-            } else if totalMinutes >= 60 {
-                style = .hourAndMinute
-            } else {
-                style = .minute
-            }
+        if totalMinutes < 60 {
+            style = .minute
+        } else if totalMinutes < 6_000 {
+            style = .hourAndMinute
+        } else {
+            style = .hourOnly
         }
 
         return durationText(style: style, language: language)
+    }
+}
+
+extension Color {
+    init(hexRGB: String) {
+        let normalized = AppDefaults.normalizedCategoryColorHex(hexRGB) ?? AppDefaults.defaultCategoryColorHex
+        let hex = String(normalized.dropFirst())
+        let scanner = Scanner(string: hex)
+        var value: UInt64 = 0
+        scanner.scanHexInt64(&value)
+
+        let red = Double((value & 0xFF0000) >> 16) / 255.0
+        let green = Double((value & 0x00FF00) >> 8) / 255.0
+        let blue = Double(value & 0x0000FF) / 255.0
+        self.init(red: red, green: green, blue: blue)
+    }
+
+    var hexRGB: String? {
+        guard let color = NSColor(self).usingColorSpace(.sRGB) else {
+            return nil
+        }
+
+        let red = max(0, min(255, Int((color.redComponent * 255).rounded())))
+        let green = max(0, min(255, Int((color.greenComponent * 255).rounded())))
+        let blue = max(0, min(255, Int((color.blueComponent * 255).rounded())))
+        return String(format: "#%02X%02X%02X", red, green, blue)
     }
 }
 

@@ -30,6 +30,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - The charger requirement is displayed below scheduled analysis time and is disabled only when automatic analysis is off.
 - Utility actions such as test screenshot and opening folders live below the settings surface, not inside it.
 - The divider below the capture section should maintain the same vertical spacing above and below.
+- Category rows expose a compact color control before the name field. The control should offer the built-in 16-color preset palette and use the native macOS color picker for custom colors.
 
 ## Menu Bar UI
 
@@ -41,6 +42,8 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 ## Reports And Logs
 
 - Reports should prioritize timeline and aggregate comprehension over decorative layout.
+- Report charts and heatmaps should use the fixed colors saved on category rules instead of assigning colors from the current chart order.
+- Report durations use one shared format across day, week, month, and year views: under 60 minutes uses minutes, 60 to 5,999 minutes uses hours and minutes, and 6,000 minutes or more uses whole hours.
 - Derived statuses such as temporary daily reports should be visually marked where the result appears, not explained in a detached help block.
 - Runtime logs should remain dense, sortable or filterable when needed, and copy/export friendly.
 

@@ -22,6 +22,7 @@ struct SettingsView: View {
         static let servicePickerWidth: CGFloat = 220
         static let imageAnalysisMethodPickerWidth: CGFloat = 320
         static let reportPickerWidth: CGFloat = 160
+        static let categoryColorWidth: CGFloat = 72
         static let analysisStartupModePickerWidth: CGFloat = 180
         static let plainIntegerFormatter: NumberFormatter = {
             let formatter = NumberFormatter()
@@ -447,6 +448,8 @@ struct SettingsView: View {
     private var categoryRulesEditor: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
+                Text(text(.settingsModelCategoryColor))
+                    .frame(width: Layout.categoryColorWidth, alignment: .leading)
                 Text(text(.settingsModelCategoryName))
                     .frame(width: 180, alignment: .leading)
                 Text(text(.settingsModelCategoryDescription))
@@ -458,6 +461,17 @@ struct SettingsView: View {
 
             ForEach(settingsStore.categoryRules) { rule in
                 HStack(alignment: .top, spacing: 12) {
+                    CategoryRuleColorControl(
+                        colorHex: Binding(
+                            get: {
+                                settingsStore.categoryRules.first(where: { $0.id == rule.id })?.colorHex ?? rule.colorHex
+                            },
+                            set: { settingsStore.updateCategoryRuleColor(id: rule.id, colorHex: $0) }
+                        ),
+                        language: language
+                    )
+                    .frame(width: Layout.categoryColorWidth, alignment: .leading)
+
                     if rule.isPreservedOther {
                         TextField("", text: .constant(rule.displayName(in: language)))
                             .textFieldStyle(.roundedBorder)
@@ -1061,5 +1075,81 @@ struct SettingsView: View {
         }
         previewImage = nil
         previewCountdownText = nil
+    }
+}
+
+private struct CategoryRuleColorControl: View {
+    @Binding var colorHex: String
+    let language: AppLanguage
+    @State private var isPresetPopoverPresented = false
+
+    private var colorBinding: Binding<Color> {
+        Binding(
+            get: { Color(hexRGB: colorHex) },
+            set: { newColor in
+                guard let newColorHex = newColor.hexRGB else { return }
+                colorHex = newColorHex
+            }
+        )
+    }
+
+    private var presetColumns: [GridItem] {
+        Array(repeating: GridItem(.fixed(22), spacing: 6), count: 4)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                isPresetPopoverPresented.toggle()
+            } label: {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color(hexRGB: colorHex))
+                    .frame(width: 24, height: 24)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(.secondary.opacity(0.35), lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $isPresetPopoverPresented, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 10) {
+                    LazyVGrid(columns: presetColumns, spacing: 6) {
+                        ForEach(AppDefaults.categoryColorPresets, id: \.self) { preset in
+                            Button {
+                                colorHex = preset
+                                isPresetPopoverPresented = false
+                            } label: {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(Color(hexRGB: preset))
+                                    .frame(width: 22, height: 22)
+                                    .overlay {
+                                        if colorHex == preset {
+                                            Image(systemName: "checkmark")
+                                                .font(.caption2.weight(.bold))
+                                                .foregroundStyle(.white)
+                                        }
+                                    }
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 5)
+                                            .stroke(.secondary.opacity(0.35), lineWidth: 1)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    Divider()
+
+                    ColorPicker(
+                        L10n.string(.settingsModelCustomColor, language: language),
+                        selection: colorBinding,
+                        supportsOpacity: false
+                    )
+                }
+                .padding(12)
+                .frame(width: 154)
+            }
+        }
+        .frame(height: 28, alignment: .center)
     }
 }

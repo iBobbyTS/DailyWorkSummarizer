@@ -79,6 +79,7 @@ The app is centered around a small set of long-lived services created at launch 
   - aggregated category durations for bar charts
   - normalized event blocks for heatmaps
   - daily summary records for the selected day
+- Chart legends, bars, and heatmap blocks use the fixed color stored on each category rule, with a preset fallback for historical categories that are no longer configured.
 
 ## Settings model
 

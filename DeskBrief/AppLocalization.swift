@@ -87,6 +87,8 @@ enum L10n {
         case settingsAnalysisResultCategory
         case settingsAnalysisResultSummary
         case settingsAnalysisReservedPrefixError
+        case settingsModelCategoryColor
+        case settingsModelCustomColor
         case settingsModelCategoryName
         case settingsModelCategoryDescription
         case settingsModelCategoryNameExample
@@ -270,6 +272,8 @@ enum L10n {
             .settingsAnalysisResultCategory: "类别",
             .settingsAnalysisResultSummary: "总结",
             .settingsAnalysisReservedPrefixError: "不允许使用 PRESERVED_ 开头的类别。",
+            .settingsModelCategoryColor: "颜色",
+            .settingsModelCustomColor: "自定义颜色",
             .settingsModelCategoryName: "类别名",
             .settingsModelCategoryDescription: "描述",
             .settingsModelCategoryNameExample: "例如：专注工作",
@@ -451,6 +455,8 @@ enum L10n {
             .settingsAnalysisResultCategory: "Category",
             .settingsAnalysisResultSummary: "Summary",
             .settingsAnalysisReservedPrefixError: "Category names cannot start with PRESERVED_.",
+            .settingsModelCategoryColor: "Color",
+            .settingsModelCustomColor: "Custom Color",
             .settingsModelCategoryName: "Category",
             .settingsModelCategoryDescription: "Description",
             .settingsModelCategoryNameExample: "Example: Focused Work",
@@ -676,6 +682,8 @@ enum L10n {
             switch style {
             case .minute:
                 return "\(totalMinutes) 分钟"
+            case .hourOnly:
+                return "\(totalMinutes / 60) 小时"
             case .hourAndMinute:
                 let hours = totalMinutes / 60
                 let minutes = totalMinutes % 60
@@ -686,30 +694,13 @@ enum L10n {
                     return "\(hours) 小时"
                 }
                 return "\(minutes) 分钟"
-            case .dayAndHour:
-                let totalHours = totalMinutes / 60
-                let days = totalHours / 24
-                let hours = totalHours % 24
-                if days > 0, hours > 0 {
-                    return "\(days) 天 \(hours) 小时"
-                }
-                if days > 0 {
-                    return "\(days) 天"
-                }
-
-                let minutes = totalMinutes % 60
-                if totalHours > 0, minutes > 0 {
-                    return "\(totalHours) 小时 \(minutes) 分"
-                }
-                if totalHours > 0 {
-                    return "\(totalHours) 小时"
-                }
-                return "\(minutes) 分钟"
             }
         case .english:
             switch style {
             case .minute:
                 return minuteUnit(totalMinutes)
+            case .hourOnly:
+                return hourUnit(totalMinutes / 60)
             case .hourAndMinute:
                 let hours = totalMinutes / 60
                 let minutes = totalMinutes % 60
@@ -718,25 +709,6 @@ enum L10n {
                 }
                 if hours > 0 {
                     return hourUnit(hours)
-                }
-                return minuteUnit(minutes)
-            case .dayAndHour:
-                let totalHours = totalMinutes / 60
-                let days = totalHours / 24
-                let hours = totalHours % 24
-                if days > 0, hours > 0 {
-                    return "\(dayUnit(days)) \(hourUnit(hours))"
-                }
-                if days > 0 {
-                    return dayUnit(days)
-                }
-
-                let minutes = totalMinutes % 60
-                if totalHours > 0, minutes > 0 {
-                    return "\(hourUnit(totalHours)) \(compactMinuteUnit(minutes))"
-                }
-                if totalHours > 0 {
-                    return hourUnit(totalHours)
                 }
                 return minuteUnit(minutes)
             }
@@ -984,9 +956,5 @@ enum L10n {
 
     private static func hourUnit(_ value: Int) -> String {
         value == 1 ? "1 hr" : "\(value) hrs"
-    }
-
-    private static func dayUnit(_ value: Int) -> String {
-        value == 1 ? "1 day" : "\(value) days"
     }
 }
