@@ -584,6 +584,39 @@ struct DeskBriefTests {
         }
     }
 
+    @Test func legendHoverRectsBridgeRowsWithoutCoveringTrailingEmptySpace() async throws {
+        let rects = LegendHoverGeometry.hoverRects(for: [
+            CGRect(x: 90, y: 0, width: 70, height: 30),
+            CGRect(x: 0, y: 40, width: 50, height: 30),
+            CGRect(x: 60, y: 40, width: 50, height: 30),
+            CGRect(x: 0, y: 0, width: 80, height: 30)
+        ])
+
+        #expect(rects.count == 2)
+        let firstRow = try #require(rects.first)
+        let secondRow = try #require(rects.last)
+
+        #expect(firstRow.contains(CGPoint(x: 85, y: 15)))
+        #expect(secondRow.contains(CGPoint(x: 55, y: 55)))
+        #expect(secondRow.contains(CGPoint(x: 112, y: 55)))
+        #expect(!secondRow.contains(CGPoint(x: 120, y: 55)))
+        #expect(!LegendHoverGeometry.contains(CGPoint(x: 120, y: 55), in: rects))
+        #expect(abs(firstRow.maxY - secondRow.minY) < 0.001)
+        #expect(secondRow.contains(CGPoint(x: 10, y: firstRow.maxY)))
+    }
+
+    @Test func legendHoverRectsIgnoreInvalidFrames() async throws {
+        let rects = LegendHoverGeometry.hoverRects(for: [
+            .zero,
+            CGRect(x: 0, y: 0, width: 80, height: 30),
+            CGRect(x: 0, y: 50, width: -10, height: 20),
+            CGRect(x: 0, y: 40, width: 50, height: 30)
+        ])
+
+        #expect(rects.count == 2)
+        #expect(LegendHoverGeometry.hoverRects(for: []).isEmpty)
+    }
+
     @Test func captureSkipsWhenMouseLocationAndFrontmostAppAreUnchanged() async throws {
         let shouldSkip = ScreenshotService.shouldSkipCapture(
             currentMouseLocation: CGPoint(x: 120, y: 240),

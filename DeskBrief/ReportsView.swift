@@ -540,6 +540,7 @@ struct ReportsView: View {
     @ObservedObject var viewModel: ReportsViewModel
     @State private var hoveredLegendCategory: String?
     @State private var hoveredBarCategory: String?
+    @State private var legendHoverRects: [CGRect] = []
 
     private var language: AppLanguage {
         viewModel.appLanguage
@@ -733,14 +734,7 @@ struct ReportsView: View {
                 .frame(maxWidth: .infinity)
                 Spacer()
             } else {
-                WrappingFlowLayout(horizontalSpacing: 10, verticalSpacing: 10) {
-                    ForEach(Array(visibleLegendItems.enumerated()), id: \.element.category) { index, item in
-                        legendItem(
-                            color: categoryColors[item.category] ?? Color(hexRGB: AppDefaults.categoryColorPreset(at: index)),
-                            item: item
-                        )
-                    }
-                }
+                legendFlow(items: visibleLegendItems, categoryColors: categoryColors)
 
                 if let hoveredCategorySummary {
                     categorySummaryCard(summary: hoveredCategorySummary)
@@ -822,6 +816,52 @@ struct ReportsView: View {
         .padding(24)
     }
 
+    private func legendFlow(
+        items: [CategoryDuration],
+        categoryColors: [String: Color]
+    ) -> some View {
+        WrappingFlowLayout(horizontalSpacing: 10, verticalSpacing: 10) {
+            ForEach(Array(items.enumerated()), id: \.element.category) { index, item in
+                legendItem(
+                    color: categoryColors[item.category] ?? Color(hexRGB: AppDefaults.categoryColorPreset(at: index)),
+                    item: item
+                )
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(
+                            key: LegendItemFramePreferenceKey.self,
+                            value: [
+                                LegendItemFrame(
+                                    rect: proxy.frame(in: .named(LegendHoverCoordinateSpace.name))
+                                )
+                            ]
+                        )
+                    }
+                )
+            }
+        }
+        .coordinateSpace(name: LegendHoverCoordinateSpace.name)
+        .contentShape(Rectangle())
+        .onContinuousHover { phase in
+            guard viewModel.selectedKind == .day else { return }
+
+            switch phase {
+            case .active(let location):
+                if !LegendHoverGeometry.contains(location, in: legendHoverRects) {
+                    hoveredLegendCategory = nil
+                }
+            case .ended:
+                hoveredLegendCategory = nil
+            }
+        }
+        .onPreferenceChange(LegendItemFramePreferenceKey.self) { frames in
+            let hoverRects = LegendHoverGeometry.hoverRects(for: frames.map(\.rect))
+            if legendHoverRects != hoverRects {
+                legendHoverRects = hoverRects
+            }
+        }
+    }
+
     private func legendItem(color: Color, item: CategoryDuration) -> some View {
         HStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 4)
@@ -842,9 +882,11 @@ struct ReportsView: View {
         .onHover { isHovering in
             guard viewModel.selectedKind == .day else { return }
 
-            if isHovering, viewModel.categorySummary(for: item.category) != nil {
+            guard isHovering else { return }
+
+            if viewModel.categorySummary(for: item.category) != nil {
                 hoveredLegendCategory = item.category
-            } else if hoveredLegendCategory == item.category {
+            } else {
                 hoveredLegendCategory = nil
             }
         }
@@ -937,6 +979,106 @@ struct ReportsView: View {
         L10n.displayCategoryName(categoryName, language: language)
     }
 
+}
+
+private enum LegendHoverCoordinateSpace {
+    static let name = "reports-legend-hover-area"
+}
+
+private struct LegendItemFrame: Equatable {
+    let rect: CGRect
+}
+
+private struct LegendItemFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [LegendItemFrame] = []
+
+    static func reduce(value: inout [LegendItemFrame], nextValue: () -> [LegendItemFrame]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
+struct LegendHoverGeometry {
+    static func hoverRects(
+        for itemRects: [CGRect],
+        rowTolerance: CGFloat = 2,
+        margin: CGFloat = 4
+    ) -> [CGRect] {
+        let validRects = itemRects
+            .filter { rect in
+                rect.size.width > 0 && rect.size.height > 0 && !rect.isNull && !rect.isInfinite
+            }
+            .sorted { lhs, rhs in
+                if abs(lhs.minY - rhs.minY) <= rowTolerance {
+                    return lhs.minX < rhs.minX
+                }
+                return lhs.minY < rhs.minY
+            }
+
+        guard !validRects.isEmpty else { return [] }
+
+        let rowRects = groupedRowRects(for: validRects, rowTolerance: rowTolerance)
+            .map { $0.insetBy(dx: -margin, dy: -margin) }
+        return bridgeVerticalGaps(in: rowRects)
+    }
+
+    static func contains(_ point: CGPoint, in rects: [CGRect]) -> Bool {
+        rects.contains { $0.contains(point) }
+    }
+
+    private static func groupedRowRects(
+        for sortedRects: [CGRect],
+        rowTolerance: CGFloat
+    ) -> [CGRect] {
+        var rows: [[CGRect]] = []
+
+        for rect in sortedRects {
+            guard let lastRow = rows.indices.last,
+                  let referenceRect = rows[lastRow].first,
+                  abs(referenceRect.midY - rect.midY) <= rowTolerance else {
+                rows.append([rect])
+                continue
+            }
+
+            rows[lastRow].append(rect)
+        }
+
+        return rows.map { row in
+            row.reduce(row[0]) { partialResult, rect in
+                partialResult.union(rect)
+            }
+        }
+    }
+
+    private static func bridgeVerticalGaps(in rowRects: [CGRect]) -> [CGRect] {
+        guard rowRects.count > 1 else { return rowRects }
+
+        return rowRects.enumerated().map { index, rowRect in
+            var minY = rowRect.minY
+            var maxY = rowRect.maxY
+
+            if index > 0 {
+                let previousRow = rowRects[index - 1]
+                minY = bridgeBoundary(upperRow: previousRow, lowerRow: rowRect)
+            }
+
+            if index + 1 < rowRects.count {
+                let nextRow = rowRects[index + 1]
+                maxY = bridgeBoundary(upperRow: rowRect, lowerRow: nextRow)
+            }
+
+            return CGRect(
+                x: rowRect.minX,
+                y: minY,
+                width: rowRect.width,
+                height: max(0, maxY - minY)
+            )
+        }
+    }
+
+    private static func bridgeBoundary(upperRow: CGRect, lowerRow: CGRect) -> CGFloat {
+        let gap = max(0, lowerRow.minY - upperRow.maxY)
+        return upperRow.maxY + gap / 2
+    }
 }
 
 private struct WrappingFlowLayout: Layout {
