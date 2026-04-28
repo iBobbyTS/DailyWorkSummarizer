@@ -177,7 +177,8 @@ final class SettingsStore: ObservableObject {
 
         let savedInterval = userDefaults.object(forKey: Keys.screenshotIntervalMinutes) as? Int ?? AppDefaults.screenshotIntervalMinutes
         let savedAnalysisTime = userDefaults.object(forKey: Keys.analysisTimeMinutes) as? Int ?? AppDefaults.analysisTimeMinutes
-        let savedAnalysisStartupMode = Self.resolvedAnalysisStartupMode(from: userDefaults)
+        let savedAnalysisStartupMode = AnalysisStartupMode(rawValue: userDefaults.string(forKey: Keys.analysisStartupMode) ?? "")
+            ?? AppDefaults.analysisStartupMode
         let savedReportWeekStart = ReportWeekStart(rawValue: userDefaults.string(forKey: Keys.reportWeekStart) ?? "") ?? .sunday
         let savedAutoAnalysisRequiresCharger = userDefaults.object(forKey: Keys.autoAnalysisRequiresCharger) as? Bool ?? AppDefaults.autoAnalysisRequiresCharger
         let savedAppLanguage = AppLanguage(rawValue: userDefaults.string(forKey: AppLanguage.userDefaultsKey) ?? "") ?? .defaultValue
@@ -407,19 +408,6 @@ final class SettingsStore: ObservableObject {
             : .openAI
     }
 
-    private static func resolvedAnalysisStartupMode(from userDefaults: UserDefaults) -> AnalysisStartupMode {
-        if let rawValue = userDefaults.string(forKey: Keys.analysisStartupMode),
-           let mode = AnalysisStartupMode(rawValue: rawValue) {
-            return mode
-        }
-
-        if let legacyValue = userDefaults.object(forKey: Keys.automaticAnalysisEnabled) as? Bool {
-            return legacyValue ? .scheduled : .manual
-        }
-
-        return AppDefaults.analysisStartupMode
-    }
-
     private static func resolvedImageAnalysisMethod(
         _ method: ImageAnalysisMethod,
         for provider: ModelProvider
@@ -435,7 +423,6 @@ final class SettingsStore: ObservableObject {
         static let screenshotIntervalMinutes = "settings.screenshotIntervalMinutes"
         static let analysisTimeMinutes = "settings.analysisTimeMinutes"
         static let analysisStartupMode = "settings.analysisStartupMode"
-        static let automaticAnalysisEnabled = "settings.automaticAnalysisEnabled"
         static let reportWeekStart = "settings.reportWeekStart"
         static let autoAnalysisRequiresCharger = "settings.autoAnalysisRequiresCharger"
         static let summaryInstruction = "settings.summaryInstruction"

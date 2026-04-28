@@ -37,7 +37,7 @@ final class AppDatabase: @unchecked Sendable {
         }
 
         try execute("PRAGMA foreign_keys = ON;")
-        try migrate()
+        try prepareSchema()
     }
 
     deinit {
@@ -565,7 +565,7 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
-    private func migrate() throws {
+    private func prepareSchema() throws {
         try execute("""
             CREATE TABLE IF NOT EXISTS category_rules (
                 id TEXT PRIMARY KEY,
@@ -620,15 +620,9 @@ final class AppDatabase: @unchecked Sendable {
         """)
 
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_category_name ON analysis_results (category_name, captured_at DESC);")
+        try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_results_captured_at_unique ON analysis_results (captured_at);")
         try execute("CREATE INDEX IF NOT EXISTS idx_daily_reports_day_start ON daily_reports (day_start DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_app_logs_created_at ON app_logs (created_at DESC);")
-        try migrateCategoryRulesIfNeeded()
-        try migrateAnalysisResultsIfNeeded()
-        try ensureAnalysisResultsCapturedAtUniqueIndex()
-        try migrateAnalysisRunsIfNeeded()
-        try migrateDailyReportsIfNeeded()
-        try dropCaptureEventsTableIfNeeded()
-        try dropAbsenceEventsTableIfNeeded()
     }
 
     private func execute(_ sql: String) throws {
@@ -688,275 +682,6 @@ final class AppDatabase: @unchecked Sendable {
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .appDatabaseDidChange, object: nil)
         }
-    }
-
-    private func migrateCategoryRulesIfNeeded() throws {
-        let columns = try columnNames(in: "category_rules")
-        let expectedColumns = [
-            "id",
-            "name",
-            "description",
-            "color_hex",
-            "sort_order",
-        ]
-        guard columns != expectedColumns else {
-            return
-        }
-
-        try executeLocked("ALTER TABLE category_rules RENAME TO category_rules_legacy;")
-        try executeLocked("""
-            CREATE TABLE category_rules (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT NOT NULL,
-                color_hex TEXT NOT NULL,
-                sort_order INTEGER NOT NULL
-            );
-        """)
-        let legacyColumns = Set(columns)
-        let colorHexExpression = categoryRuleColorHexMigrationExpression(legacyColumns: legacyColumns)
-        try executeLocked("""
-            INSERT INTO category_rules (
-                id,
-                name,
-                description,
-                color_hex,
-                sort_order
-            )
-            SELECT
-                \(legacyColumns.contains("id") ? "id" : "lower(hex(randomblob(16)))"),
-                \(legacyColumns.contains("name") ? "name" : "''"),
-                \(legacyColumns.contains("description") ? "description" : "''"),
-                \(colorHexExpression),
-                \(legacyColumns.contains("sort_order") ? "sort_order" : "0")
-            FROM category_rules_legacy;
-        """)
-        try executeLocked("DROP TABLE category_rules_legacy;")
-    }
-
-    private func categoryRuleColorHexMigrationExpression(legacyColumns: Set<String>) -> String {
-        guard !legacyColumns.contains("color_hex") else {
-            return "color_hex"
-        }
-
-        let sortOrderExpression = legacyColumns.contains("sort_order") ? "ABS(sort_order)" : "0"
-        let cases = AppDefaults.categoryColorPresets.enumerated()
-            .map { index, colorHex in
-                "WHEN \(index) THEN '\(colorHex)'"
-            }
-            .joined(separator: "\n                ")
-        return """
-        CASE ((\(sortOrderExpression)) % \(AppDefaults.categoryColorPresets.count))
-                \(cases)
-                ELSE '\(AppDefaults.defaultCategoryColorHex)'
-                END
-        """
-    }
-
-    private func migrateAnalysisResultsIfNeeded() throws {
-        let columns = try columnNames(in: "analysis_results")
-        let expectedColumns = [
-            "id",
-            "captured_at",
-            "category_name",
-            "summary_text",
-            "duration_minutes_snapshot",
-        ]
-        guard columns != expectedColumns else {
-            return
-        }
-
-        try executeLocked("ALTER TABLE analysis_results RENAME TO analysis_results_legacy;")
-        try executeLocked("""
-            CREATE TABLE analysis_results (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                captured_at DOUBLE NOT NULL,
-                category_name TEXT,
-                summary_text TEXT,
-                duration_minutes_snapshot INTEGER NOT NULL
-            );
-        """)
-        let legacyColumns = Set(columns)
-        let succeededFilter = legacyColumns.contains("status") ? "WHERE status = 'succeeded'" : ""
-        let legacyOrder = legacyColumns.contains("id") ? "ORDER BY id ASC" : ""
-        try executeLocked("""
-            INSERT OR IGNORE INTO analysis_results (
-                id,
-                captured_at,
-                category_name,
-                summary_text,
-                duration_minutes_snapshot
-            )
-            SELECT
-                \(legacyColumns.contains("id") ? "id" : "NULL"),
-                \(legacyColumns.contains("captured_at") ? "captured_at" : "0"),
-                \(legacyColumns.contains("category_name") ? "category_name" : "NULL"),
-                \(legacyColumns.contains("summary_text") ? "summary_text" : "NULL"),
-                \(legacyColumns.contains("duration_minutes_snapshot") ? "duration_minutes_snapshot" : "0")
-            FROM analysis_results_legacy
-            \(succeededFilter)
-            \(legacyOrder);
-        """)
-        try executeLocked("DROP TABLE analysis_results_legacy;")
-        try executeLocked("CREATE INDEX IF NOT EXISTS idx_analysis_results_category_name ON analysis_results (category_name, captured_at DESC);")
-    }
-
-    private func ensureAnalysisResultsCapturedAtUniqueIndex() throws {
-        try executeLocked("""
-            DELETE FROM analysis_results
-            WHERE id NOT IN (
-                SELECT MIN(id)
-                FROM analysis_results
-                GROUP BY captured_at
-            );
-        """)
-        try executeLocked("DROP INDEX IF EXISTS idx_analysis_results_captured_at;")
-        try executeLocked("CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_results_captured_at_unique ON analysis_results (captured_at);")
-    }
-
-    private func migrateAnalysisRunsIfNeeded() throws {
-        let columns = try columnNames(in: "analysis_runs")
-        let expectedColumns = [
-            "id",
-            "status",
-            "model_name",
-            "total_items",
-            "success_count",
-            "failure_count",
-            "average_item_duration_seconds",
-            "error_message",
-            "created_at",
-        ]
-        guard columns != expectedColumns else {
-            return
-        }
-
-        try executeLocked("ALTER TABLE analysis_runs RENAME TO analysis_runs_legacy;")
-        try executeLocked("""
-            CREATE TABLE analysis_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                status TEXT NOT NULL,
-                model_name TEXT NOT NULL,
-                total_items INTEGER NOT NULL,
-                success_count INTEGER NOT NULL DEFAULT 0,
-                failure_count INTEGER NOT NULL DEFAULT 0,
-                average_item_duration_seconds DOUBLE,
-                error_message TEXT,
-                created_at DOUBLE NOT NULL
-            );
-        """)
-        let legacyColumns = Set(columns)
-        try executeLocked("""
-            INSERT INTO analysis_runs (
-                id,
-                status,
-                model_name,
-                total_items,
-                success_count,
-                failure_count,
-                average_item_duration_seconds,
-                error_message,
-                created_at
-            )
-            SELECT
-                \(legacyColumns.contains("id") ? "id" : "NULL"),
-                \(legacyColumns.contains("status") ? "status" : "'running'"),
-                \(legacyColumns.contains("model_name") ? "model_name" : "''"),
-                \(legacyColumns.contains("total_items") ? "total_items" : "0"),
-                \(legacyColumns.contains("success_count") ? "success_count" : "0"),
-                \(legacyColumns.contains("failure_count") ? "failure_count" : "0"),
-                \(legacyColumns.contains("average_item_duration_seconds") ? "average_item_duration_seconds" : "NULL"),
-                \(legacyColumns.contains("error_message") ? "error_message" : "NULL"),
-                \(legacyColumns.contains("created_at") ? "created_at" : "0")
-            FROM analysis_runs_legacy;
-        """)
-        try executeLocked("DROP TABLE analysis_runs_legacy;")
-    }
-
-    private func migrateDailyReportsIfNeeded() throws {
-        let tables = try tableNames()
-        guard tables.contains("daily_reports") else {
-            return
-        }
-
-        let columns = try columnNames(in: "daily_reports")
-        let expectedColumns = [
-            "id",
-            "day_start",
-            "daily_summary_text",
-            "category_summaries_json",
-        ]
-        guard columns != expectedColumns else {
-            return
-        }
-
-        try executeLocked("ALTER TABLE daily_reports RENAME TO daily_reports_legacy;")
-        try executeLocked("""
-            CREATE TABLE daily_reports (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                day_start DOUBLE NOT NULL UNIQUE,
-                daily_summary_text TEXT NOT NULL,
-                category_summaries_json TEXT NOT NULL
-            );
-        """)
-        let legacyColumns = Set(columns)
-        try executeLocked("""
-            INSERT INTO daily_reports (
-                id,
-                day_start,
-                daily_summary_text,
-                category_summaries_json
-            )
-            SELECT
-                \(legacyColumns.contains("id") ? "id" : "NULL"),
-                \(legacyColumns.contains("day_start") ? "day_start" : "0"),
-                \(legacyColumns.contains("daily_summary_text") ? "daily_summary_text" : "''"),
-                \(legacyColumns.contains("category_summaries_json") ? "category_summaries_json" : "'{}'")
-            FROM daily_reports_legacy;
-        """)
-        try executeLocked("DROP TABLE daily_reports_legacy;")
-        try executeLocked("CREATE INDEX IF NOT EXISTS idx_daily_reports_day_start ON daily_reports (day_start DESC);")
-    }
-
-    private func dropCaptureEventsTableIfNeeded() throws {
-        let tables = try tableNames()
-        guard tables.contains("capture_events") else {
-            return
-        }
-
-        try executeLocked("DROP TABLE capture_events;")
-    }
-
-    private func dropAbsenceEventsTableIfNeeded() throws {
-        let tables = try tableNames()
-        guard tables.contains("absence_events") else {
-            return
-        }
-
-        try executeLocked("DROP INDEX IF EXISTS idx_absence_events_captured_at;")
-        try executeLocked("DROP TABLE absence_events;")
-    }
-
-    private func columnNames(in table: String) throws -> [String] {
-        let statement = try prepareStatement("PRAGMA table_info(\(table));")
-        defer { sqlite3_finalize(statement) }
-
-        var columns: [String] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            columns.append(string(at: 1, from: statement))
-        }
-        return columns
-    }
-
-    private func tableNames() throws -> [String] {
-        let statement = try prepareStatement("SELECT name FROM sqlite_master WHERE type = 'table';")
-        defer { sqlite3_finalize(statement) }
-
-        var names: [String] = []
-        while sqlite3_step(statement) == SQLITE_ROW {
-            names.append(string(at: 0, from: statement))
-        }
-        return names
     }
 
     private func screenshotRecord(for url: URL, defaultDurationMinutes: Int) -> ScreenshotFileRecord? {

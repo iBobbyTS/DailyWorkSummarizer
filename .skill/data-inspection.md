@@ -27,7 +27,6 @@
 注意：
 
 - `离开` 不再持久化为数据库表；报告窗口会根据相邻成功分析结果之间的空白，在内存中派生展示。
-- 旧库里的 `absence_events` 表会在 Swift 数据库迁移中删除。
 
 设置存储位置：
 
@@ -57,20 +56,6 @@ sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
 ```sh
 sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select id,datetime(day_start,'unixepoch','localtime'),substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
-```
-
-清理既有日报里的 `离开` 单项总结：
-
-```sh
-python3 scripts/clean_absence_daily_summaries.py \
-  --database "$HOME/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite"
-```
-
-清理旧 `analysis_results.status == 'failed'` 行：
-
-```sh
-python3 scripts/clean_failed_analysis_results.py \
-  --database "$HOME/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite"
 ```
 
 ```sh

@@ -132,20 +132,6 @@ sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select id,datetime(day_start,'unixepoch','localtime'),substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
 ```
 
-Remove legacy away-state category summaries from existing daily reports:
-
-```sh
-python3 scripts/clean_absence_daily_summaries.py \
-  --database "$HOME/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite"
-```
-
-Remove legacy failed rows before compacting `analysis_results`:
-
-```sh
-python3 scripts/clean_failed_analysis_results.py \
-  --database "$HOME/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite"
-```
-
 Recent runtime logs:
 
 ```sh

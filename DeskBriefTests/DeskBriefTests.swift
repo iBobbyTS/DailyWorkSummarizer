@@ -92,7 +92,7 @@ struct DeskBriefTests {
         #expect((input[1]["data_url"] as? String)?.hasPrefix("data:image/jpeg;base64,") == true)
     }
 
-    @Test func lmStudioMultimodalChatRequestSupportsLegacyMessageInputItems() async throws {
+    @Test func lmStudioMultimodalChatRequestSupportsMessageInputItemsVariant() async throws {
         let bodyData = try LMStudioAPI.buildChatRequestBody(
             modelName: "qwen3.5-vl",
             prompt: "请根据图片分析当前工作",
@@ -512,7 +512,7 @@ struct DeskBriefTests {
         #expect(abs((response.lmStudioTiming?.modelLoadTimeSeconds ?? 0) - 0.18) < 0.000_1)
     }
 
-    @Test func llmServiceLMStudioMultimodalFallsBackToLegacyMessageDiscriminator() async throws {
+    @Test func llmServiceLMStudioMultimodalFallsBackToMessageDiscriminatorVariant() async throws {
         let settings = makeModelSettings(
             provider: .lmStudio,
             apiBaseURL: "http://127.0.0.1:1234",
@@ -776,21 +776,21 @@ struct DeskBriefTests {
         #expect(L10n.string(.settingsModelCopyToWorkContentSummary, language: .english) == "Copy to Work Content Summary")
         #expect(L10n.string(.settingsModelCopyToScreenshotAnalysis, language: .english) == "Copy to Screenshot Analysis")
 
-        let legacyChineseWorkContentTerm = "工作内容" + "分析"
-        let legacyEnglishWorkContentTerm = "Work Content " + "Analysis"
+        let deprecatedChineseWorkContentTerm = "工作内容" + "分析"
+        let deprecatedEnglishWorkContentTerm = "Work Content " + "Analysis"
         let visibleWorkContentStrings = [
             L10n.string(.settingsTabWorkContentSummary, language: .simplifiedChinese),
             L10n.string(.settingsModelCopyToWorkContentSummary, language: .simplifiedChinese),
             L10n.string(.settingsModelCopyToWorkContentSummaryConfirmMessage, language: .simplifiedChinese)
         ]
-        #expect(visibleWorkContentStrings.allSatisfy { !$0.contains(legacyChineseWorkContentTerm) })
+        #expect(visibleWorkContentStrings.allSatisfy { !$0.contains(deprecatedChineseWorkContentTerm) })
 
         let visibleEnglishWorkContentStrings = [
             L10n.string(.settingsTabWorkContentSummary, language: .english),
             L10n.string(.settingsModelCopyToWorkContentSummary, language: .english),
             L10n.string(.settingsModelCopyToWorkContentSummaryConfirmMessage, language: .english)
         ]
-        #expect(visibleEnglishWorkContentStrings.allSatisfy { !$0.contains(legacyEnglishWorkContentTerm) })
+        #expect(visibleEnglishWorkContentStrings.allSatisfy { !$0.contains(deprecatedEnglishWorkContentTerm) })
     }
 
     @Test func runtimeErrorRecordingFiltersOutNonAPIErrors() async throws {
@@ -883,53 +883,6 @@ struct DeskBriefTests {
         ])
     }
 
-    @Test func databaseMigratesCategoryRulesToColorSchema() async throws {
-        let databaseURL = makeTemporaryDatabaseURL()
-        defer { try? FileManager.default.removeItem(at: databaseURL) }
-
-        let firstID = UUID()
-        let secondID = UUID()
-        let handle = try openSQLite(at: databaseURL)
-
-        try executeSQL("""
-            CREATE TABLE category_rules (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT NOT NULL,
-                sort_order INTEGER NOT NULL,
-                created_at DOUBLE NOT NULL,
-                updated_at DOUBLE NOT NULL
-            );
-            INSERT INTO category_rules (
-                id,
-                name,
-                description,
-                sort_order,
-                created_at,
-                updated_at
-            )
-            VALUES
-                ('\(firstID.uuidString)', '会议沟通', '同步信息', 1, 10, 20),
-                ('\(secondID.uuidString)', '专注工作', '写代码', 0, 30, 40);
-        """, on: handle)
-
-        sqlite3_close(handle)
-
-        let database = try AppDatabase(databaseURL: databaseURL)
-        let columns = try columnNames(in: "category_rules", databaseURL: databaseURL)
-        let rules = try database.fetchCategoryRules()
-
-        #expect(columns == ["id", "name", "description", "color_hex", "sort_order"])
-        #expect(!columns.contains("created_at"))
-        #expect(!columns.contains("updated_at"))
-        #expect(rules.map(\.name) == ["专注工作", "会议沟通"])
-        #expect(rules.map(\.description) == ["写代码", "同步信息"])
-        #expect(rules.map(\.colorHex) == [
-            AppDefaults.categoryColorPreset(at: 0),
-            AppDefaults.categoryColorPreset(at: 1),
-        ])
-    }
-
     @MainActor
     @Test func settingsStorePersistsSummaryInstruction() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
@@ -963,37 +916,11 @@ struct DeskBriefTests {
     }
 
     @MainActor
-    @Test func settingsStoreMigratesLegacyAutomaticAnalysisSettingToStartupMode() async throws {
-        for (legacyValue, expectedMode) in [(true, AnalysisStartupMode.scheduled), (false, .manual)] {
-            let databaseURL = makeTemporaryDatabaseURL()
-            let suiteName = "DeskBriefTests.\(UUID().uuidString)"
-            let userDefaults = try #require(UserDefaults(suiteName: suiteName))
-            let keychain = KeychainStore(service: suiteName)
-            userDefaults.set(legacyValue, forKey: "settings.automaticAnalysisEnabled")
-
-            defer {
-                userDefaults.removePersistentDomain(forName: suiteName)
-                keychain.set("", for: AppDefaults.apiKeyAccount)
-                keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
-                try? FileManager.default.removeItem(at: databaseURL)
-            }
-
-            let database = try AppDatabase(databaseURL: databaseURL)
-            let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
-
-            #expect(store.analysisStartupMode == expectedMode)
-            #expect(store.snapshot.analysisStartupMode == expectedMode)
-            #expect(userDefaults.string(forKey: "settings.analysisStartupMode") == expectedMode.rawValue)
-        }
-    }
-
-    @MainActor
-    @Test func settingsStorePersistsAnalysisStartupModeAndPrefersNewKey() async throws {
+    @Test func settingsStorePersistsAnalysisStartupMode() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DeskBriefTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         let keychain = KeychainStore(service: suiteName)
-        userDefaults.set(false, forKey: "settings.automaticAnalysisEnabled")
         userDefaults.set(AnalysisStartupMode.scheduled.rawValue, forKey: "settings.analysisStartupMode")
 
         defer {
@@ -1906,178 +1833,6 @@ struct DeskBriefTests {
         #expect(store.imageAnalysisMethod == .multimodal)
     }
 
-    @Test func databaseMigratesAnalysisRunsToCompactSchema() async throws {
-        let databaseURL = makeTemporaryDatabaseURL()
-        defer { try? FileManager.default.removeItem(at: databaseURL) }
-
-        let handle = try openSQLite(at: databaseURL)
-
-        try executeSQL("""
-            CREATE TABLE analysis_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                scheduled_for DOUBLE NOT NULL,
-                started_at DOUBLE NOT NULL,
-                finished_at DOUBLE,
-                status TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                base_url TEXT NOT NULL,
-                model_name TEXT NOT NULL,
-                prompt_snapshot TEXT NOT NULL,
-                category_snapshot_json TEXT NOT NULL,
-                total_items INTEGER NOT NULL,
-                success_count INTEGER NOT NULL DEFAULT 0,
-                failure_count INTEGER NOT NULL DEFAULT 0,
-                average_item_duration_seconds DOUBLE,
-                error_message TEXT,
-                created_at DOUBLE NOT NULL
-            );
-            INSERT INTO analysis_runs (
-                id, scheduled_for, started_at, finished_at, status, provider, base_url, model_name,
-                prompt_snapshot, category_snapshot_json, total_items, success_count, failure_count,
-                average_item_duration_seconds, error_message, created_at
-            )
-            VALUES (
-                7, 10, 20, 30, 'partial_failed', 'openai', 'https://example.com', 'gpt-test',
-                'prompt', '[]', 3, 2, 1, 1.5, 'partial failure', 40
-            );
-        """, on: handle)
-
-        sqlite3_close(handle)
-
-        _ = try AppDatabase(databaseURL: databaseURL)
-
-        let columns = try columnNames(in: "analysis_runs", databaseURL: databaseURL)
-        let modelName = try fetchOptionalString(
-            "SELECT model_name FROM analysis_runs WHERE id = 7;",
-            databaseURL: databaseURL
-        )
-        let failureCount = try fetchInt(
-            "SELECT failure_count FROM analysis_runs WHERE id = 7;",
-            databaseURL: databaseURL
-        )
-        let averageDuration = try fetchDouble(
-            "SELECT average_item_duration_seconds FROM analysis_runs WHERE id = 7;",
-            databaseURL: databaseURL
-        )
-
-        #expect(columns == [
-            "id",
-            "status",
-            "model_name",
-            "total_items",
-            "success_count",
-            "failure_count",
-            "average_item_duration_seconds",
-            "error_message",
-            "created_at",
-        ])
-        #expect(!columns.contains("scheduled_for"))
-        #expect(!columns.contains("started_at"))
-        #expect(!columns.contains("finished_at"))
-        #expect(!columns.contains("provider"))
-        #expect(!columns.contains("base_url"))
-        #expect(!columns.contains("prompt_snapshot"))
-        #expect(!columns.contains("category_snapshot_json"))
-        #expect(modelName == "gpt-test")
-        #expect(failureCount == 1)
-        #expect(averageDuration == 1.5)
-    }
-
-    @Test func databaseMigratesAnalysisResultsToSuccessfulRowsOnlySchema() async throws {
-        let databaseURL = makeTemporaryDatabaseURL()
-        defer { try? FileManager.default.removeItem(at: databaseURL) }
-
-        let handle = try openSQLite(at: databaseURL)
-
-        try executeSQL("""
-            CREATE TABLE analysis_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                scheduled_for DOUBLE NOT NULL,
-                started_at DOUBLE NOT NULL,
-                finished_at DOUBLE,
-                status TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                base_url TEXT NOT NULL,
-                model_name TEXT NOT NULL,
-                prompt_snapshot TEXT NOT NULL,
-                category_snapshot_json TEXT NOT NULL,
-                total_items INTEGER NOT NULL,
-                success_count INTEGER NOT NULL DEFAULT 0,
-                failure_count INTEGER NOT NULL DEFAULT 0,
-                average_item_duration_seconds DOUBLE,
-                error_message TEXT,
-                created_at DOUBLE NOT NULL
-            );
-        """, on: handle)
-        try executeSQL("""
-            INSERT INTO analysis_runs (
-                id, scheduled_for, started_at, finished_at, status, provider, base_url, model_name,
-                prompt_snapshot, category_snapshot_json, total_items, success_count, failure_count,
-                average_item_duration_seconds, error_message, created_at
-            )
-            VALUES (1, 0, 0, 0, 'succeeded', 'openai', '', '', '', '[]', 1, 1, 0, NULL, NULL, 0);
-        """, on: handle)
-        try executeSQL("""
-            CREATE TABLE analysis_results (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id INTEGER NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
-                captured_at DOUBLE NOT NULL,
-                category_name TEXT,
-                raw_response_text TEXT,
-                status TEXT NOT NULL,
-                error_message TEXT,
-                duration_minutes_snapshot INTEGER NOT NULL,
-                created_at DOUBLE NOT NULL
-            );
-        """, on: handle)
-        try executeSQL("""
-            INSERT INTO analysis_results (
-                id, run_id, captured_at, category_name, raw_response_text, status, error_message,
-                duration_minutes_snapshot, created_at
-            )
-            VALUES (1, 1, 0, '专注工作', '{"category":"专注工作","summary":"旧数据"}', 'succeeded', NULL, 5, 0);
-            INSERT INTO analysis_results (
-                id, run_id, captured_at, category_name, raw_response_text, status, error_message,
-                duration_minutes_snapshot, created_at
-            )
-            VALUES (2, 1, 0, '重复工作', '{"category":"重复工作","summary":"重复旧数据"}', 'succeeded', NULL, 5, 0);
-            INSERT INTO analysis_results (
-                id, run_id, captured_at, category_name, raw_response_text, status, error_message,
-                duration_minutes_snapshot, created_at
-            )
-            VALUES (3, 1, 60, NULL, NULL, 'failed', 'server error', 5, 0);
-        """, on: handle)
-
-        sqlite3_close(handle)
-
-        _ = try AppDatabase(databaseURL: databaseURL)
-
-        let columns = try columnNames(in: "analysis_results", databaseURL: databaseURL)
-        let rowCount = try fetchInt(
-            "SELECT COUNT(*) FROM analysis_results;",
-            databaseURL: databaseURL
-        )
-        let summaryText = try fetchOptionalString(
-            "SELECT summary_text FROM analysis_results WHERE id = 1;",
-            databaseURL: databaseURL
-        )
-        let uniqueIndexExists = try fetchInt(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_analysis_results_captured_at_unique';",
-            databaseURL: databaseURL
-        )
-
-        #expect(columns == ["id", "captured_at", "category_name", "summary_text", "duration_minutes_snapshot"])
-        #expect(columns.contains("summary_text"))
-        #expect(!columns.contains("raw_response_text"))
-        #expect(!columns.contains("run_id"))
-        #expect(!columns.contains("status"))
-        #expect(!columns.contains("error_message"))
-        #expect(!columns.contains("created_at"))
-        #expect(rowCount == 1)
-        #expect(summaryText == nil)
-        #expect(uniqueIndexExists == 1)
-    }
-
     @Test func databaseStoresSuccessfulAnalysisResultOnlyFields() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: databaseURL) }
@@ -2217,60 +1972,6 @@ struct DeskBriefTests {
         #expect(report.categorySummaries["专注工作"] == "第二次分类总结")
     }
 
-    @Test func databaseMigratesDailyReportsToContentOnlySchema() async throws {
-        let databaseURL = makeTemporaryDatabaseURL()
-        defer { try? FileManager.default.removeItem(at: databaseURL) }
-
-        let handle = try openSQLite(at: databaseURL)
-
-        try executeSQL("""
-            CREATE TABLE daily_reports (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                day_start DOUBLE NOT NULL UNIQUE,
-                daily_summary_text TEXT NOT NULL,
-                category_summaries_json TEXT NOT NULL,
-                created_at DOUBLE NOT NULL,
-                updated_at DOUBLE NOT NULL
-            );
-            INSERT INTO daily_reports (
-                id,
-                day_start,
-                daily_summary_text,
-                category_summaries_json,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                3,
-                1773187200,
-                '旧日报',
-                '{"专注工作":"旧分类总结"}',
-                1773187201,
-                1773187202
-            );
-        """, on: handle)
-
-        sqlite3_close(handle)
-
-        _ = try AppDatabase(databaseURL: databaseURL)
-
-        let columns = try columnNames(in: "daily_reports", databaseURL: databaseURL)
-        let dailySummaryText = try fetchOptionalString(
-            "SELECT daily_summary_text FROM daily_reports WHERE id = 3;",
-            databaseURL: databaseURL
-        )
-        let categorySummariesJSON = try fetchOptionalString(
-            "SELECT category_summaries_json FROM daily_reports WHERE id = 3;",
-            databaseURL: databaseURL
-        )
-
-        #expect(columns == ["id", "day_start", "daily_summary_text", "category_summaries_json"])
-        #expect(!columns.contains("created_at"))
-        #expect(!columns.contains("updated_at"))
-        #expect(dailySummaryText == "旧日报")
-        #expect(categorySummariesJSON == #"{"专注工作":"旧分类总结"}"#)
-    }
-
     @Test func databaseCreatesAndFetchesAppLogs() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: databaseURL) }
@@ -2374,39 +2075,6 @@ struct DeskBriefTests {
         #expect(chineseText.contains(".123"))
         #expect(englishText.contains("[Error]"))
         #expect(englishText.contains(".123"))
-    }
-
-    @Test func migrationDropsLegacyAbsenceEventsTable() async throws {
-        let databaseURL = makeTemporaryDatabaseURL()
-        defer { try? FileManager.default.removeItem(at: databaseURL) }
-
-        do {
-            let handle = try openSQLite(at: databaseURL)
-            defer { sqlite3_close(handle) }
-            try executeSQL("""
-                CREATE TABLE absence_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    captured_at DOUBLE NOT NULL,
-                    duration_minutes INTEGER NOT NULL,
-                    created_at DOUBLE NOT NULL
-                );
-                CREATE INDEX idx_absence_events_captured_at ON absence_events (captured_at DESC);
-                INSERT INTO absence_events (captured_at, duration_minutes, created_at)
-                VALUES (1741798800, 15, 1741798800);
-            """, on: handle)
-        }
-
-        let database = try AppDatabase(databaseURL: databaseURL)
-        _ = database
-
-        let tables = try tableNames(databaseURL: databaseURL)
-        let legacyIndex = try fetchOptionalString(
-            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_absence_events_captured_at';",
-            databaseURL: databaseURL
-        )
-
-        #expect(!tables.contains("absence_events"))
-        #expect(legacyIndex == nil)
     }
 
     @Test func reportItemsDeriveAbsenceBetweenRecordedEvents() async throws {
@@ -2895,12 +2563,6 @@ private func openSQLite(at url: URL) throws -> OpaquePointer? {
     return handle
 }
 
-private func executeSQL(_ sql: String, on handle: OpaquePointer?) throws {
-    guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
-        throw DatabaseError.execute(handle.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite exec failed")
-    }
-}
-
 private func columnNames(in table: String, databaseURL: URL) throws -> [String] {
     let handle = try openSQLite(at: databaseURL)
     defer { sqlite3_close(handle) }
@@ -2918,25 +2580,6 @@ private func columnNames(in table: String, databaseURL: URL) throws -> [String] 
         }
     }
     return columns
-}
-
-private func tableNames(databaseURL: URL) throws -> [String] {
-    let handle = try openSQLite(at: databaseURL)
-    defer { sqlite3_close(handle) }
-
-    var statement: OpaquePointer?
-    guard sqlite3_prepare_v2(handle, "SELECT name FROM sqlite_master WHERE type = 'table';", -1, &statement, nil) == SQLITE_OK else {
-        throw DatabaseError.prepareStatement(handle.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite prepare failed")
-    }
-    defer { sqlite3_finalize(statement) }
-
-    var names: [String] = []
-    while sqlite3_step(statement) == SQLITE_ROW {
-        if let text = sqlite3_column_text(statement, 0) {
-            names.append(String(cString: text))
-        }
-    }
-    return names
 }
 
 private func fetchOptionalString(_ sql: String, databaseURL: URL) throws -> String? {
@@ -2973,22 +2616,6 @@ private func fetchInt(_ sql: String, databaseURL: URL) throws -> Int {
         throw DatabaseError.execute("sqlite query returned no rows")
     }
     return Int(sqlite3_column_int64(statement, 0))
-}
-
-private func fetchDouble(_ sql: String, databaseURL: URL) throws -> Double {
-    let handle = try openSQLite(at: databaseURL)
-    defer { sqlite3_close(handle) }
-
-    var statement: OpaquePointer?
-    guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
-        throw DatabaseError.prepareStatement(handle.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite prepare failed")
-    }
-    defer { sqlite3_finalize(statement) }
-
-    guard sqlite3_step(statement) == SQLITE_ROW else {
-        throw DatabaseError.execute("sqlite query returned no rows")
-    }
-    return sqlite3_column_double(statement, 0)
 }
 
 private func makeTestCalendar() -> Calendar {

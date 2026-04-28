@@ -5,7 +5,7 @@
 The app is centered around a small set of long-lived services created at launch by `AppDelegate`:
 
 - `AppDatabase`
-  SQLite-backed persistence and migration layer.
+  SQLite-backed persistence and current schema setup.
 - `SettingsStore`
   UserDefaults and Keychain-backed settings state exposed to SwiftUI.
 - `ScreenshotService`
