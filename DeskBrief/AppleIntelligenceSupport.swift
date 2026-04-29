@@ -35,7 +35,7 @@ enum AppleIntelligenceSupport {
 }
 
 extension SystemLanguageModel.Availability.UnavailableReason {
-    func localizedDescription(language: AppLanguage) -> String {
+    nonisolated func localizedDescription(language: AppLanguage) -> String {
         switch self {
         case .deviceNotEligible:
             return L10n.string(.providerAppleIntelligenceDeviceNotEligible, language: language)

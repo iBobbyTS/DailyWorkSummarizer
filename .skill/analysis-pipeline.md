@@ -28,7 +28,7 @@
 2. 看 `AppSettings.swift` 和 `AppModels.swift`
    先确认设置是怎样被裁剪、归一化、快照化的。
 3. 看 `AnalysisService.swift`
-   这里处理截屏分析、OCR、多模态请求、Apple Intelligence、重试、解析和测试面板输出。
+   这里的 `AnalysisService` 负责主 actor 上的运行状态、计时器、取消、追加队列和通知；同文件里的 `AnalysisWorker` 负责非主线程的图片读取、OCR、多模态请求、Apple Intelligence、重试、解析和测试面板输出。
 4. 看 `DailyReportSummaryService.swift`
    这里处理日报汇总、按天补生成、模型请求和解析。
 5. 看 `LLMService.swift`
@@ -93,7 +93,7 @@
 排查顺序：
 
 - 截屏分析结果不对：
-  先看 `recognizedText` 是否为空，再看 `buildOCRAnalysisPrompt` 或多模态请求体是否真的带图。
+  先看 `AnalysisWorker.recognizedText` 是否为空，再看 `buildOCRAnalysisPrompt` 或多模态请求体是否真的带图。
 - 响应解析失败：
   先看 `extractAnalysisResponse` / `extractDailyReportResponse`，再补单测覆盖新的输出包裹格式。
 - 设置改了但运行时没生效：
@@ -112,3 +112,4 @@
 - LM Studio `/api/v1/chat` 的多模态文本项在不同版本里可能出现 `"text"` 和 `"message"` 两种 discriminator；项目里统一通过 `LMStudioAPI.fallbackMultimodalTextInputStyle` 做一次兼容重试，不要把这种重试散落到业务层。
 - OpenAI / Anthropic / Apple Intelligence 的请求或解析行为改动时，优先改 `LLMService.swift`，并同步更新 `docs/model-integration.md`。
 - 分析错误和调试日志相关改动时，要同时检查 `AppLogStore`、`MenuBarApp`、`AnalysisErrorsView.swift`、`docs/data-and-testing.md`。
+- 任何会读图片、跑 OCR、等待模型请求或循环处理大量截图的逻辑，都不要放回 `AnalysisService` 的主 actor 同步路径；优先放进 `AnalysisWorker`，必要时用 `Task.detached` 包住同步 CPU/IO 工作。

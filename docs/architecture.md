@@ -11,7 +11,9 @@ The app is centered around a small set of long-lived services created at launch 
 - `ScreenshotService`
   Periodic capture scheduling, permission checks, and idle detection.
 - `AnalysisService`
-  Pending screenshot processing, OCR, model invocation, structured parsing, and retry behavior.
+  Main-actor coordinator for pending screenshot runs, timers, cancellation, appends, and UI-facing progress.
+- `AnalysisWorker`
+  Non-main async worker used by `AnalysisService` for image loading, OCR, model invocation, structured parsing, and retry behavior.
 - `DailyReportSummaryService`
   Daily-summary generation and backfill for missing days.
 - `LLMService`
@@ -51,7 +53,8 @@ The app is centered around a small set of long-lived services created at launch 
 - The charger requirement applies to automatic triggers: scheduled and realtime analysis honor it, while manual "Analyze Now" always starts when selected.
 - It creates a compact `analysis_runs` record for run-level status/counts and processes screenshots one by one.
 - `analysis_runs.total_items` is updated when the active queue grows so the run progress stays aligned with the appended screenshots.
-- Depending on provider and analysis mode, it either:
+- `AnalysisService` keeps run state on the main actor, but delegates each screenshot's long-running image load, OCR, model request, and response parsing to `AnalysisWorker` so UI state updates and cancellation stay responsive.
+- Depending on provider and analysis mode, the worker either:
   - runs local OCR first and sends text to a model, or
   - sends the screenshot image to a remote multimodal endpoint.
 - If the screenshot-analysis profile uses LM Studio, the service explicitly loads that model before processing the run and reuses the loaded instance across all screenshots in the run.

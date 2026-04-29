@@ -1,6 +1,6 @@
 import Foundation
 
-enum AppLanguage: String, CaseIterable, Codable, Identifiable {
+nonisolated enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     case simplifiedChinese = "zh-Hans"
     case english = "en"
 
@@ -46,7 +46,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     }
 }
 
-enum L10n {
+nonisolated enum L10n {
     enum Key: String {
         case settingsTabScreenshot
         case settingsTabModel

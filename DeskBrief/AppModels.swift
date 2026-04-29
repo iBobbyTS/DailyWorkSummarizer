@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import SwiftUI
 
-enum AppDefaults {
+nonisolated enum AppDefaults {
     static let screenshotIntervalMinutes = 5
     static let analysisTimeMinutes = 18 * 60 + 30
     static let analysisStartupMode: AnalysisStartupMode = .scheduled
@@ -104,7 +104,7 @@ enum AppDefaults {
     }
 }
 
-enum AnalysisStartupMode: String, CaseIterable, Codable, Hashable, Identifiable {
+nonisolated enum AnalysisStartupMode: String, CaseIterable, Codable, Hashable, Identifiable {
     case manual
     case scheduled
     case realtime
@@ -123,7 +123,7 @@ enum AnalysisStartupMode: String, CaseIterable, Codable, Hashable, Identifiable 
     }
 }
 
-enum ImageAnalysisMethod: String, CaseIterable, Codable, Identifiable {
+nonisolated enum ImageAnalysisMethod: String, CaseIterable, Codable, Identifiable {
     case ocr
     case multimodal
 
@@ -143,7 +143,7 @@ enum ImageAnalysisMethod: String, CaseIterable, Codable, Identifiable {
     }
 }
 
-enum ModelProvider: String, CaseIterable, Codable, Identifiable {
+nonisolated enum ModelProvider: String, CaseIterable, Codable, Identifiable {
     case openAI = "openai"
     case anthropic = "anthropic"
     case lmStudio = "lm_studio"
@@ -318,7 +318,7 @@ enum ReportWeekStart: String, CaseIterable, Codable, Identifiable {
     }
 }
 
-struct CategoryRule: Identifiable, Codable, Hashable {
+nonisolated struct CategoryRule: Identifiable, Codable, Hashable {
     var id: UUID
     var name: String
     var description: String
@@ -349,7 +349,7 @@ struct CategoryRule: Identifiable, Codable, Hashable {
     }
 }
 
-struct ModelProfileSettings: Equatable {
+nonisolated struct ModelProfileSettings: Equatable {
     let provider: ModelProvider
     let apiBaseURL: String
     let modelName: String
@@ -358,7 +358,7 @@ struct ModelProfileSettings: Equatable {
     let imageAnalysisMethod: ImageAnalysisMethod
 }
 
-struct AppSettingsSnapshot {
+nonisolated struct AppSettingsSnapshot {
     let screenshotIntervalMinutes: Int
     let analysisTimeMinutes: Int
     let analysisStartupMode: AnalysisStartupMode
@@ -621,17 +621,17 @@ struct HeatmapEvent: Identifiable {
     let durationMinutes: Int
 }
 
-struct AnalysisResponse {
+nonisolated struct AnalysisResponse {
     let category: String
     let summary: String
 }
 
-struct ModelRequestTiming {
+nonisolated struct ModelRequestTiming {
     let roundTripSeconds: TimeInterval?
     let serverProcessingSeconds: TimeInterval?
 }
 
-struct LMStudioTiming {
+nonisolated struct LMStudioTiming {
     let modelLoadTimeSeconds: TimeInterval?
     let timeToFirstTokenSeconds: TimeInterval?
     let totalOutputTokens: Int?
@@ -648,7 +648,7 @@ struct LMStudioTiming {
     }
 }
 
-struct ModelTestResult {
+nonisolated struct ModelTestResult {
     let provider: ModelProvider
     let imageAnalysisMethod: ImageAnalysisMethod
     let response: AnalysisResponse
@@ -668,19 +668,19 @@ extension Array where Element == CategoryRule {
 }
 
 extension Calendar {
-    static var reportCalendar: Calendar {
+    nonisolated static var reportCalendar: Calendar {
         reportCalendar(language: .current, firstWeekday: 1)
     }
 
-    static func reportCalendar(language: AppLanguage) -> Calendar {
+    nonisolated static func reportCalendar(language: AppLanguage) -> Calendar {
         reportCalendar(language: language, firstWeekday: 1)
     }
 
-    static func reportCalendar(firstWeekday: Int) -> Calendar {
+    nonisolated static func reportCalendar(firstWeekday: Int) -> Calendar {
         reportCalendar(language: .current, firstWeekday: firstWeekday)
     }
 
-    static func reportCalendar(language: AppLanguage, firstWeekday: Int) -> Calendar {
+    nonisolated static func reportCalendar(language: AppLanguage, firstWeekday: Int) -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = language.locale
         calendar.firstWeekday = firstWeekday
@@ -734,7 +734,7 @@ extension Double {
 }
 
 extension Color {
-    init(hexRGB: String) {
+    nonisolated init(hexRGB: String) {
         let normalized = AppDefaults.normalizedCategoryColorHex(hexRGB) ?? AppDefaults.defaultCategoryColorHex
         let hex = String(normalized.dropFirst())
         let scanner = Scanner(string: hex)

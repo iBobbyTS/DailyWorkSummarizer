@@ -1653,6 +1653,68 @@ struct DeskBriefTests {
         #expect(MockURLProtocol.requestPaths == ["/api/v1/models/load", "/api/v1/chat", "/api/v1/models/unload"])
     }
 
+    @MainActor
+    @Test func lmStudioAnalysisWorkerPropagatesModelInstanceIDToCleanupLog() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .lmStudio
+        store.apiBaseURL = "http://127.0.0.1:1234"
+        store.modelName = "analysis-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .manual
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://summary.example.com"
+        store.workContentSummaryModelName = "summary-model"
+
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        let screenshotURL = screenshotsDirectory.appendingPathComponent("20260313-1000-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: screenshotURL)
+
+        let session = makeMockSession { request in
+            try lmStudioLifecycleTestResponse(for: request)
+        }
+        let logStore = AppLogStore(database: database)
+        let summaryService = DailyReportSummaryService(
+            database: database,
+            settingsStore: store,
+            logStore: logStore,
+            session: session
+        )
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: logStore,
+            dailyReportSummaryService: summaryService,
+            session: session
+        )
+
+        service.runNow()
+        let didFinish = await waitUntil(timeoutSeconds: 8) {
+            !service.currentState.isRunning
+        }
+        let logs = try database.fetchAppLogs()
+
+        #expect(didFinish)
+        #expect(MockURLProtocol.requestPaths == ["/api/v1/models/load", "/api/v1/chat", "/api/v1/models/unload"])
+        #expect(logs.contains { $0.message.contains("analysis-model-instance") })
+    }
+
     private func runAnalysisLifecycleScenario(
         analysisProvider: ModelProvider,
         summaryProvider: ModelProvider,
