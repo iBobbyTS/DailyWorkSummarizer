@@ -12,6 +12,9 @@
 
 - `DeskBrief/ScreenshotService.swift`
 - `DeskBrief/AnalysisService.swift`
+- `DeskBrief/ActiveAnalysisRun.swift`
+- `DeskBrief/AnalysisServicePolicy.swift`
+- `DeskBrief/AnalysisWorker.swift`
 - `DeskBrief/DailyReportSummaryService.swift`
 - `DeskBrief/LLMService.swift`
 - `DeskBrief/LMStudioAPI.swift`
@@ -27,8 +30,8 @@
    先确认用户能改哪些配置，以及两套模型配置如何复制。
 2. 看 `AppSettings.swift` 和 `AppModels.swift`
    先确认设置是怎样被裁剪、归一化、快照化的。
-3. 看 `AnalysisService.swift`
-   这里的 `AnalysisService` 负责主 actor 上的运行状态、计时器、取消、追加队列和通知；同文件里的 `AnalysisWorker` 负责非主线程的图片读取、OCR、多模态请求、Apple Intelligence、重试、解析和测试面板输出。
+3. 看 `AnalysisService.swift`、`ActiveAnalysisRun.swift`、`AnalysisServicePolicy.swift` 和 `AnalysisWorker.swift`
+   `AnalysisService` 负责主 actor 上的运行状态、计时器、取消、追加队列和通知；`ActiveAnalysisRun` 保存当前队列和计数；`AnalysisServicePolicy` 放解析、重试、充电器等纯策略；`AnalysisWorker` 负责非主线程的图片读取、OCR、多模态请求、Apple Intelligence、模型调用和测试面板输出。
 4. 看 `DailyReportSummaryService.swift`
    这里处理日报汇总、按天补生成、模型请求和解析。
 5. 看 `LLMService.swift`

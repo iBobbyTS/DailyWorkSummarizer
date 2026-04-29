@@ -43,6 +43,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 ## Reports And Logs
 
 - Reports should prioritize timeline and aggregate comprehension over decorative layout.
+- Keep report responsibilities split by file: `ReportsView.swift` composes the window, `ReportsViewModel.swift` derives report state, `ReportLegendViews.swift` owns legend layout and hover geometry, and `ReportHeatmapViews.swift` owns timeline renderers.
 - Report charts and heatmaps should use the fixed colors saved on category rules instead of assigning colors from the current chart order.
 - Report durations use one shared format across day, week, month, and year views: under 60 minutes uses minutes, 60 to 5,999 minutes uses hours and minutes, and 6,000 minutes or more uses whole hours.
 - Daily report legends keep category-summary hover stable across chip gaps by checking pointer locations against row-union hover rectangles with a small margin; individual chip exits should not clear the hovered category, and trailing empty space after the last row should not count as hovered.

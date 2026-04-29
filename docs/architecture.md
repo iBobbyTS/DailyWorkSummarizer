@@ -12,8 +12,12 @@ The app is centered around a small set of long-lived services created at launch 
   Periodic capture scheduling, permission checks, and idle detection.
 - `AnalysisService`
   Main-actor coordinator for pending screenshot runs, timers, cancellation, appends, and UI-facing progress.
+- `ActiveAnalysisRun`
+  Per-run queue and counters used by `AnalysisService`, isolated in `ActiveAnalysisRun.swift`.
+- `AnalysisServicePolicy`
+  Static parsing, retry, charger, and runtime-error policy helpers in `AnalysisServicePolicy.swift`.
 - `AnalysisWorker`
-  Non-main async worker used by `AnalysisService` for image loading, OCR, model invocation, structured parsing, and retry behavior.
+  Non-main async worker in `AnalysisWorker.swift` used by `AnalysisService` for image loading, OCR, model invocation, structured parsing, and retry behavior.
 - `DailyReportSummaryService`
   Daily-summary generation and backfill for missing days.
 - `LLMService`
@@ -21,7 +25,9 @@ The app is centered around a small set of long-lived services created at launch 
 - `LMStudioModelLifecycle`
   Explicit LM Studio load/unload helper used by analysis, summaries, and settings model tests.
 - `ReportsViewModel`
-  Report range construction, chart data, heatmap data, and daily report presentation.
+  Report range construction, chart data, heatmap data, and daily report presentation in `ReportsViewModel.swift`.
+- `ReportsView`
+  Report window composition in `ReportsView.swift`, with legend helpers in `ReportLegendViews.swift` and heatmap renderers in `ReportHeatmapViews.swift`.
 - `AppLogStore`
   SQLite-backed runtime log list used by the menu-bar log window.
 
@@ -88,6 +94,7 @@ The app is centered around a small set of long-lived services created at launch 
   - normalized event blocks for heatmaps
   - daily summary records for the selected day
 - Chart legends, bars, and heatmap blocks use the fixed color stored on each category rule, with a preset fallback for historical categories that are no longer configured.
+- `ReportsView.swift` stays focused on panel composition and high-level chart selection. `ReportLegendViews.swift` owns legend hover geometry and wrapping layout, while `ReportHeatmapViews.swift` owns day, week, month, and year heatmap rendering.
 
 ## Settings model
 

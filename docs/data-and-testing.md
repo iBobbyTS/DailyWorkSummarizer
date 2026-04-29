@@ -98,6 +98,7 @@ xcodebuild test \
 - Sandboxed CLI environments may print CoreSimulator warnings even for macOS targets.
 - Distributed-notification warnings from `xcodebuild` are common in restricted environments and do not automatically indicate a product bug.
 - When settings-model fields change, hand-written test initializers are a common failure point.
+- `DeskBriefTests` is one serialized Swift Testing suite split across themed `extension DeskBriefTests` files. Shared fixtures, mock sessions, SQLite helpers, and `MockURLProtocol` live in `TestSupport.swift`.
 
 ## Useful inspection commands
 
