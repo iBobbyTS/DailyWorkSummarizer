@@ -154,18 +154,20 @@ extension DeskBriefTests {
             return NSStringFromSelector(action)
         }
 
-        let startupModeValues = topLevelItems[4].submenu?.items.compactMap { $0.representedObject as? String }
+        let cleanupValues = topLevelItems[2].submenu?.items.compactMap { $0.representedObject as? Int }
+        let startupModeValues = topLevelItems[5].submenu?.items.compactMap { $0.representedObject as? String }
         let statusSubmenuActions = topLevelItems[0].submenu?.items.compactMap { selectorName(for: $0) }
 
-        #expect(topLevelItems.count == 8)
+        #expect(topLevelItems.count == 9)
         #expect(topLevelItems[0].submenu != nil)
         #expect(selectorName(for: topLevelItems[1]) == "openReports")
-        #expect(topLevelItems[2].isSeparatorItem)
-        #expect(selectorName(for: topLevelItems[3]) == "openSettings")
+        #expect(cleanupValues == EarlyScreenshotCleanupScope.allCases.map(\.rawValue))
+        #expect(topLevelItems[3].isSeparatorItem)
+        #expect(selectorName(for: topLevelItems[4]) == "openSettings")
         #expect(startupModeValues == AnalysisStartupMode.allCases.map(\.rawValue))
-        #expect(selectorName(for: topLevelItems[5]) == "openLogs")
-        #expect(topLevelItems[6].isSeparatorItem)
-        #expect(selectorName(for: topLevelItems[7]) == "quit")
+        #expect(selectorName(for: topLevelItems[6]) == "openLogs")
+        #expect(topLevelItems[7].isSeparatorItem)
+        #expect(selectorName(for: topLevelItems[8]) == "quit")
         #expect(statusSubmenuActions?.contains("openLogs") == false)
         #expect(statusSubmenuActions?.contains("runAnalysisNow") == true)
     }

@@ -77,6 +77,7 @@ Keychain stores API keys for the two model profiles:
 - Model-test screenshots add a `-model-test` suffix.
 
 The filename is not just cosmetic: the app derives capture time and duration metadata from it when loading pending screenshot files.
+The Clear Early Screenshots menu only scans and deletes pending JPEG files in the screenshot directory root. It does not inspect or remove files from the `preview/` or `temp/` subdirectories, and its count cache is in memory only.
 
 ## Recommended test command
 

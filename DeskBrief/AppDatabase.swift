@@ -47,7 +47,7 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
-    static func applicationSupportDirectory() throws -> URL {
+    nonisolated static func applicationSupportDirectory() throws -> URL {
         let base = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -60,7 +60,7 @@ final class AppDatabase: @unchecked Sendable {
         return directory
     }
 
-    func screenshotsDirectory() throws -> URL {
+    nonisolated func screenshotsDirectory() throws -> URL {
         let supportDirectory: URL
         if let applicationSupportDirectoryOverride {
             supportDirectory = applicationSupportDirectoryOverride
@@ -72,7 +72,7 @@ final class AppDatabase: @unchecked Sendable {
         return directory
     }
 
-    func listScreenshotFiles(defaultDurationMinutes: Int) throws -> [ScreenshotFileRecord] {
+    nonisolated func listScreenshotFiles(defaultDurationMinutes: Int) throws -> [ScreenshotFileRecord] {
         let directory = try screenshotsDirectory()
         let fileURLs = try FileManager.default.contentsOfDirectory(
             at: directory,
@@ -698,7 +698,7 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
-    private func screenshotRecord(for url: URL, defaultDurationMinutes: Int) -> ScreenshotFileRecord? {
+    nonisolated private func screenshotRecord(for url: URL, defaultDurationMinutes: Int) -> ScreenshotFileRecord? {
         let baseName = url.deletingPathExtension().lastPathComponent
         guard let capturedAt = parseScreenshotDate(from: baseName) else {
             return nil
@@ -711,7 +711,7 @@ final class AppDatabase: @unchecked Sendable {
         )
     }
 
-    private func parseScreenshotDate(from baseName: String) -> Date? {
+    nonisolated private func parseScreenshotDate(from baseName: String) -> Date? {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = .current
@@ -719,7 +719,7 @@ final class AppDatabase: @unchecked Sendable {
         return formatter.date(from: String(baseName.prefix(13)))
     }
 
-    private func parseScreenshotIntervalMinutes(from baseName: String) -> Int? {
+    nonisolated private func parseScreenshotIntervalMinutes(from baseName: String) -> Int? {
         guard let markerRange = baseName.range(of: "-i", options: .backwards) else {
             return nil
         }

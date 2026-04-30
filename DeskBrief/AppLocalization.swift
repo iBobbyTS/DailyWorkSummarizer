@@ -134,6 +134,16 @@ nonisolated enum L10n {
         case menuCurrentStatus
         case menuSettings
         case menuReports
+        case menuClearEarlyScreenshots
+        case menuClearEarlyScreenshotsOneDay
+        case menuClearEarlyScreenshotsOneWeek
+        case menuClearEarlyScreenshotsCalculating
+        case menuClearEarlyScreenshotsEmpty
+        case menuClearEarlyScreenshotsCount
+        case menuClearEarlyScreenshotsCountSingular
+        case menuClearEarlyScreenshotsFailed
+        case menuClearEarlyScreenshotsConfirmTitle
+        case menuClearEarlyScreenshotsConfirmMessage
         case menuQuit
         case windowSettings
         case windowReports
@@ -319,6 +329,16 @@ nonisolated enum L10n {
             .menuCurrentStatus: "当前状态",
             .menuSettings: "设置",
             .menuReports: "查看报告",
+            .menuClearEarlyScreenshots: "清除早期截屏",
+            .menuClearEarlyScreenshotsOneDay: "一天以前",
+            .menuClearEarlyScreenshotsOneWeek: "一周以前",
+            .menuClearEarlyScreenshotsCalculating: "%@（计算中）",
+            .menuClearEarlyScreenshotsEmpty: "%@（无截屏）",
+            .menuClearEarlyScreenshotsCount: "%@（%d张）",
+            .menuClearEarlyScreenshotsCountSingular: "%@（%d张）",
+            .menuClearEarlyScreenshotsFailed: "%@（计算失败）",
+            .menuClearEarlyScreenshotsConfirmTitle: "确认清除早期截屏",
+            .menuClearEarlyScreenshotsConfirmMessage: "将删除%@的 %d 张待分析截屏。此操作不可撤销。",
             .menuQuit: "退出",
             .windowSettings: "设置",
             .windowReports: "查看报告",
@@ -502,6 +522,16 @@ nonisolated enum L10n {
             .menuCurrentStatus: "Current Status",
             .menuSettings: "Settings",
             .menuReports: "View Reports",
+            .menuClearEarlyScreenshots: "Clear Early Screenshots",
+            .menuClearEarlyScreenshotsOneDay: "Older Than 1 Day",
+            .menuClearEarlyScreenshotsOneWeek: "Older Than 1 Week",
+            .menuClearEarlyScreenshotsCalculating: "%@ (Calculating)",
+            .menuClearEarlyScreenshotsEmpty: "%@ (No screenshots)",
+            .menuClearEarlyScreenshotsCount: "%@ (%d screenshots)",
+            .menuClearEarlyScreenshotsCountSingular: "%@ (%d screenshot)",
+            .menuClearEarlyScreenshotsFailed: "%@ (Calculation failed)",
+            .menuClearEarlyScreenshotsConfirmTitle: "Confirm Screenshot Cleanup",
+            .menuClearEarlyScreenshotsConfirmMessage: "This will delete pending screenshots %@ (%d total). This cannot be undone.",
             .menuQuit: "Quit",
             .windowSettings: "Settings",
             .windowReports: "Reports",

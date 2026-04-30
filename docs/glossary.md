@@ -22,6 +22,7 @@ This glossary keeps DeskBrief's common Simplified Chinese and English product te
 | 测试截屏 | Test Screenshot | Button label for preview capture. |
 | 正在测试截屏 | Testing screenshot | In-progress state for test screenshot capture. |
 | 打开截屏文件夹 | Open Screenshots Folder | Folder command. |
+| 清除早期截屏 | Clear Early Screenshots | Menu action for deleting old pending screenshot files. |
 | 当前活跃的屏幕 | Current active display | Screenshot scope label. |
 | 屏幕录制权限 | Screen recording permission | macOS permission required for screenshot capture. |
 

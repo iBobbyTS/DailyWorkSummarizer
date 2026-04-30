@@ -43,6 +43,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private let currentStatusMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let settingsMenuItem = NSMenuItem(title: "", action: #selector(openSettings), keyEquivalent: ",")
     private let reportsMenuItem = NSMenuItem(title: "", action: #selector(openReports), keyEquivalent: "r")
+    private let clearEarlyScreenshotsMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let clearEarlyScreenshotsSubmenu = NSMenu()
+    private let clearOneDayScreenshotsItem = NSMenuItem(title: "", action: #selector(clearEarlyScreenshots(_:)), keyEquivalent: "")
+    private let clearOneWeekScreenshotsItem = NSMenuItem(title: "", action: #selector(clearEarlyScreenshots(_:)), keyEquivalent: "")
+    private let earlyScreenshotCleanupCoordinator = EarlyScreenshotCleanupCoordinator()
+    private var earlyScreenshotCleanupItems: [EarlyScreenshotCleanupScope: NSMenuItem] = [:]
+    private var earlyScreenshotCleanupWaitTask: Task<Void, Never>?
     private let quitMenuItem = NSMenuItem(title: "", action: #selector(quit), keyEquivalent: "q")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -195,6 +202,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         viewLogsItem.target = self
         viewLogsItem.isEnabled = true
         analyzeNowItem.target = self
+        clearOneDayScreenshotsItem.target = self
+        clearOneDayScreenshotsItem.representedObject = EarlyScreenshotCleanupScope.oneDay.rawValue
+        clearOneWeekScreenshotsItem.target = self
+        clearOneWeekScreenshotsItem.representedObject = EarlyScreenshotCleanupScope.oneWeek.rawValue
+        earlyScreenshotCleanupItems[.oneDay] = clearOneDayScreenshotsItem
+        earlyScreenshotCleanupItems[.oneWeek] = clearOneWeekScreenshotsItem
+
+        clearEarlyScreenshotsSubmenu.delegate = self
+        clearEarlyScreenshotsSubmenu.addItem(clearOneDayScreenshotsItem)
+        clearEarlyScreenshotsSubmenu.addItem(clearOneWeekScreenshotsItem)
+        applyEarlyScreenshotCleanupStatus(.calculating)
 
         let analysisStartupModeSubmenu = NSMenu()
         for mode in AnalysisStartupMode.allCases {
@@ -215,6 +233,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.addItem(currentStatusMenuItem)
         menu.setSubmenu(statusSubmenu, for: currentStatusMenuItem)
         menu.addItem(reportsMenuItem)
+        menu.addItem(clearEarlyScreenshotsMenuItem)
+        menu.setSubmenu(clearEarlyScreenshotsSubmenu, for: clearEarlyScreenshotsMenuItem)
         menu.addItem(.separator())
         menu.addItem(settingsMenuItem)
         menu.addItem(analysisStartupModeMenuItem)
@@ -231,8 +251,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     nonisolated func menuWillOpen(_ menu: NSMenu) {
+        let openedMenuID = ObjectIdentifier(menu)
         Task { @MainActor [weak self] in
-            self?.refreshStatusMenu()
+            guard let self else { return }
+            if openedMenuID == ObjectIdentifier(self.clearEarlyScreenshotsSubmenu) {
+                self.openEarlyScreenshotCleanupSubmenu()
+            } else {
+                self.refreshStatusMenu()
+            }
         }
     }
 
@@ -324,11 +350,127 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
 
+    @objc private func clearEarlyScreenshots(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? Int,
+              let scope = EarlyScreenshotCleanupScope(rawValue: rawValue) else {
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let fileURLs = await self.earlyScreenshotCleanupCoordinator.cachedFiles(for: scope),
+                  !fileURLs.isEmpty else {
+                self.applyEarlyScreenshotCleanupStatus(.calculating)
+                self.openEarlyScreenshotCleanupSubmenu()
+                return
+            }
+
+            guard self.confirmEarlyScreenshotCleanup(scope: scope, count: fileURLs.count) else {
+                return
+            }
+            self.deleteEarlyScreenshots(fileURLs)
+        }
+    }
+
     private func activateAndShow(_ window: NSWindow) {
         if !NSApp.isActive {
             NSApp.activate(ignoringOtherApps: true)
         }
         window.makeKeyAndOrderFront(nil)
+    }
+
+    private func openEarlyScreenshotCleanupSubmenu() {
+        guard let database else {
+            applyEarlyScreenshotCleanupStatus(.failed("database unavailable"))
+            return
+        }
+
+        let defaultDuration = settingsStore?.screenshotIntervalMinutes ?? AppDefaults.screenshotIntervalMinutes
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let status = await self.earlyScreenshotCleanupCoordinator.beginCalculationIfNeeded(
+                database: database,
+                defaultDurationMinutes: defaultDuration
+            )
+            self.applyEarlyScreenshotCleanupStatus(status)
+
+            guard case .calculating = status else {
+                return
+            }
+            guard self.earlyScreenshotCleanupWaitTask == nil else {
+                return
+            }
+
+            self.earlyScreenshotCleanupWaitTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                let finalStatus = await self.earlyScreenshotCleanupCoordinator.waitForCalculation()
+                self.earlyScreenshotCleanupWaitTask = nil
+                if case let .failed(message) = finalStatus {
+                    self.logStore?.add(
+                        level: .error,
+                        source: .screenshot,
+                        message: "Failed to calculate early screenshot cleanup counts: \(message)"
+                    )
+                }
+                self.applyEarlyScreenshotCleanupStatus(finalStatus)
+            }
+        }
+    }
+
+    private func applyEarlyScreenshotCleanupStatus(_ status: EarlyScreenshotCleanupStatus) {
+        let language = settingsStore?.appLanguage ?? .current
+        for scope in EarlyScreenshotCleanupScope.allCases {
+            guard let item = earlyScreenshotCleanupItems[scope] else { continue }
+            let state = EarlyScreenshotCleanupCoordinator.menuItemState(for: status, scope: scope)
+            let presentation = EarlyScreenshotCleanupCoordinator.presentation(
+                scope: scope,
+                state: state,
+                language: language
+            )
+            item.title = presentation.title
+            item.isEnabled = presentation.isEnabled
+        }
+    }
+
+    private func confirmEarlyScreenshotCleanup(scope: EarlyScreenshotCleanupScope, count: Int) -> Bool {
+        let language = settingsStore?.appLanguage ?? .current
+        let scopeTitle = EarlyScreenshotCleanupCoordinator.title(for: scope, language: language)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = text(.menuClearEarlyScreenshotsConfirmTitle, language: language)
+        alert.informativeText = text(
+            .menuClearEarlyScreenshotsConfirmMessage,
+            arguments: [scopeTitle, count],
+            language: language
+        )
+        alert.addButton(withTitle: text(.commonConfirm, language: language))
+        alert.addButton(withTitle: text(.commonCancel, language: language))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func deleteEarlyScreenshots(_ fileURLs: [URL]) {
+        let coordinator = earlyScreenshotCleanupCoordinator
+        Task { [weak self] in
+            do {
+                _ = try await Task.detached(priority: .utility) {
+                    try EarlyScreenshotCleanupCoordinator.deleteFiles(fileURLs)
+                }.value
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.logStore?.add(
+                        level: .error,
+                        source: .screenshot,
+                        message: "Failed to delete early screenshots: \(EarlyScreenshotCleanupCoordinator.describe(error))"
+                    )
+                }
+            }
+
+            await coordinator.invalidateCache()
+            await MainActor.run { [weak self] in
+                NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
+                self?.applyEarlyScreenshotCleanupStatus(.calculating)
+            }
+        }
     }
 
     private func refreshStatusMenu() {
@@ -449,7 +591,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         openScreenshotsItem.title = text(.menuOpenScreenshotsFolder, language: language)
         settingsMenuItem.title = text(.menuSettings, language: language)
         reportsMenuItem.title = text(.menuReports, language: language)
+        clearEarlyScreenshotsMenuItem.title = text(.menuClearEarlyScreenshots, language: language)
         quitMenuItem.title = text(.menuQuit, language: language)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let status = await self.earlyScreenshotCleanupCoordinator.currentStatus()
+            self.applyEarlyScreenshotCleanupStatus(status)
+        }
 
         settingsWindow?.title = text(.windowSettings, language: language)
         reportsWindow?.title = text(.windowReports, language: language)
