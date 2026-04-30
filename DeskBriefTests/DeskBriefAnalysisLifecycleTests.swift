@@ -47,6 +47,62 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func analysisRunCreationFailureIsLogged() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "screenshot-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .manual
+
+        let screenshotURL = try database.screenshotsDirectory().appendingPathComponent("20260426-1000-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: screenshotURL)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            return try makeHTTPResponse(url: try #require(request.url), body: "{}")
+        }
+        let logStore = AppLogStore(database: database)
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: logStore,
+            dailyReportSummaryService: DailyReportSummaryService(database: database, settingsStore: store, session: session),
+            session: session
+        )
+
+        try executeSQLite("DROP TABLE analysis_runs;", databaseURL: databaseURL)
+
+        service.runNow()
+
+        #expect(!service.currentState.isRunning)
+        #expect(MockURLProtocol.requestCount == 0)
+
+        let logs = try database.fetchAppLogs()
+        let log = try #require(logs.first)
+        #expect(log.level == .error)
+        #expect(log.source == .analysis)
+        #expect(log.message.contains("Failed to create analysis run"))
+    }
+
+    @MainActor
     @Test func runningAnalysisAppendsNewScreenshotsToCurrentRun() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory

@@ -121,6 +121,15 @@ func fetchInt(_ sql: String, databaseURL: URL) throws -> Int {
     return Int(sqlite3_column_int64(statement, 0))
 }
 
+func executeSQLite(_ sql: String, databaseURL: URL) throws {
+    let handle = try openSQLite(at: databaseURL)
+    defer { sqlite3_close(handle) }
+
+    guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
+        throw DatabaseError.execute(handle.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite execute failed")
+    }
+}
+
 func makeTestCalendar() -> Calendar {
     var calendar = Calendar.reportCalendar(language: .simplifiedChinese)
     calendar.timeZone = TimeZone(identifier: "America/Edmonton") ?? .current

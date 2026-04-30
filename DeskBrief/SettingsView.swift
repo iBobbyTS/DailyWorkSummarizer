@@ -37,6 +37,7 @@ struct SettingsView: View {
     @ObservedObject var settingsStore: SettingsStore
     let screenshotService: ScreenshotService
     let analysisService: AnalysisService
+    let logStore: AppLogStore?
 
     @State private var previewImage: NSImage?
     @State private var previewFileURL: URL?
@@ -907,7 +908,10 @@ struct SettingsView: View {
                 removePreviewFile()
 
                 let validationResult = try screenshotService.capturePreview()
-                try? FileManager.default.removeItem(at: validationResult.fileURL)
+                removeTemporaryFileIfExists(
+                    validationResult.fileURL,
+                    context: "Failed to remove screenshot validation preview"
+                )
 
                 for remainingSeconds in stride(from: 3, through: 1, by: -1) {
                     previewCountdownText = countdownText(remainingSeconds)
@@ -922,6 +926,7 @@ struct SettingsView: View {
                 previewImage = nil
                 removePreviewFile()
                 previewError = error.localizedDescription
+                logStore?.addError(source: .settings, context: "Failed to capture preview screenshot", error: error)
             }
         }
     }
@@ -945,7 +950,10 @@ struct SettingsView: View {
             var temporaryFileURL: URL?
             defer {
                 if let temporaryFileURL {
-                    try? FileManager.default.removeItem(at: temporaryFileURL)
+                    removeTemporaryFileIfExists(
+                        temporaryFileURL,
+                        context: "Failed to remove model test screenshot"
+                    )
                 }
                 modelTestCountdownText = nil
                 isTestingModel = false
@@ -973,6 +981,7 @@ struct SettingsView: View {
                 modelTestResult = response
             } catch {
                 modelTestError = error.localizedDescription
+                logStore?.addError(source: .settings, context: "Failed to test current model settings", error: error)
             }
         }
     }
@@ -1075,11 +1084,26 @@ struct SettingsView: View {
 
     private func removePreviewFile() {
         if let previewFileURL {
-            try? FileManager.default.removeItem(at: previewFileURL)
+            removeTemporaryFileIfExists(
+                previewFileURL,
+                context: "Failed to remove preview screenshot"
+            )
             self.previewFileURL = nil
         }
         previewImage = nil
         previewCountdownText = nil
+    }
+
+    private func removeTemporaryFileIfExists(_ url: URL, context: String) {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            logStore?.addError(source: .settings, context: context, error: error)
+        }
     }
 }
 

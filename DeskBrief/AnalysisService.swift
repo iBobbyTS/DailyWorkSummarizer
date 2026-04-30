@@ -196,7 +196,7 @@ final class AnalysisService {
             )
             recordLMStudioModelInstanceIfNeeded(result.modelInstanceID, provider: snapshot.provider)
             if let loadedModel {
-                try? await lmStudioLifecycle.unload(
+                await unloadModelAfterSettingsTest(
                     settings: snapshot.screenshotAnalysisModelProfile,
                     instanceID: loadedModel.instanceID
                 )
@@ -212,13 +212,13 @@ final class AnalysisService {
             )
         } catch {
             if let loadedModel {
-                try? await lmStudioLifecycle.unload(
+                await unloadModelAfterSettingsTest(
                     settings: snapshot.screenshotAnalysisModelProfile,
                     instanceID: loadedModel.instanceID
                 )
             }
             if Self.shouldRecordRuntimeError(error) {
-                logStore.add(level: .error, source: .analysis, message: error.localizedDescription)
+                logStore.addError(source: .analysis, context: "Failed to test screenshot analysis settings", error: error)
             }
             throw error
         }
@@ -316,10 +316,14 @@ final class AnalysisService {
             language: snapshot.appLanguage
         )
 
-        guard let runID = try? database.createAnalysisRun(
-            modelName: snapshot.modelName,
-            totalItems: pendingScreenshots.count
-        ) else {
+        let runID: Int64
+        do {
+            runID = try database.createAnalysisRun(
+                modelName: snapshot.modelName,
+                totalItems: pendingScreenshots.count
+            )
+        } catch {
+            logStore.addError(source: .analysis, context: "Failed to create analysis run", error: error)
             return
         }
 
@@ -362,7 +366,7 @@ final class AnalysisService {
         }
 
         guard !snapshot.validCategoryRules.isEmpty else {
-            try? database.finishAnalysisRun(
+            finishAnalysisRun(
                 id: run.id,
                 status: "failed",
                 successCount: 0,
@@ -374,7 +378,7 @@ final class AnalysisService {
 
         if snapshot.provider.requiresRemoteConfiguration {
             guard !snapshot.apiBaseURL.isEmpty else {
-                try? database.finishAnalysisRun(
+                finishAnalysisRun(
                     id: run.id,
                     status: "failed",
                     successCount: 0,
@@ -385,7 +389,7 @@ final class AnalysisService {
             }
 
             guard !snapshot.modelName.isEmpty else {
-                try? database.finishAnalysisRun(
+                finishAnalysisRun(
                     id: run.id,
                     status: "failed",
                     successCount: 0,
@@ -401,9 +405,9 @@ final class AnalysisService {
             loadedAnalysisModel = try await loadScreenshotAnalysisModelIfNeeded(for: snapshot)
         } catch {
             if Self.shouldRecordRuntimeError(error) {
-                logStore.add(level: .error, source: .analysis, message: error.localizedDescription)
+                logStore.addError(source: .analysis, context: "Failed to load screenshot analysis model", error: error)
             }
-            try? database.finishAnalysisRun(
+            finishAnalysisRun(
                 id: run.id,
                 status: "failed",
                 successCount: 0,
@@ -435,6 +439,11 @@ final class AnalysisService {
                 let durationMinutes = screenshot.durationMinutes
 
                 guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                    logStore.add(
+                        level: .log,
+                        source: .analysis,
+                        message: "Pending screenshot no longer exists: \(fileURL.path)"
+                    )
                     run.failureCount += 1
                     run.consecutiveFailureCount += 1
                     run.completedCount += 1
@@ -471,7 +480,7 @@ final class AnalysisService {
 
                     run.successCount += 1
                     run.consecutiveFailureCount = 0
-                    try? FileManager.default.removeItem(at: fileURL)
+                    removeProcessedScreenshot(at: fileURL)
                     NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
                 } catch {
                     if error is CancellationError || Task.isCancelled {
@@ -480,9 +489,8 @@ final class AnalysisService {
                         break
                     }
 
-                    let message = error.localizedDescription
                     if Self.shouldRecordRuntimeError(error) {
-                        logStore.add(level: .error, source: .analysis, message: message)
+                        logStore.addError(source: .analysis, context: "Failed to analyze screenshot \(fileURL.lastPathComponent)", error: error)
                     }
                     run.failureCount += 1
                     run.consecutiveFailureCount += 1
@@ -528,7 +536,7 @@ final class AnalysisService {
         run.isAcceptingAppends = false
 
         if run.wasCancelled {
-            try? database.finishAnalysisRun(
+            finishAnalysisRun(
                 id: run.id,
                 status: "cancelled",
                 successCount: run.successCount,
@@ -555,7 +563,7 @@ final class AnalysisService {
         if run.wasPausedAfterFailures {
             let message = localized(.analysisPausedAfterFailures, language: snapshot.appLanguage)
             let finalStatus = run.successCount > 0 ? "partial_failed" : "failed"
-            try? database.finishAnalysisRun(
+            finishAnalysisRun(
                 id: run.id,
                 status: finalStatus,
                 successCount: run.successCount,
@@ -580,7 +588,7 @@ final class AnalysisService {
             finalStatus = "succeeded"
         }
 
-        try? database.finishAnalysisRun(
+        finishAnalysisRun(
             id: run.id,
             status: finalStatus,
             successCount: run.successCount,
@@ -642,7 +650,12 @@ final class AnalysisService {
     }
 
     private func pendingScreenshotFiles(defaultDurationMinutes: Int) -> [ScreenshotFileRecord] {
-        (try? database.listScreenshotFiles(defaultDurationMinutes: defaultDurationMinutes)) ?? []
+        do {
+            return try database.listScreenshotFiles(defaultDurationMinutes: defaultDurationMinutes)
+        } catch {
+            logStore.addError(source: .analysis, context: "Failed to list pending screenshot files", error: error)
+            return []
+        }
     }
 
     @discardableResult
@@ -656,7 +669,7 @@ final class AnalysisService {
         do {
             try database.updateAnalysisRunTotalItems(id: run.id, totalItems: run.totalCount)
         } catch {
-            logStore.add(level: .error, source: .analysis, message: error.localizedDescription)
+            logStore.addError(source: .analysis, context: "Failed to update analysis run total items", error: error)
         }
         updateRuntimeState(
             startedAt: run.startedAt,
@@ -716,6 +729,51 @@ final class AnalysisService {
         )
     }
 
+    private func finishAnalysisRun(
+        id: Int64,
+        status: String,
+        successCount: Int,
+        failureCount: Int,
+        averageItemDurationSeconds: Double? = nil,
+        errorMessage: String? = nil
+    ) {
+        do {
+            try database.finishAnalysisRun(
+                id: id,
+                status: status,
+                successCount: successCount,
+                failureCount: failureCount,
+                averageItemDurationSeconds: averageItemDurationSeconds,
+                errorMessage: errorMessage
+            )
+        } catch {
+            logStore.addError(source: .analysis, context: "Failed to finish analysis run \(id)", error: error)
+        }
+    }
+
+    private func removeProcessedScreenshot(at fileURL: URL) {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch {
+            logStore.addError(source: .analysis, context: "Failed to remove processed screenshot \(fileURL.lastPathComponent)", error: error)
+        }
+    }
+
+    private func unloadModelAfterSettingsTest(
+        settings: ModelProfileSettings,
+        instanceID: String?
+    ) async {
+        do {
+            try await lmStudioLifecycle.unload(settings: settings, instanceID: instanceID)
+        } catch {
+            logStore.addError(source: .lmStudio, context: "Failed to unload LM Studio model after settings test", error: error)
+        }
+    }
+
     private func unloadScreenshotAnalysisModelIfNeeded(
         for settings: AppSettingsSnapshot,
         loadedInstanceID: String?,
@@ -749,10 +807,7 @@ final class AnalysisService {
                 instanceID: loadedInstanceID
             )
         } catch {
-            recordLMStudioLog(
-                chinese: "LM Studio 模型卸载失败：\(error.localizedDescription)",
-                english: "LM Studio model unload failed: \(error.localizedDescription)"
-            )
+            logStore.addError(source: .lmStudio, context: "LM Studio model unload failed", error: error)
             return
         }
     }

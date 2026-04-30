@@ -143,8 +143,15 @@ final class AppDatabase: @unchecked Sendable {
                 try commitTransaction()
                 postChangeNotification()
             } catch {
-                try? rollbackTransaction()
-                throw error
+                let operationError = error
+                do {
+                    try rollbackTransaction()
+                } catch {
+                    throw DatabaseError.execute(
+                        "transaction failed: \(String(describing: operationError)); rollback failed: \(String(describing: error))"
+                    )
+                }
+                throw operationError
             }
         }
     }
@@ -526,7 +533,7 @@ final class AppDatabase: @unchecked Sendable {
 
             let dayStart = Date(timeIntervalSince1970: sqlite3_column_double(statement, 0))
             let dailySummaryText = string(at: 1, from: statement)
-            let categorySummaries = decodeCategorySummaries(from: string(at: 2, from: statement))
+            let categorySummaries = try decodeCategorySummaries(from: string(at: 2, from: statement))
             return DailyReportRecord(
                 dayStart: dayStart,
                 dailySummaryText: dailySummaryText,
@@ -556,7 +563,7 @@ final class AppDatabase: @unchecked Sendable {
 
             sqlite3_bind_double(statement, 1, dayStart.timeIntervalSince1970)
             bind(dailySummaryText, at: 2, to: statement)
-            bind(encodeCategorySummaries(categorySummaries), at: 3, to: statement)
+            bind(try encodeCategorySummaries(categorySummaries), at: 3, to: statement)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
@@ -714,21 +721,18 @@ final class AppDatabase: @unchecked Sendable {
         return Int(value)
     }
 
-    private func encodeCategorySummaries(_ value: [String: String]) -> String {
+    private func encodeCategorySummaries(_ value: [String: String]) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(value) else {
-            return "{}"
-        }
+        let data = try encoder.encode(value)
         return String(decoding: data, as: UTF8.self)
     }
 
-    private func decodeCategorySummaries(from rawValue: String) -> [String: String] {
-        guard let data = rawValue.data(using: .utf8),
-              let decoded = try? JSONDecoder().decode([String: String].self, from: data) else {
-            return [:]
+    private func decodeCategorySummaries(from rawValue: String) throws -> [String: String] {
+        guard let data = rawValue.data(using: .utf8) else {
+            throw DatabaseError.execute("daily report category summaries are not valid UTF-8")
         }
-        return decoded
+        return try JSONDecoder().decode([String: String].self, from: data)
     }
 
     private func pruneAppLogsIfNeeded(maxEntries: Int) throws {

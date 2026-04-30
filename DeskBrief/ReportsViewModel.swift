@@ -50,6 +50,7 @@ final class ReportsViewModel: ObservableObject {
     private let database: AppDatabase
     private let settingsStore: SettingsStore
     private let dailyReportSummaryService: DailyReportSummaryService
+    private let logStore: AppLogStore?
     private var sourceItems: [ReportSourceItem] = []
     private var databaseObserver: AnyCancellable?
     private var settingsObserver: AnyCancellable?
@@ -57,11 +58,13 @@ final class ReportsViewModel: ObservableObject {
     init(
         database: AppDatabase,
         settingsStore: SettingsStore,
-        dailyReportSummaryService: DailyReportSummaryService
+        dailyReportSummaryService: DailyReportSummaryService,
+        logStore: AppLogStore? = nil
     ) {
         self.database = database
         self.settingsStore = settingsStore
         self.dailyReportSummaryService = dailyReportSummaryService
+        self.logStore = logStore
         reload()
         databaseObserver = NotificationCenter.default.publisher(for: .appDatabaseDidChange)
             .receive(on: RunLoop.main)
@@ -76,7 +79,13 @@ final class ReportsViewModel: ObservableObject {
     }
 
     func reload() {
-        let persistedItems = (try? database.fetchReportSourceItems()) ?? []
+        let persistedItems: [ReportSourceItem]
+        do {
+            persistedItems = try database.fetchReportSourceItems()
+        } catch {
+            persistedItems = []
+            logStore?.addError(source: .reports, context: "Failed to load report source items", error: error)
+        }
         sourceItems = Self.itemsIncludingDerivedAbsences(
             from: persistedItems,
             calendar: .reportCalendar
@@ -160,6 +169,7 @@ final class ReportsViewModel: ObservableObject {
                 selectedDailyReport = record
             } catch {
                 dailyReportGenerationError = error.localizedDescription
+                logStore?.addError(source: .summary, context: "Failed to summarize selected day", error: error)
                 updateSelectedDailyReport()
             }
         }
@@ -249,7 +259,12 @@ final class ReportsViewModel: ObservableObject {
             return
         }
 
-        selectedDailyReport = try? database.fetchDailyReport(for: dayStart)
+        do {
+            selectedDailyReport = try database.fetchDailyReport(for: dayStart)
+        } catch {
+            selectedDailyReport = nil
+            logStore?.addError(source: .reports, context: "Failed to load selected daily report", error: error)
+        }
     }
 
     private static func categorySortPriority(_ category: String) -> Int {

@@ -23,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var screenshotObserver: NSObjectProtocol?
     private var analysisObserver: NSObjectProtocol?
     private var logsObserver: NSObjectProtocol?
+    private var didLogStatusMenuPendingScreenshotsFailure = false
+    private var didLogStatusMenuAverageDurationFailure = false
 
     private var database: AppDatabase?
     private var settingsStore: SettingsStore?
@@ -50,13 +52,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         do {
             let database = try AppDatabase()
             let keychain = KeychainStore(service: Bundle.main.bundleIdentifier ?? "DeskBrief")
-            let settingsStore = SettingsStore(database: database, keychain: keychain)
             let logStore = AppLogStore(database: database)
+            let settingsStore = SettingsStore(database: database, keychain: keychain, logStore: logStore)
 
             self.database = database
             self.settingsStore = settingsStore
             self.logStore = logStore
-            self.screenshotService = ScreenshotService(database: database, settingsStore: settingsStore)
+            self.screenshotService = ScreenshotService(database: database, settingsStore: settingsStore, logStore: logStore)
             let dailyReportSummaryService = DailyReportSummaryService(
                 database: database,
                 settingsStore: settingsStore,
@@ -72,7 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             self.reportsViewModel = ReportsViewModel(
                 database: database,
                 settingsStore: settingsStore,
-                dailyReportSummaryService: dailyReportSummaryService
+                dailyReportSummaryService: dailyReportSummaryService,
+                logStore: logStore
             )
         } catch {
             presentFatalAlert(message: text(.alertDatabaseInitFailed, language: .current), detail: error.localizedDescription)
@@ -230,7 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     @objc private func openSettings() {
-        guard let settingsStore, let screenshotService, let analysisService else { return }
+        guard let settingsStore, let screenshotService, let analysisService, let logStore else { return }
         if let window = settingsWindow {
             activateAndShow(window)
             return
@@ -240,7 +243,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             rootView: SettingsView(
                 settingsStore: settingsStore,
                 screenshotService: screenshotService,
-                analysisService: analysisService
+                analysisService: analysisService,
+                logStore: logStore
             )
         )
         let window = NSWindow(contentViewController: controller)
@@ -327,9 +331,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let database else { return }
 
         let defaultDuration = settingsStore?.screenshotIntervalMinutes ?? AppDefaults.screenshotIntervalMinutes
-        let pendingScreenshots = (try? database.listScreenshotFiles(defaultDurationMinutes: defaultDuration)) ?? []
+        let pendingScreenshots: [ScreenshotFileRecord]
+        do {
+            pendingScreenshots = try database.listScreenshotFiles(defaultDurationMinutes: defaultDuration)
+            didLogStatusMenuPendingScreenshotsFailure = false
+        } catch {
+            pendingScreenshots = []
+            if !didLogStatusMenuPendingScreenshotsFailure {
+                logStore?.addError(source: .app, context: "Failed to refresh pending screenshot count", error: error)
+                didLogStatusMenuPendingScreenshotsFailure = true
+            }
+        }
         let analysisState = analysisService?.currentState ?? .idle
-        let lastAverageDuration = try? database.fetchLatestAnalysisAverageDurationSeconds()
+        let lastAverageDuration: Double?
+        do {
+            lastAverageDuration = try database.fetchLatestAnalysisAverageDurationSeconds()
+            didLogStatusMenuAverageDurationFailure = false
+        } catch {
+            lastAverageDuration = nil
+            if !didLogStatusMenuAverageDurationFailure {
+                logStore?.addError(source: .app, context: "Failed to refresh latest analysis duration", error: error)
+                didLogStatusMenuAverageDurationFailure = true
+            }
+        }
         let analysisStartupMode = settingsStore?.analysisStartupMode ?? AppDefaults.analysisStartupMode
         let language = settingsStore?.appLanguage ?? .current
 

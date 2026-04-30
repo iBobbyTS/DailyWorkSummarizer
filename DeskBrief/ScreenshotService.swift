@@ -11,14 +11,22 @@ final class ScreenshotService {
 
     private let database: AppDatabase
     private let settingsStore: SettingsStore
+    private let logStore: AppLogStore?
     private let userDefaults: UserDefaults
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
+    private var didLogCapturePermissionDenied = false
     private(set) var nextScreenshotDate: Date?
 
-    init(database: AppDatabase, settingsStore: SettingsStore, userDefaults: UserDefaults = .standard) {
+    init(
+        database: AppDatabase,
+        settingsStore: SettingsStore,
+        logStore: AppLogStore? = nil,
+        userDefaults: UserDefaults = .standard
+    ) {
         self.database = database
         self.settingsStore = settingsStore
+        self.logStore = logStore
         self.userDefaults = userDefaults
     }
 
@@ -73,8 +81,12 @@ final class ScreenshotService {
     }
 
     func openScreenshotsFolder() {
-        guard let screenshotsURL = try? database.screenshotsDirectory() else { return }
-        NSWorkspace.shared.open(screenshotsURL)
+        do {
+            let screenshotsURL = try database.screenshotsDirectory()
+            NSWorkspace.shared.open(screenshotsURL)
+        } catch {
+            logStore?.addError(source: .screenshot, context: "Failed to open screenshots folder", error: error)
+        }
     }
 
     func captureTemporaryMainDisplay() throws -> URL {
@@ -132,6 +144,7 @@ final class ScreenshotService {
         }
 
         guard CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() else {
+            recordCapturePermissionDeniedIfNeeded()
             return
         }
 
@@ -150,6 +163,7 @@ final class ScreenshotService {
             NotificationCenter.default.post(name: .screenshotFileSaved, object: fileURL)
             NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
         } catch {
+            logStore?.addError(source: .screenshot, context: "Failed to capture scheduled screenshot", error: error)
             return
         }
     }
@@ -187,6 +201,18 @@ final class ScreenshotService {
         }
 
         try runScreenCapture(arguments: ["-x", "-m", "-t", "jpg", destinationURL.path])
+    }
+
+    private func recordCapturePermissionDeniedIfNeeded() {
+        guard !didLogCapturePermissionDenied else {
+            return
+        }
+        didLogCapturePermissionDenied = true
+        logStore?.add(
+            level: .error,
+            source: .screenshot,
+            message: text(.screenshotPermissionDenied)
+        )
     }
 
     private func preferredDisplayIndex() -> Int? {

@@ -27,6 +27,7 @@
 注意：
 
 - `离开` 不再持久化为数据库表；报告窗口会根据相邻成功分析结果之间的空白，在内存中派生展示。
+- 运行时错误排查优先看 `app_logs`。`error` 表示需要修复或用户处理的失败；`log` 表示可忽略的取消、无活动、生命周期调试或已恢复状态。
 
 设置存储位置：
 
@@ -56,6 +57,11 @@ sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
 ```sh
 sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select id,datetime(day_start,'unixepoch','localtime'),substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
+```
+
+```sh
+sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
+  "select datetime(created_at,'unixepoch','localtime'),level,source,substr(message,1,160) from app_logs order by created_at desc limit 50;"
 ```
 
 ```sh

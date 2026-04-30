@@ -78,6 +78,7 @@ private actor AsyncLock {
 final class DailyReportSummaryService {
     private let database: AppDatabase
     private let settingsStore: SettingsStore
+    private weak var logStore: AppLogStore?
     private let llmService: LLMService
     private let lmStudioLifecycle: LMStudioModelLifecycle
     private let lock = AsyncLock()
@@ -90,6 +91,7 @@ final class DailyReportSummaryService {
     ) {
         self.database = database
         self.settingsStore = settingsStore
+        self.logStore = logStore
         let resolvedSession = session ?? Self.makeSession()
         self.llmService = LLMService(session: resolvedSession)
         self.lmStudioLifecycle = LMStudioModelLifecycle(session: resolvedSession) { [weak settingsStore, weak logStore] chinese, english in
@@ -110,6 +112,7 @@ final class DailyReportSummaryService {
                 try await summarizeMissingDailyReportsLocked(lmStudioLifecyclePolicy: lmStudioLifecyclePolicy)
             }
         } catch {
+            recordSummaryError(error, context: "Failed to summarize missing daily reports")
             return
         }
     }
@@ -161,6 +164,7 @@ final class DailyReportSummaryService {
                         activityDaySet: activityDaySet
                     )
                 } catch {
+                    recordSummaryError(error, context: "Failed to summarize daily report for \(dayStart)")
                     continue
                 }
             }
@@ -271,10 +275,18 @@ final class DailyReportSummaryService {
             let loadedModel = try await lmStudioLifecycle.load(settings: settings)
             do {
                 let result = try await operation()
-                try? await lmStudioLifecycle.unload(settings: settings, instanceID: loadedModel.instanceID)
+                do {
+                    try await lmStudioLifecycle.unload(settings: settings, instanceID: loadedModel.instanceID)
+                } catch {
+                    recordSummaryError(error, context: "Failed to unload LM Studio summary model")
+                }
                 return result
             } catch {
-                try? await lmStudioLifecycle.unload(settings: settings, instanceID: loadedModel.instanceID)
+                do {
+                    try await lmStudioLifecycle.unload(settings: settings, instanceID: loadedModel.instanceID)
+                } catch {
+                    recordSummaryError(error, context: "Failed to unload LM Studio summary model after summary failure")
+                }
                 throw error
             }
         }
@@ -561,6 +573,27 @@ final class DailyReportSummaryService {
             return .analysisLMStudioNoText
         case .appleIntelligence:
             return .reportDailySummaryInvalidResponse
+        }
+    }
+
+    private func recordSummaryError(_ error: Error, context: String) {
+        let level: AppLogLevel
+        switch error {
+        case DailyReportSummaryServiceError.noActivity:
+            level = .log
+        case is CancellationError:
+            level = .log
+        default:
+            level = .error
+        }
+
+        Task { @MainActor [weak logStore] in
+            let detail = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            logStore?.add(
+                level: level,
+                source: .summary,
+                message: detail.isEmpty ? context : "\(context): \(detail)"
+            )
         }
     }
 }

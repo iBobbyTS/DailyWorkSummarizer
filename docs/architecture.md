@@ -29,7 +29,7 @@ The app is centered around a small set of long-lived services created at launch 
 - `ReportsView`
   Report window composition in `ReportsView.swift`, with legend helpers in `ReportLegendViews.swift` and heatmap renderers in `ReportHeatmapViews.swift`.
 - `AppLogStore`
-  SQLite-backed runtime log list used by the menu-bar log window.
+  SQLite-backed runtime log list used by the menu-bar log window and the shared sink for non-fatal runtime failures.
 
 ## High-level flow
 
@@ -67,7 +67,7 @@ The app is centered around a small set of long-lived services created at launch 
 - `LLMService` translates the request into the provider-specific wire format and normalizes the response back into a shared result model.
 - When the user pauses analysis while LM Studio is active, `AnalysisService` first waits for the in-flight generation request to stop and then issues the unload request for the loaded instance.
 - Successful parsed results are written to `analysis_results`; duplicate capture times are ignored and the already-processed screenshot file is removed without overwriting the existing result.
-- Failed per-screenshot attempts only update run-level counts and errors.
+- Failed per-screenshot attempts update run-level counts and also write actionable runtime errors to `app_logs`.
 - After a run completes, the service updates run status and may trigger daily-summary backfill. If LM Studio is involved, the analysis-to-summary handoff decides whether to reuse, unload, switch, or temporarily load a summary model based on the two model profiles.
 
 ### 4. Daily summary flow
@@ -82,6 +82,7 @@ The app is centered around a small set of long-lived services created at launch 
 - If a standalone daily summary uses LM Studio, `DailyReportSummaryService` explicitly loads the summary model before generation and unloads it after generation.
 - When called by `AnalysisService` immediately after a completed analysis run, `DailyReportSummaryService` can instead reuse an already loaded LM Studio model or load a different summary model and keep it loaded according to the handoff policy.
 - Results are stored in `daily_reports`.
+- Background summary failures are recorded in `app_logs`; cancellation and no-activity outcomes are diagnostic `log` entries, while provider, database, and lifecycle failures are `error` entries.
 
 ### 5. Reporting flow
 
@@ -115,6 +116,7 @@ For LM Studio handoff, two profiles are considered the same loaded model only wh
 - `SettingsStore` is the authoritative source for user-editable configuration at runtime.
 - Services consume immutable snapshots when starting work to avoid mid-run drift.
 - `AppLogStore` is the authoritative source for runtime log entries shown in the UI; it reloads from SQLite after each mutation and emits `appLogsDidChange`.
+- Services should not silently swallow filesystem, database, screenshot, model-lifecycle, or report-loading failures. Expected parse probes and cancellation sleeps can stay local, but ignored operational failures should be classified as user-ignorable `log` entries or actionable `error` entries in `AppLogStore`.
 
 ## Architectural constraints
 

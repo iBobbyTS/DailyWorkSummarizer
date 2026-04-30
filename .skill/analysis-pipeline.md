@@ -92,6 +92,8 @@
   - 只有分析是 LM Studio：分析结束后先卸载，再跑总结。
   - 只有总结是 LM Studio：总结开始前加载，结束后卸载。
 - LM Studio 配置等价只比较 `ModelProvider.lmStudio.requestURL(from:)` 规范化后的 chat endpoint、trimmed `modelName`、`lmStudioContextLength`；API key 不参与等价判断，但各请求仍使用自己 profile 的 key。
+- 会被吞掉的运行时失败必须写入 `AppLogStore`：数据库、文件系统、截图、报告加载、模型请求和 LM Studio lifecycle 失败一般用 `level = .error`；取消、无可汇总活动、已不存在的 pending 文件等可恢复且用户可忽略的结果用 `level = .log`。
+- 允许不单独记录的 `try?` 只限解析候选/格式探测、fallback 分支探测、`Task.sleep` 取消等待这类低层细节；如果最终业务操作失败，应该由外层 service 写一条带上下文的日志。
 
 排查顺序：
 

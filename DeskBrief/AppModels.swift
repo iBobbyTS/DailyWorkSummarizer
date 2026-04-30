@@ -536,6 +536,11 @@ enum AppLogLevel: String, Codable, CaseIterable, Identifiable {
 enum AppLogSource: String, Codable {
     case analysis = "analysis"
     case lmStudio = "lm_studio"
+    case screenshot = "screenshot"
+    case reports = "reports"
+    case summary = "summary"
+    case settings = "settings"
+    case app = "app"
 }
 
 enum AppLogFilter: String, CaseIterable, Identifiable {

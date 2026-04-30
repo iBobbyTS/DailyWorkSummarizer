@@ -26,7 +26,7 @@ The app stores runtime data under Application Support:
 - `daily_reports`
   Generated daily summaries and per-category summary payloads for reportable, non-away activity.
 - `app_logs`
-  Persistent runtime log entries for analysis errors and later debugging events, including LM Studio pause and unload traces under source `lm_studio`.
+  Persistent runtime log entries for recoverable runtime failures and debugging events. Sources include analysis, LM Studio, screenshot capture, reports, daily summaries, settings, and app-level status refreshes.
 
 ## Persistence model
 
@@ -37,6 +37,15 @@ It also stores lightweight runtime logs in `app_logs`, capped to the latest 1000
 Away intervals are not persisted; report views derive display-only `离开` blocks from bounded gaps between adjacent successful analysis results.
 Failed per-screenshot attempts are counted on `analysis_runs` but are not persisted as `analysis_results` rows.
 Duplicate capture-time results are treated as already processed: the screenshot file is removed and the original `analysis_results` row remains unchanged.
+
+Runtime failures that the app can recover from should still be visible in `app_logs`:
+
+- `error`
+  Actionable failures that likely need user or developer attention, such as database writes, screenshot capture failures, report loading failures, model calls, and LM Studio lifecycle failures.
+- `log`
+  Diagnostic or user-ignorable outcomes, such as cancellation, no reportable activity, missing already-pending screenshot files, and expected lifecycle traces.
+
+Intentional parsing probes, fallback candidate decoding, and cancellation sleeps are not logged by themselves; the caller records a single higher-level failure if all candidates or retries fail.
 
 ### UserDefaults
 

@@ -165,15 +165,18 @@ final class SettingsStore: ObservableObject {
     private let userDefaults: UserDefaults
     private let keychain: KeychainStore
     private let database: AppDatabase
+    private let logStore: AppLogStore?
 
     init(
         database: AppDatabase,
         userDefaults: UserDefaults = .standard,
-        keychain: KeychainStore
+        keychain: KeychainStore,
+        logStore: AppLogStore? = nil
     ) {
         self.database = database
         self.userDefaults = userDefaults
         self.keychain = keychain
+        self.logStore = logStore
 
         let savedInterval = userDefaults.object(forKey: Keys.screenshotIntervalMinutes) as? Int ?? AppDefaults.screenshotIntervalMinutes
         let savedAnalysisTime = userDefaults.object(forKey: Keys.analysisTimeMinutes) as? Int ?? AppDefaults.analysisTimeMinutes
@@ -207,7 +210,13 @@ final class SettingsStore: ObservableObject {
             ? savedAPIKey
             : keychain.string(for: AppDefaults.workContentSummaryAPIKeyAccount)
         let savedWorkContentSummaryLMStudioContextLength = userDefaults.object(forKey: Keys.workContentSummaryLMStudioContextLength) as? Int ?? savedLMStudioContextLength
-        let savedRules = (try? database.fetchCategoryRules()) ?? []
+        let savedRules: [CategoryRule]
+        do {
+            savedRules = try database.fetchCategoryRules()
+        } catch {
+            savedRules = []
+            logStore?.addError(source: .settings, context: "Failed to load category rules", error: error)
+        }
 
         screenshotIntervalMinutes = max(1, min(60, savedInterval))
         analysisTimeMinutes = max(0, min(23 * 60 + 59, savedAnalysisTime))
@@ -233,7 +242,7 @@ final class SettingsStore: ObservableObject {
         userDefaults.set(analysisStartupMode.rawValue, forKey: Keys.analysisStartupMode)
 
         if savedRules.isEmpty || initialRules != categoryRules {
-            try? database.replaceCategoryRules(categoryRules)
+            persistCategoryRules(context: "Failed to initialize category rules")
         }
     }
 
@@ -348,7 +357,7 @@ final class SettingsStore: ObservableObject {
 
     private func saveCategoryRules() {
         categoryRules = Self.normalizedCategoryRules(categoryRules, language: appLanguage)
-        try? database.replaceCategoryRules(categoryRules)
+        persistCategoryRules(context: "Failed to save category rules")
         notifySettingsChanged()
     }
 
@@ -358,7 +367,15 @@ final class SettingsStore: ObservableObject {
             return
         }
         categoryRules = normalizedRules
-        try? database.replaceCategoryRules(categoryRules)
+        persistCategoryRules(context: "Failed to normalize category rules")
+    }
+
+    private func persistCategoryRules(context: String) {
+        do {
+            try database.replaceCategoryRules(categoryRules)
+        } catch {
+            logStore?.addError(source: .settings, context: context, error: error)
+        }
     }
 
     private func isPreservedCategoryRule(id: UUID) -> Bool {

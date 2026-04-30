@@ -53,6 +53,15 @@ final class AppLogStore: ObservableObject {
         notifyDidChange()
     }
 
+    func addError(source: AppLogSource, context: String, error: Error) {
+        let detail = Self.describe(error)
+        add(
+            level: .error,
+            source: source,
+            message: detail.isEmpty ? context : "\(context): \(detail)"
+        )
+    }
+
     func remove(id: UUID) {
         do {
             try database.deleteAppLog(id: id)
@@ -81,5 +90,13 @@ final class AppLogStore: ObservableObject {
 
     private func notifyDidChange() {
         NotificationCenter.default.post(name: .appLogsDidChange, object: nil)
+    }
+
+    private static func describe(_ error: Error) -> String {
+        let described = String(describing: error).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !described.isEmpty {
+            return described
+        }
+        return error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

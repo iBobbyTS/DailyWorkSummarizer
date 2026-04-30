@@ -107,6 +107,36 @@ extension DeskBriefTests {
         #expect(store.imageAnalysisMethod == .multimodal)
     }
 
+    @MainActor
+    @Test func settingsStoreLogsCategoryRulePersistenceFailures() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let logStore = AppLogStore(database: database)
+        try executeSQLite("DROP TABLE category_rules;", databaseURL: databaseURL)
+
+        _ = SettingsStore(
+            database: database,
+            userDefaults: userDefaults,
+            keychain: keychain,
+            logStore: logStore
+        )
+
+        let messages = try database.fetchAppLogs().map(\.message)
+        #expect(messages.contains { $0.contains("Failed to load category rules") })
+        #expect(messages.contains { $0.contains("Failed to initialize category rules") })
+    }
+
     @Test func databaseStoresSuccessfulAnalysisResultOnlyFields() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: databaseURL) }
@@ -311,6 +341,53 @@ extension DeskBriefTests {
         store.removeAll()
         #expect(store.entries.isEmpty)
         #expect(try database.fetchAppLogs().isEmpty)
+    }
+
+    @MainActor
+    @Test func reportsViewModelLogsSourceLoadFailures() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let logStore = AppLogStore(database: database)
+        let settingsStore = SettingsStore(
+            database: database,
+            userDefaults: userDefaults,
+            keychain: keychain,
+            logStore: logStore
+        )
+        let summaryService = DailyReportSummaryService(
+            database: database,
+            settingsStore: settingsStore,
+            logStore: logStore,
+            session: makeMockSession { request in
+                try makeHTTPResponse(url: try #require(request.url), body: "{}")
+            }
+        )
+
+        try executeSQLite("DROP TABLE analysis_results;", databaseURL: databaseURL)
+
+        _ = ReportsViewModel(
+            database: database,
+            settingsStore: settingsStore,
+            dailyReportSummaryService: summaryService,
+            logStore: logStore
+        )
+
+        let logs = try database.fetchAppLogs()
+        let log = try #require(logs.first)
+        #expect(log.level == .error)
+        #expect(log.source == .reports)
+        #expect(log.message.contains("Failed to load report source items"))
     }
 
     @Test func appLogFilterAndMenuLocalizationReflectLogUI() async throws {
