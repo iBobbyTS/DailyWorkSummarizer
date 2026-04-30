@@ -210,21 +210,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusSubmenu.addItem(statusAverageDurationItem)
         statusSubmenu.addItem(.separator())
         statusSubmenu.addItem(openScreenshotsItem)
-        statusSubmenu.addItem(viewLogsItem)
         statusSubmenu.addItem(analyzeNowItem)
 
         menu.addItem(currentStatusMenuItem)
         menu.setSubmenu(statusSubmenu, for: currentStatusMenuItem)
-        menu.addItem(analysisStartupModeMenuItem)
-        menu.setSubmenu(analysisStartupModeSubmenu, for: analysisStartupModeMenuItem)
+        menu.addItem(reportsMenuItem)
         menu.addItem(.separator())
         menu.addItem(settingsMenuItem)
-        menu.addItem(reportsMenuItem)
+        menu.addItem(analysisStartupModeMenuItem)
+        menu.setSubmenu(analysisStartupModeSubmenu, for: analysisStartupModeMenuItem)
+        menu.addItem(viewLogsItem)
         menu.addItem(.separator())
         menu.addItem(quitMenuItem)
         menu.items.forEach { $0.target = self }
         return menu
     }()
+
+    var statusMenuForTesting: NSMenu {
+        menu
+    }
 
     nonisolated func menuWillOpen(_ menu: NSMenu) {
         Task { @MainActor [weak self] in

@@ -38,7 +38,8 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - Menu bar labels should be short and scannable.
 - Keep long runtime details in status lines or dedicated windows rather than long action labels.
 - Mutating actions should use explicit menu items; state display should stay separate from commands.
-- Nested menus are appropriate for compact option groups such as analysis startup mode.
+- Keep first-level commands ordered as Current Status, Reports, divider, Settings, Analysis startup mode, Show Logs, divider, then Quit.
+- Nested menus are appropriate for compact first-level option groups such as analysis startup mode.
 
 ## Reports And Logs
 
