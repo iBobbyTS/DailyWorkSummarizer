@@ -123,6 +123,10 @@ struct SettingsView: View {
                         get: { settingsStore.lmStudioContextLength },
                         set: { settingsStore.lmStudioContextLength = $0 }
                     ),
+                    lmStudioAutoLoadUnloadModel: Binding(
+                        get: { settingsStore.screenshotAnalysisLMStudioAutoLoadUnloadModel },
+                        set: { settingsStore.screenshotAnalysisLMStudioAutoLoadUnloadModel = $0 }
+                    ),
                     copyButtonTitle: text(.settingsModelCopyToWorkContentSummary),
                     onCopy: { pendingModelCopyDestination = .workContentSummary },
                     showImageAnalysisMethod: true,
@@ -155,6 +159,10 @@ struct SettingsView: View {
                     lmStudioContextLength: Binding(
                         get: { settingsStore.workContentSummaryLMStudioContextLength },
                         set: { settingsStore.workContentSummaryLMStudioContextLength = $0 }
+                    ),
+                    lmStudioAutoLoadUnloadModel: Binding(
+                        get: { settingsStore.workContentSummaryLMStudioAutoLoadUnloadModel },
+                        set: { settingsStore.workContentSummaryLMStudioAutoLoadUnloadModel = $0 }
                     ),
                     copyButtonTitle: text(.settingsModelCopyToScreenshotAnalysis),
                     onCopy: { pendingModelCopyDestination = .screenshotAnalysis },
@@ -338,6 +346,7 @@ struct SettingsView: View {
         modelName: Binding<String>,
         apiKey: Binding<String>,
         lmStudioContextLength: Binding<Int>,
+        lmStudioAutoLoadUnloadModel: Binding<Bool>,
         copyButtonTitle: String,
         onCopy: @escaping () -> Void,
         showImageAnalysisMethod: Bool,
@@ -422,8 +431,16 @@ struct SettingsView: View {
                                 formatter: Layout.plainIntegerFormatter
                             )
                             .textFieldStyle(.roundedBorder)
-                            .frame(width: fieldWidth)
+                                .frame(width: fieldWidth)
                         }
+
+                        Divider()
+
+                        modelLifecycleToggleRow(
+                            text(.settingsModelLMStudioAutoLoadUnloadModel),
+                            helpText: text(.settingsModelLMStudioAutoLoadUnloadModelHelp),
+                            isOn: lmStudioAutoLoadUnloadModel
+                        )
                     }
                 }
             }
@@ -787,6 +804,36 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, Layout.cardRowHorizontalPadding)
             .padding(.vertical, Layout.cardRowVerticalPadding)
+        }
+        .frame(height: 52)
+    }
+
+    private func modelLifecycleToggleRow(
+        _ title: String,
+        helpText: String,
+        isOn: Binding<Bool>
+    ) -> some View {
+        GeometryReader { geometry in
+            let availableWidth = geometry.size.width - Layout.cardRowHorizontalPadding * 2
+            let resolvedFieldWidth = max(220, availableWidth * Layout.percentageFieldRatio)
+
+            HStack(spacing: 12) {
+                Text(title)
+                Spacer()
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    Toggle("", isOn: isOn)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .accessibilityLabel(Text(title))
+                }
+                .frame(width: resolvedFieldWidth, alignment: .trailing)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, Layout.cardRowHorizontalPadding)
+            .padding(.vertical, Layout.cardRowVerticalPadding)
+            .contentShape(Rectangle())
+            .help(helpText)
         }
         .frame(height: 52)
     }

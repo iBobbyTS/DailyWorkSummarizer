@@ -30,7 +30,7 @@ It is responsible for:
 - exposing a provider contract summary through `LLMService.providerContract(for:)`
 
 LM Studio keeps one extra helper layer in `LMStudioAPI.swift` because the app also uses LM Studio's native model-management endpoints.
-Model lifecycle calls are intentionally kept outside `LLMService.send(_:)`: feature services must explicitly load an LM Studio model before sending chat requests.
+Model lifecycle calls are intentionally kept outside `LLMService.send(_:)`: feature services can explicitly load an LM Studio model before sending chat requests when the per-profile lifecycle toggle is enabled, or skip lifecycle calls when the selected model is already resident in the background.
 
 ## Screenshot analysis modes
 
@@ -153,7 +153,7 @@ Important constraint:
 
 ## LM Studio model lifecycle
 
-LM Studio does not rely on implicit loading through chat requests. Each business entry point that may send LM Studio chat requests first uses `LMStudioModelLifecycle`.
+LM Studio model lifecycle is opt-in per model profile. When the toggle is enabled, the feature service first uses `LMStudioModelLifecycle`; when the toggle is disabled, the app sends chat requests directly and assumes the model is already loaded in LM Studio.
 
 Explicit lifecycle calls:
 
@@ -168,21 +168,21 @@ Explicit lifecycle calls:
 
 Entry-point behavior:
 
-- Screenshot analysis loads the LM Studio analysis model once before a run and reuses it for all screenshots in that run.
-- The settings model test path uses `load -> chat -> unload`.
-- Independent daily-summary generation uses `load -> summary chat -> unload` when its profile is LM Studio.
-- Automatic daily-summary generation after a screenshot-analysis run can reuse, switch, or release the analysis model depending on the two model profiles.
+- Screenshot analysis loads the LM Studio analysis model once before a run and reuses it for all screenshots in that run when lifecycle management is enabled.
+- The settings model test path uses `load -> chat -> unload` when the screenshot-analysis profile has lifecycle management enabled.
+- Independent daily-summary generation uses `load -> summary chat -> unload` when its profile is LM Studio and lifecycle management is enabled.
+- Automatic daily-summary generation after a screenshot-analysis run can reuse, switch, or release the analysis model depending on the two model profiles and whether each profile has lifecycle management enabled.
 
 Automatic analysis-to-summary handoff rules:
 
 - LM Studio analysis plus LM Studio summary with equivalent configuration:
-  keep the analysis model loaded, run the summary, and leave the shared instance loaded.
+  keep the analysis model loaded and let the summary reuse it when the analysis profile has lifecycle management enabled.
 - LM Studio analysis plus LM Studio summary with different configuration:
-  unload the analysis model, load the summary model, run the summary, and leave the summary instance loaded.
+  unload the analysis model before running the summary, then let the summary profile manage its own lifecycle when enabled.
 - LM Studio analysis plus non-LM Studio summary:
-  unload the analysis model before running the summary.
+  unload the analysis model before running the summary when the analysis profile is managing lifecycle.
 - Non-LM Studio analysis plus LM Studio summary:
-  load the summary model before generation and unload it after generation.
+  let the summary profile load and unload its own model when lifecycle management is enabled.
 - Non-LM Studio analysis plus non-LM Studio summary:
   no LM Studio lifecycle calls.
 
@@ -206,6 +206,7 @@ Each model profile contains:
 - model name
 - API key
 - LM Studio context length
+- LM Studio auto load/unload toggle
 - image analysis method
 
 Behavior rules:

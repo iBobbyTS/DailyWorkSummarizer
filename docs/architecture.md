@@ -23,7 +23,7 @@ The app is centered around a small set of long-lived services created at launch 
 - `LLMService`
   Shared provider adapter for OpenAI, Anthropic, LM Studio, and Apple Intelligence.
 - `LMStudioModelLifecycle`
-  Explicit LM Studio load/unload helper used by analysis, summaries, and settings model tests.
+  Explicit LM Studio load/unload helper used by analysis, summaries, and settings model tests when the corresponding model profile has lifecycle management enabled.
 - `ReportsViewModel`
   Report range construction, chart data, heatmap data, and daily report presentation in `ReportsViewModel.swift`.
 - `ReportsView`
@@ -64,11 +64,12 @@ The app is centered around a small set of long-lived services created at launch 
   - runs local OCR first and sends text to a model, or
   - sends the screenshot image to a remote multimodal endpoint.
 - If the screenshot-analysis profile uses LM Studio, the service explicitly loads that model before processing the run and reuses the loaded instance across all screenshots in the run.
+- If the screenshot-analysis profile disables LM Studio lifecycle management, the service skips explicit load/unload calls and sends chat requests directly.
 - `LLMService` translates the request into the provider-specific wire format and normalizes the response back into a shared result model.
 - When the user pauses analysis while LM Studio is active, `AnalysisService` first waits for the in-flight generation request to stop and then issues the unload request for the loaded instance.
 - Successful parsed results are written to `analysis_results`; duplicate capture times are ignored and the already-processed screenshot file is removed without overwriting the existing result.
 - Failed per-screenshot attempts update run-level counts and also write actionable runtime errors to `app_logs`.
-- After a run completes, the service updates run status and may trigger daily-summary backfill. If LM Studio is involved, the analysis-to-summary handoff decides whether to reuse, unload, switch, or temporarily load a summary model based on the two model profiles.
+- After a run completes, the service updates run status and may trigger daily-summary backfill. If LM Studio is involved, the analysis-to-summary handoff decides whether to reuse, unload, switch, or temporarily load a summary model based on the two model profiles and their lifecycle toggles.
 
 ### 4. Daily summary flow
 
@@ -79,8 +80,8 @@ The app is centered around a small set of long-lived services created at launch 
 - Away or inactive intervals are not persisted and are not included in daily-summary generation or per-category summaries.
 - It builds a text timeline prompt from category, duration, and per-item summary data.
 - The summary is generated through the configured work-content model profile via `LLMService`.
-- If a standalone daily summary uses LM Studio, `DailyReportSummaryService` explicitly loads the summary model before generation and unloads it after generation.
-- When called by `AnalysisService` immediately after a completed analysis run, `DailyReportSummaryService` can instead reuse an already loaded LM Studio model or load a different summary model and keep it loaded according to the handoff policy.
+- If the work-content summary profile enables LM Studio lifecycle management, `DailyReportSummaryService` explicitly loads the summary model before generation and unloads it after generation.
+- When called by `AnalysisService` immediately after a completed analysis run, `DailyReportSummaryService` can instead reuse an already loaded LM Studio model or load a different summary model according to the handoff policy and the two lifecycle toggles.
 - Results are stored in `daily_reports`; temporary summaries are marked with `is_temporary` instead of encoded into summary text.
 - Background summary failures are recorded in `app_logs`; cancellation and no-activity outcomes are diagnostic `log` entries, while provider, database, and lifecycle failures are `error` entries.
 
@@ -108,6 +109,7 @@ The app intentionally keeps two model profiles:
 
 This separation allows the app to use different providers, credentials, or model sizes for image-heavy analysis and text-only summarization.
 For LM Studio handoff, two profiles are considered the same loaded model only when their normalized chat endpoint, trimmed model name, and context length are equal. API keys are used for requests but are not part of the equivalence check.
+Each profile also carries its own LM Studio lifecycle toggle so the app can skip explicit load/unload calls when the model is already resident in the background.
 
 ## State propagation
 

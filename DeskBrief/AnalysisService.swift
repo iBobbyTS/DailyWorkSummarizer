@@ -188,7 +188,7 @@ final class AnalysisService {
         )
         var loadedModel: LMStudioLoadedModel?
         do {
-            loadedModel = try await loadScreenshotAnalysisModelIfNeeded(for: snapshot)
+            loadedModel = try await loadScreenshotAnalysisModelIfNeeded(for: snapshot.screenshotAnalysisModelProfile)
             let result = try await analysisWorker.analyzeImageDetailed(
                 at: imageFileURL,
                 settings: snapshot,
@@ -402,7 +402,7 @@ final class AnalysisService {
 
         let loadedAnalysisModel: LMStudioLoadedModel?
         do {
-            loadedAnalysisModel = try await loadScreenshotAnalysisModelIfNeeded(for: snapshot)
+            loadedAnalysisModel = try await loadScreenshotAnalysisModelIfNeeded(for: snapshot.screenshotAnalysisModelProfile)
         } catch {
             if Self.shouldRecordRuntimeError(error) {
                 logStore.addError(source: .analysis, context: "Failed to load screenshot analysis model", error: error)
@@ -418,7 +418,9 @@ final class AnalysisService {
         }
 
         func recordLMStudioCancellationObservationIfNeeded() {
-            guard snapshot.provider == .lmStudio, !run.didLogLMStudioCancellationObservation else { return }
+            guard snapshot.screenshotAnalysisModelProfile.provider == .lmStudio,
+                  snapshot.screenshotAnalysisModelProfile.automaticallyLoadAndUnloadModel,
+                  !run.didLogLMStudioCancellationObservation else { return }
             run.didLogLMStudioCancellationObservation = true
             recordLMStudioLog(
                 chinese: "分析循环检测到取消，准备进入 LM Studio 清理阶段。",
@@ -544,7 +546,10 @@ final class AnalysisService {
                 averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
                 errorMessage: localized(.analysisCancelledByUser, language: snapshot.appLanguage)
             )
-            if let unloadingStage = Self.stoppingStageAfterGenerationStops(for: snapshot.provider) {
+            if let unloadingStage = Self.stoppingStageAfterGenerationStops(
+                for: snapshot.screenshotAnalysisModelProfile.provider,
+                lifecycleEnabled: snapshot.screenshotAnalysisModelProfile.automaticallyLoadAndUnloadModel
+            ) {
                 updateRuntimeState(
                     startedAt: run.startedAt,
                     completedCount: run.completedCount,
@@ -553,7 +558,7 @@ final class AnalysisService {
                 )
             }
             await unloadScreenshotAnalysisModelIfNeeded(
-                for: snapshot,
+                for: snapshot.screenshotAnalysisModelProfile,
                 loadedInstanceID: loadedAnalysisModel?.instanceID,
                 cancelActiveRequest: true
             )
@@ -572,7 +577,7 @@ final class AnalysisService {
                 errorMessage: message
             )
             await unloadScreenshotAnalysisModelIfNeeded(
-                for: snapshot,
+                for: snapshot.screenshotAnalysisModelProfile,
                 loadedInstanceID: loadedAnalysisModel?.instanceID,
                 cancelActiveRequest: true
             )
@@ -602,12 +607,13 @@ final class AnalysisService {
         )
     }
 
-    private func loadScreenshotAnalysisModelIfNeeded(for snapshot: AppSettingsSnapshot) async throws -> LMStudioLoadedModel? {
-        guard snapshot.provider == .lmStudio else {
+    private func loadScreenshotAnalysisModelIfNeeded(for settings: ModelProfileSettings) async throws -> LMStudioLoadedModel? {
+        guard settings.provider == .lmStudio,
+              settings.automaticallyLoadAndUnloadModel else {
             return nil
         }
 
-        return try await lmStudioLifecycle.load(settings: snapshot.screenshotAnalysisModelProfile)
+        return try await lmStudioLifecycle.load(settings: settings)
     }
 
     private func summarizeMissingReportsAfterAnalysis(
@@ -617,36 +623,29 @@ final class AnalysisService {
         let analysisSettings = snapshot.screenshotAnalysisModelProfile
         let summarySettings = snapshot.workContentSummaryModelProfile
 
-        if analysisSettings.provider == .lmStudio {
-            if summarySettings.provider == .lmStudio {
-                if LMStudioAPI.hasEquivalentLoadConfiguration(analysisSettings, summarySettings) {
-                    await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded(
-                        lmStudioLifecyclePolicy: .alreadyLoadedKeepLoaded
-                    )
-                    return
-                }
+        let analysisLifecycleEnabled = analysisSettings.provider == .lmStudio && analysisSettings.automaticallyLoadAndUnloadModel
+        let summaryLifecycleEnabled = summarySettings.provider == .lmStudio && summarySettings.automaticallyLoadAndUnloadModel
+        let equivalentLoadConfiguration = LMStudioAPI.hasEquivalentLoadConfiguration(analysisSettings, summarySettings)
+        let canReuseAnalysisModel = analysisLifecycleEnabled
+            && summarySettings.provider == .lmStudio
+            && equivalentLoadConfiguration
+            && loadedAnalysisModel != nil
 
-                await unloadScreenshotAnalysisModelIfNeeded(
-                    for: snapshot,
-                    loadedInstanceID: loadedAnalysisModel?.instanceID,
-                    cancelActiveRequest: false
-                )
-                await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded(
-                    lmStudioLifecyclePolicy: .loadAndKeepLoaded
-                )
-                return
-            }
-
+        if analysisLifecycleEnabled,
+           loadedAnalysisModel != nil,
+           (summarySettings.provider != .lmStudio || !equivalentLoadConfiguration) {
             await unloadScreenshotAnalysisModelIfNeeded(
-                for: snapshot,
+                for: analysisSettings,
                 loadedInstanceID: loadedAnalysisModel?.instanceID,
                 cancelActiveRequest: false
             )
-            await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded()
-            return
         }
 
-        await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded()
+        await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded(
+            lmStudioLifecyclePolicy: (summaryLifecycleEnabled && !canReuseAnalysisModel)
+                ? .automaticUnload
+                : .alreadyLoadedKeepLoaded
+        )
     }
 
     private func pendingScreenshotFiles(defaultDurationMinutes: Int) -> [ScreenshotFileRecord] {
@@ -775,11 +774,12 @@ final class AnalysisService {
     }
 
     private func unloadScreenshotAnalysisModelIfNeeded(
-        for settings: AppSettingsSnapshot,
+        for settings: ModelProfileSettings,
         loadedInstanceID: String?,
         cancelActiveRequest: Bool
     ) async {
-        if settings.provider == .lmStudio {
+        if settings.provider == .lmStudio,
+           settings.automaticallyLoadAndUnloadModel {
             let lastInstanceID = lastLMStudioModelInstanceID ?? "未记录"
             recordLMStudioLog(
                 chinese: "进入 LM Studio 清理阶段，Task.isCancelled=\(Task.isCancelled)，最近一次 chat 的 model_instance_id=\(lastInstanceID)。",
@@ -797,15 +797,13 @@ final class AnalysisService {
             llmService.cancelActiveRemoteRequest()
         }
 
-        guard settings.provider == .lmStudio else {
+        guard settings.provider == .lmStudio,
+              settings.automaticallyLoadAndUnloadModel else {
             return
         }
 
         do {
-            try await lmStudioLifecycle.unload(
-                settings: settings.screenshotAnalysisModelProfile,
-                instanceID: loadedInstanceID
-            )
+            try await lmStudioLifecycle.unload(settings: settings, instanceID: loadedInstanceID)
         } catch {
             logStore.addError(source: .lmStudio, context: "LM Studio model unload failed", error: error)
             return

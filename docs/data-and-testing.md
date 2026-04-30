@@ -60,6 +60,7 @@ UserDefaults stores lightweight preferences such as:
 - provider selection
 - base URLs
 - model names
+- LM Studio auto load/unload toggles for the screenshot-analysis and work-content-summary profiles
 - image analysis methods
 
 ### Keychain

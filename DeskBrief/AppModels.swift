@@ -9,6 +9,7 @@ nonisolated enum AppDefaults {
     static let autoAnalysisRequiresCharger = false
     nonisolated static let maxLogEntries = 1000
     static let lmStudioContextLength = 6000
+    static let lmStudioAutoLoadUnloadModel = true
     static let maxPageSize = 31
     static let screenshotFileExtension = "jpg"
     static let apiKeyAccount = "model-api-key.screenshot-analysis"
@@ -355,6 +356,25 @@ nonisolated struct ModelProfileSettings: Equatable {
     let apiKey: String
     let lmStudioContextLength: Int
     let imageAnalysisMethod: ImageAnalysisMethod
+    let automaticallyLoadAndUnloadModel: Bool
+
+    init(
+        provider: ModelProvider,
+        apiBaseURL: String,
+        modelName: String,
+        apiKey: String,
+        lmStudioContextLength: Int,
+        imageAnalysisMethod: ImageAnalysisMethod,
+        automaticallyLoadAndUnloadModel: Bool = AppDefaults.lmStudioAutoLoadUnloadModel
+    ) {
+        self.provider = provider
+        self.apiBaseURL = apiBaseURL
+        self.modelName = modelName
+        self.apiKey = apiKey
+        self.lmStudioContextLength = lmStudioContextLength
+        self.imageAnalysisMethod = imageAnalysisMethod
+        self.automaticallyLoadAndUnloadModel = automaticallyLoadAndUnloadModel
+    }
 }
 
 nonisolated struct AppSettingsSnapshot {

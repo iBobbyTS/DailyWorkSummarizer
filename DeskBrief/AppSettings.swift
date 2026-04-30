@@ -107,6 +107,13 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var screenshotAnalysisLMStudioAutoLoadUnloadModel: Bool {
+        didSet {
+            userDefaults.set(screenshotAnalysisLMStudioAutoLoadUnloadModel, forKey: Keys.screenshotAnalysisLMStudioAutoLoadUnloadModel)
+            notifySettingsChanged()
+        }
+    }
+
     @Published var imageAnalysisMethod: ImageAnalysisMethod {
         didSet {
             let resolved = Self.resolvedImageAnalysisMethod(imageAnalysisMethod, for: provider)
@@ -159,6 +166,13 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var workContentSummaryLMStudioAutoLoadUnloadModel: Bool {
+        didSet {
+            userDefaults.set(workContentSummaryLMStudioAutoLoadUnloadModel, forKey: Keys.workContentSummaryLMStudioAutoLoadUnloadModel)
+            notifySettingsChanged()
+        }
+    }
+
     @Published private(set) var categoryRules: [CategoryRule]
     @Published private(set) var categoryRulesValidationMessage: String?
 
@@ -195,6 +209,7 @@ final class SettingsStore: ObservableObject {
         let savedModelName = userDefaults.string(forKey: Keys.modelName) ?? ""
         let savedAPIKey = keychain.string(for: AppDefaults.apiKeyAccount)
         let savedLMStudioContextLength = userDefaults.object(forKey: Keys.lmStudioContextLength) as? Int ?? AppDefaults.lmStudioContextLength
+        let savedScreenshotAnalysisLMStudioAutoLoadUnloadModel = userDefaults.object(forKey: Keys.screenshotAnalysisLMStudioAutoLoadUnloadModel) as? Bool ?? AppDefaults.lmStudioAutoLoadUnloadModel
         let savedImageAnalysisMethod = Self.resolvedImageAnalysisMethod(
             ImageAnalysisMethod(rawValue: userDefaults.string(forKey: Keys.imageAnalysisMethod) ?? "")
                 ?? AppDefaults.defaultImageAnalysisMethod,
@@ -210,6 +225,7 @@ final class SettingsStore: ObservableObject {
             ? savedAPIKey
             : keychain.string(for: AppDefaults.workContentSummaryAPIKeyAccount)
         let savedWorkContentSummaryLMStudioContextLength = userDefaults.object(forKey: Keys.workContentSummaryLMStudioContextLength) as? Int ?? savedLMStudioContextLength
+        let savedWorkContentSummaryLMStudioAutoLoadUnloadModel = userDefaults.object(forKey: Keys.workContentSummaryLMStudioAutoLoadUnloadModel) as? Bool ?? AppDefaults.lmStudioAutoLoadUnloadModel
         let savedRules: [CategoryRule]
         do {
             savedRules = try database.fetchCategoryRules()
@@ -230,16 +246,20 @@ final class SettingsStore: ObservableObject {
         modelName = savedModelName
         apiKey = savedAPIKey
         lmStudioContextLength = max(4096, min(65536, savedLMStudioContextLength))
+        screenshotAnalysisLMStudioAutoLoadUnloadModel = savedScreenshotAnalysisLMStudioAutoLoadUnloadModel
         imageAnalysisMethod = savedImageAnalysisMethod
         workContentSummaryProvider = savedWorkContentSummaryProvider
         workContentSummaryAPIBaseURL = savedWorkContentSummaryBaseURL
         workContentSummaryModelName = savedWorkContentSummaryModelName
         workContentSummaryAPIKey = savedWorkContentSummaryAPIKey
         workContentSummaryLMStudioContextLength = max(4096, min(65536, savedWorkContentSummaryLMStudioContextLength))
+        workContentSummaryLMStudioAutoLoadUnloadModel = savedWorkContentSummaryLMStudioAutoLoadUnloadModel
         let initialRules = savedRules.isEmpty ? AppDefaults.defaultCategoryRules(language: savedAppLanguage) : savedRules
         categoryRules = Self.normalizedCategoryRules(initialRules, language: savedAppLanguage)
         categoryRulesValidationMessage = nil
         userDefaults.set(analysisStartupMode.rawValue, forKey: Keys.analysisStartupMode)
+        userDefaults.set(screenshotAnalysisLMStudioAutoLoadUnloadModel, forKey: Keys.screenshotAnalysisLMStudioAutoLoadUnloadModel)
+        userDefaults.set(workContentSummaryLMStudioAutoLoadUnloadModel, forKey: Keys.workContentSummaryLMStudioAutoLoadUnloadModel)
 
         if savedRules.isEmpty || initialRules != categoryRules {
             persistCategoryRules(context: "Failed to initialize category rules")
@@ -260,7 +280,8 @@ final class SettingsStore: ObservableObject {
                 modelName: modelName.trimmingCharacters(in: .whitespacesAndNewlines),
                 apiKey: apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
                 lmStudioContextLength: lmStudioContextLength,
-                imageAnalysisMethod: imageAnalysisMethod
+                imageAnalysisMethod: imageAnalysisMethod,
+                automaticallyLoadAndUnloadModel: screenshotAnalysisLMStudioAutoLoadUnloadModel
             ),
             workContentSummaryModelProfile: ModelProfileSettings(
                 provider: workContentSummaryProvider,
@@ -268,7 +289,8 @@ final class SettingsStore: ObservableObject {
                 modelName: workContentSummaryModelName.trimmingCharacters(in: .whitespacesAndNewlines),
                 apiKey: workContentSummaryAPIKey.trimmingCharacters(in: .whitespacesAndNewlines),
                 lmStudioContextLength: workContentSummaryLMStudioContextLength,
-                imageAnalysisMethod: .ocr
+                imageAnalysisMethod: .ocr,
+                automaticallyLoadAndUnloadModel: workContentSummaryLMStudioAutoLoadUnloadModel
             ),
             categoryRules: categoryRules
         )
@@ -345,6 +367,7 @@ final class SettingsStore: ObservableObject {
         workContentSummaryModelName = modelName
         workContentSummaryAPIKey = apiKey
         workContentSummaryLMStudioContextLength = lmStudioContextLength
+        workContentSummaryLMStudioAutoLoadUnloadModel = screenshotAnalysisLMStudioAutoLoadUnloadModel
     }
 
     func copyWorkContentSummaryModelToScreenshotAnalysis() {
@@ -353,6 +376,7 @@ final class SettingsStore: ObservableObject {
         modelName = workContentSummaryModelName
         apiKey = workContentSummaryAPIKey
         lmStudioContextLength = workContentSummaryLMStudioContextLength
+        screenshotAnalysisLMStudioAutoLoadUnloadModel = workContentSummaryLMStudioAutoLoadUnloadModel
     }
 
     private func saveCategoryRules() {
@@ -447,10 +471,12 @@ final class SettingsStore: ObservableObject {
         static let apiBaseURL = "settings.apiBaseURL"
         static let modelName = "settings.modelName"
         static let lmStudioContextLength = "settings.lmStudioContextLength"
+        static let screenshotAnalysisLMStudioAutoLoadUnloadModel = "settings.screenshotAnalysis.lmStudioAutoLoadUnloadModel"
         static let imageAnalysisMethod = "settings.imageAnalysisMethod"
         static let workContentSummaryProvider = "settings.workContentSummary.provider"
         static let workContentSummaryAPIBaseURL = "settings.workContentSummary.apiBaseURL"
         static let workContentSummaryModelName = "settings.workContentSummary.modelName"
         static let workContentSummaryLMStudioContextLength = "settings.workContentSummary.lmStudioContextLength"
+        static let workContentSummaryLMStudioAutoLoadUnloadModel = "settings.workContentSummary.lmStudioAutoLoadUnloadModel"
     }
 }

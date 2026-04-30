@@ -40,7 +40,6 @@ enum DailyReportSummaryServiceError: LocalizedError {
 enum DailyReportLMStudioLifecyclePolicy {
     case automaticUnload
     case alreadyLoadedKeepLoaded
-    case loadAndKeepLoaded
 }
 
 private actor AsyncLock {
@@ -262,15 +261,13 @@ final class DailyReportSummaryService {
         policy: DailyReportLMStudioLifecyclePolicy,
         operation: () async throws -> T
     ) async throws -> T {
-        guard settings.provider == .lmStudio else {
+        guard settings.provider == .lmStudio,
+              settings.automaticallyLoadAndUnloadModel else {
             return try await operation()
         }
 
         switch policy {
         case .alreadyLoadedKeepLoaded:
-            return try await operation()
-        case .loadAndKeepLoaded:
-            _ = try await lmStudioLifecycle.load(settings: settings)
             return try await operation()
         case .automaticUnload:
             let loadedModel = try await lmStudioLifecycle.load(settings: settings)

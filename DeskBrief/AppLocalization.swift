@@ -77,6 +77,8 @@ nonisolated enum L10n {
         case settingsModelAPIKey
         case settingsModelAPIKeyPlaceholder
         case settingsModelContextLength
+        case settingsModelLMStudioAutoLoadUnloadModel
+        case settingsModelLMStudioAutoLoadUnloadModelHelp
         case settingsModelImageAnalysisMethod
         case settingsModelOfficialUntested
         case settingsModelCategoriesTitle
@@ -272,6 +274,8 @@ nonisolated enum L10n {
             .settingsModelAPIKey: "API 秘钥",
             .settingsModelAPIKeyPlaceholder: "请输入 API Key（可留空）",
             .settingsModelContextLength: "上下文长度",
+            .settingsModelLMStudioAutoLoadUnloadModel: "主动装卸载模型",
+            .settingsModelLMStudioAutoLoadUnloadModelHelp: "App会在开始分析前后主动加载和卸载模型，如果使用的模型是始终保持在后台的，请关闭这个选项",
             .settingsModelImageAnalysisMethod: "图像分析方法",
             .settingsModelOfficialUntested: "官方 API 未经过测试",
             .settingsModelCategoriesTitle: "分析分类",
@@ -465,6 +469,8 @@ nonisolated enum L10n {
             .settingsModelAPIKey: "API key",
             .settingsModelAPIKeyPlaceholder: "Enter API key (optional)",
             .settingsModelContextLength: "Context length",
+            .settingsModelLMStudioAutoLoadUnloadModel: "Auto load/unload model",
+            .settingsModelLMStudioAutoLoadUnloadModelHelp: "The app will proactively load and unload the model before and after analysis. If the model stays loaded in the background, turn this off.",
             .settingsModelImageAnalysisMethod: "Image analysis method",
             .settingsModelOfficialUntested: "Official APIs have not been tested",
             .settingsModelCategoriesTitle: "Analysis categories",

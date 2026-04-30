@@ -642,6 +642,19 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func lmStudioAnalysisAndSummaryCanSkipExplicitLifecycleWhenDisabled() async throws {
+        let paths = try await runAnalysisLifecycleScenario(
+            analysisProvider: .lmStudio,
+            summaryProvider: .lmStudio,
+            summaryMatchesAnalysis: true,
+            analysisLifecycleEnabled: false,
+            summaryLifecycleEnabled: false
+        )
+
+        #expect(paths == ["/api/v1/chat", "/api/v1/chat"])
+    }
+
+    @MainActor
     @Test func lmStudioAnalysisAndDifferentLMStudioSummarySwitchesModels() async throws {
         let paths = try await runAnalysisLifecycleScenario(
             analysisProvider: .lmStudio,
@@ -649,7 +662,7 @@ extension DeskBriefTests {
             summaryMatchesAnalysis: false
         )
 
-        #expect(paths == ["/api/v1/models/load", "/api/v1/chat", "/api/v1/models/unload", "/api/v1/models/load", "/api/v1/chat"])
+        #expect(paths == ["/api/v1/models/load", "/api/v1/chat", "/api/v1/models/unload", "/api/v1/models/load", "/api/v1/chat", "/api/v1/models/unload"])
     }
 
     @MainActor
@@ -791,7 +804,9 @@ extension DeskBriefTests {
     private func runAnalysisLifecycleScenario(
         analysisProvider: ModelProvider,
         summaryProvider: ModelProvider,
-        summaryMatchesAnalysis: Bool = false
+        summaryMatchesAnalysis: Bool = false,
+        analysisLifecycleEnabled: Bool = true,
+        summaryLifecycleEnabled: Bool = true
     ) async throws -> [String] {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory
@@ -817,6 +832,7 @@ extension DeskBriefTests {
         store.apiBaseURL = analysisProvider == .lmStudio ? "http://127.0.0.1:1234" : "https://analysis.example.com"
         store.modelName = "analysis-model"
         store.lmStudioContextLength = 6000
+        store.screenshotAnalysisLMStudioAutoLoadUnloadModel = analysisLifecycleEnabled
         store.imageAnalysisMethod = .multimodal
         store.analysisStartupMode = .manual
 
@@ -826,6 +842,7 @@ extension DeskBriefTests {
             : "https://summary.example.com"
         store.workContentSummaryModelName = summaryMatchesAnalysis ? "analysis-model" : "summary-model"
         store.workContentSummaryLMStudioContextLength = summaryMatchesAnalysis ? 6000 : 12000
+        store.workContentSummaryLMStudioAutoLoadUnloadModel = summaryLifecycleEnabled
 
         _ = try makeAnalysisRun(database: database)
         try database.insertAnalysisResult(

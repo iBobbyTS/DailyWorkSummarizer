@@ -92,13 +92,12 @@ extension AnalysisService {
         failureCount >= threshold
     }
 
-    nonisolated static func stoppingStageAfterGenerationStops(for provider: ModelProvider) -> AnalysisStoppingStage? {
-        switch provider {
-        case .lmStudio:
-            return .unloadingModel
-        case .openAI, .anthropic, .appleIntelligence:
-            return nil
-        }
+    nonisolated static func stoppingStageAfterGenerationStops(
+        for provider: ModelProvider,
+        lifecycleEnabled: Bool = true
+    ) -> AnalysisStoppingStage? {
+        guard provider == .lmStudio, lifecycleEnabled else { return nil }
+        return .unloadingModel
     }
 
     nonisolated static func shouldRecordRuntimeError(_ error: Error) -> Bool {

@@ -82,6 +82,7 @@ extension DeskBriefTests {
         store.modelName = "claude-screenshot"
         store.apiKey = "screenshot-key"
         store.lmStudioContextLength = 8192
+        store.screenshotAnalysisLMStudioAutoLoadUnloadModel = false
         store.imageAnalysisMethod = .multimodal
         store.copyScreenshotAnalysisModelToWorkContentSummary()
 
@@ -89,12 +90,14 @@ extension DeskBriefTests {
         #expect(store.workContentSummaryAPIBaseURL == "https://screenshot.example.com")
         #expect(store.workContentSummaryModelName == "claude-screenshot")
         #expect(store.workContentSummaryAPIKey == "screenshot-key")
+        #expect(!store.workContentSummaryLMStudioAutoLoadUnloadModel)
 
         store.workContentSummaryProvider = .lmStudio
         store.workContentSummaryAPIBaseURL = "http://127.0.0.1:1234"
         store.workContentSummaryModelName = "work-content-model"
         store.workContentSummaryAPIKey = "work-content-key"
         store.workContentSummaryLMStudioContextLength = 12000
+        store.workContentSummaryLMStudioAutoLoadUnloadModel = true
         store.imageAnalysisMethod = .multimodal
 
         store.copyWorkContentSummaryModelToScreenshotAnalysis()
@@ -104,7 +107,39 @@ extension DeskBriefTests {
         #expect(store.modelName == "work-content-model")
         #expect(store.apiKey == "work-content-key")
         #expect(store.lmStudioContextLength == 12000)
+        #expect(store.screenshotAnalysisLMStudioAutoLoadUnloadModel)
         #expect(store.imageAnalysisMethod == .multimodal)
+    }
+
+    @MainActor
+    @Test func settingsStorePersistsLMStudioLifecycleTogglePerProfile() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        #expect(store.screenshotAnalysisLMStudioAutoLoadUnloadModel == AppDefaults.lmStudioAutoLoadUnloadModel)
+        #expect(store.workContentSummaryLMStudioAutoLoadUnloadModel == AppDefaults.lmStudioAutoLoadUnloadModel)
+
+        store.screenshotAnalysisLMStudioAutoLoadUnloadModel = false
+        store.workContentSummaryLMStudioAutoLoadUnloadModel = false
+
+        let reloadedStore = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        #expect(!reloadedStore.screenshotAnalysisLMStudioAutoLoadUnloadModel)
+        #expect(!reloadedStore.workContentSummaryLMStudioAutoLoadUnloadModel)
+        #expect(!reloadedStore.snapshot.screenshotAnalysisModelProfile.automaticallyLoadAndUnloadModel)
+        #expect(!reloadedStore.snapshot.workContentSummaryModelProfile.automaticallyLoadAndUnloadModel)
     }
 
     @MainActor

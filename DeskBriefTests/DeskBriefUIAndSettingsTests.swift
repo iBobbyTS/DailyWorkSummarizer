@@ -143,6 +143,25 @@ extension DeskBriefTests {
         )
     }
 
+    @Test func lmStudioLifecycleToggleStringsAreLocalized() async throws {
+        #expect(
+            L10n.string(.settingsModelLMStudioAutoLoadUnloadModel, language: .simplifiedChinese)
+                == "主动装卸载模型"
+        )
+        #expect(
+            L10n.string(.settingsModelLMStudioAutoLoadUnloadModelHelp, language: .simplifiedChinese)
+                == "App会在开始分析前后主动加载和卸载模型，如果使用的模型是始终保持在后台的，请关闭这个选项"
+        )
+        #expect(
+            L10n.string(.settingsModelLMStudioAutoLoadUnloadModel, language: .english)
+                == "Auto load/unload model"
+        )
+        #expect(
+            L10n.string(.settingsModelLMStudioAutoLoadUnloadModelHelp, language: .english)
+                == "The app will proactively load and unload the model before and after analysis. If the model stays loaded in the background, turn this off."
+        )
+    }
+
     @MainActor
     @Test func statusMenuPlacesReportsBelowCurrentStatusAndUtilitiesBelowSettings() async throws {
         let delegate = AppDelegate()
@@ -198,6 +217,14 @@ extension DeskBriefTests {
             L10n.string(.settingsModelCopyToWorkContentSummaryConfirmMessage, language: .english)
         ]
         #expect(visibleEnglishWorkContentStrings.allSatisfy { !$0.contains(deprecatedEnglishWorkContentTerm) })
+    }
+
+    @Test func lmStudioPauseTransitionsRespectLifecycleToggle() async throws {
+        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .lmStudio) == .unloadingModel)
+        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .lmStudio, lifecycleEnabled: false) == nil)
+        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .openAI) == nil)
+        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .anthropic) == nil)
+        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .appleIntelligence) == nil)
     }
 
     @Test func runtimeErrorRecordingFiltersOutNonAPIErrors() async throws {

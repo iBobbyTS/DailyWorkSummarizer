@@ -147,7 +147,8 @@ func makeModelSettings(
     provider: ModelProvider,
     apiBaseURL: String,
     modelName: String,
-    apiKey: String = ""
+    apiKey: String = "",
+    automaticallyLoadAndUnloadModel: Bool = AppDefaults.lmStudioAutoLoadUnloadModel
 ) -> ModelProfileSettings {
     ModelProfileSettings(
         provider: provider,
@@ -155,7 +156,8 @@ func makeModelSettings(
         modelName: modelName,
         apiKey: apiKey,
         lmStudioContextLength: AppDefaults.lmStudioContextLength,
-        imageAnalysisMethod: .ocr
+        imageAnalysisMethod: .ocr,
+        automaticallyLoadAndUnloadModel: automaticallyLoadAndUnloadModel
     )
 }
 
