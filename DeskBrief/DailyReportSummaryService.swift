@@ -250,7 +250,8 @@ final class DailyReportSummaryService {
         try database.upsertDailyReport(
             dayStart: dayStart,
             dailySummaryText: record.dailySummaryText,
-            categorySummaries: record.categorySummaries
+            categorySummaries: record.categorySummaries,
+            isTemporary: record.isTemporary
         )
 
         return record
@@ -479,23 +480,16 @@ final class DailyReportSummaryService {
         dayStart: Date,
         isTemporary: Bool
     ) -> DailyReportRecord {
-        let dailySummaryText = storedText(payload.dailySummary, isTemporary: isTemporary)
-        let categorySummaries = payload.categorySummaries.mapValues {
-            storedText($0, isTemporary: isTemporary)
-        }
         return DailyReportRecord(
             dayStart: dayStart,
-            dailySummaryText: dailySummaryText,
-            categorySummaries: categorySummaries
+            dailySummaryText: cleanedReportText(payload.dailySummary),
+            categorySummaries: payload.categorySummaries.mapValues(cleanedReportText(_:)),
+            isTemporary: isTemporary
         )
     }
 
-    private func storedText(_ value: String, isTemporary: Bool) -> String {
-        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isTemporary, !trimmedValue.hasPrefix(AppDefaults.temporaryReportPrefix) else {
-            return trimmedValue
-        }
-        return AppDefaults.temporaryReportPrefix + trimmedValue
+    private func cleanedReportText(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func localized(_ key: L10n.Key, language: AppLanguage = .current) -> String {

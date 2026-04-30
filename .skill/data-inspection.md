@@ -56,7 +56,7 @@ sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
 
 ```sh
 sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
-  "select id,datetime(day_start,'unixepoch','localtime'),substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
+  "select id,datetime(day_start,'unixepoch','localtime'),is_temporary,substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
 ```
 
 ```sh
@@ -74,3 +74,4 @@ ls -lah "$HOME/Library/Application Support/DeskBrief/screenshots" | tail
 - 预览截屏会带 `-preview` 后缀。
 - 模型测试临时截屏会带 `-model-test` 后缀。
 - `AppDatabase.listScreenshotFiles` 通过文件名反推时间和时长，所以改文件命名规则时必须同步更新解析逻辑。
+- 临时日报状态存储在 `daily_reports.is_temporary`，不要用文本前缀判断。

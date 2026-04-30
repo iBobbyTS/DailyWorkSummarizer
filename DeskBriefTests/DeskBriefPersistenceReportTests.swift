@@ -271,9 +271,10 @@ extension DeskBriefTests {
         let fetchedReport = try database.fetchDailyReport(for: dayStart)
         let report = try #require(fetchedReport)
 
-        #expect(columns == ["id", "day_start", "daily_summary_text", "category_summaries_json"])
+        #expect(columns == ["id", "day_start", "daily_summary_text", "category_summaries_json", "is_temporary"])
         #expect(report.dailySummaryText == "第二次日报")
         #expect(report.categorySummaries["专注工作"] == "第二次分类总结")
+        #expect(!report.isTemporary)
     }
 
     @Test func databaseCreatesAndFetchesAppLogs() async throws {
@@ -626,8 +627,9 @@ extension DeskBriefTests {
         let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
         let report = try await service.summarizeDay(dayStart)
 
-        #expect(report.categorySummaries["专注工作"] == "TEMP_实现了日报过滤逻辑")
-        #expect(report.categorySummaries["会议沟通"] == "TEMP_完成了同步沟通")
+        #expect(report.isTemporary)
+        #expect(report.categorySummaries["专注工作"] == "实现了日报过滤逻辑")
+        #expect(report.categorySummaries["会议沟通"] == "完成了同步沟通")
         #expect(report.categorySummaries[AppDefaults.absenceCategoryName] == nil)
     }
 
@@ -813,8 +815,9 @@ extension DeskBriefTests {
         )
         try database.upsertDailyReport(
             dayStart: dayOne,
-            dailySummaryText: "TEMP_旧的临时日报",
-            categorySummaries: ["专注工作": "TEMP_旧的临时分类总结"]
+            dailySummaryText: "旧的临时日报",
+            categorySummaries: ["专注工作": "旧的临时分类总结"],
+            isTemporary: true
         )
 
         let session = makeMockSession { request in

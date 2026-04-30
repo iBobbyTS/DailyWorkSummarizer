@@ -24,7 +24,7 @@ The app stores runtime data under Application Support:
   Successful per-item screenshot analysis output, including capture time, category, summary, and duration snapshot.
   `captured_at` is unique; duplicate inserts are ignored so an existing result is not overwritten.
 - `daily_reports`
-  Generated daily summaries and per-category summary payloads for reportable, non-away activity.
+  Generated daily summaries and per-category summary payloads for reportable, non-away activity. `is_temporary` marks summaries that may be replaced after the next day has activity.
 - `app_logs`
   Persistent runtime log entries for recoverable runtime failures and debugging events. Sources include analysis, LM Studio, screenshot capture, reports, daily summaries, settings, and app-level status refreshes.
 
@@ -37,6 +37,7 @@ It also stores lightweight runtime logs in `app_logs`, capped to the latest 1000
 Away intervals are not persisted; report views derive display-only `离开` blocks from bounded gaps between adjacent successful analysis results.
 Failed per-screenshot attempts are counted on `analysis_runs` but are not persisted as `analysis_results` rows.
 Duplicate capture-time results are treated as already processed: the screenshot file is removed and the original `analysis_results` row remains unchanged.
+Temporary daily reports are tracked by `daily_reports.is_temporary`.
 
 Runtime failures that the app can recover from should still be visible in `app_logs`:
 
@@ -139,7 +140,7 @@ Recent daily reports:
 
 ```sh
 sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
-  "select id,datetime(day_start,'unixepoch','localtime'),substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
+  "select id,datetime(day_start,'unixepoch','localtime'),is_temporary,substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
 ```
 
 Recent runtime logs:

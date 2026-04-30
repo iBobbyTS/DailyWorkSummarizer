@@ -16,7 +16,6 @@ nonisolated enum AppDefaults {
     static let defaultImageAnalysisMethod: ImageAnalysisMethod = .multimodal
     nonisolated static let absenceCategoryName = "离开"
     static let preservedOtherCategoryName = "PRESERVED_OTHER"
-    nonisolated static let temporaryReportPrefix = "TEMP_"
     nonisolated static let absenceCategoryColorHex = "#8E8E93"
     nonisolated static let categoryColorPresets = [
         "#2F7DD1",
@@ -436,35 +435,21 @@ struct DailyReportRecord: Equatable {
     let dayStart: Date
     let dailySummaryText: String
     let categorySummaries: [String: String]
-
-    nonisolated
-    var isTemporary: Bool {
-        dailySummaryText.hasPrefix(AppDefaults.temporaryReportPrefix)
-    }
+    let isTemporary: Bool
 
     nonisolated
     var displayDailySummaryText: String {
-        Self.displayText(from: dailySummaryText)
+        dailySummaryText
     }
 
     nonisolated
     func displayCategorySummary(for category: String) -> String? {
-        categorySummaries[category].map(Self.displayText(from:))
+        categorySummaries[category]
     }
 
     nonisolated
     func isTemporaryCategorySummary(for category: String) -> Bool {
-        categorySummaries[category]?.hasPrefix(AppDefaults.temporaryReportPrefix) == true
-    }
-
-    nonisolated
-    private static func displayText(from value: String) -> String {
-        guard value.hasPrefix(AppDefaults.temporaryReportPrefix) else {
-            return value
-        }
-
-        return String(value.dropFirst(AppDefaults.temporaryReportPrefix.count))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        isTemporary && categorySummaries[category] != nil
     }
 }
 

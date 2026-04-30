@@ -81,7 +81,7 @@ The app is centered around a small set of long-lived services created at launch 
 - The summary is generated through the configured work-content model profile via `LLMService`.
 - If a standalone daily summary uses LM Studio, `DailyReportSummaryService` explicitly loads the summary model before generation and unloads it after generation.
 - When called by `AnalysisService` immediately after a completed analysis run, `DailyReportSummaryService` can instead reuse an already loaded LM Studio model or load a different summary model and keep it loaded according to the handoff policy.
-- Results are stored in `daily_reports`.
+- Results are stored in `daily_reports`; temporary summaries are marked with `is_temporary` instead of encoded into summary text.
 - Background summary failures are recorded in `app_logs`; cancellation and no-activity outcomes are diagnostic `log` entries, while provider, database, and lifecycle failures are `error` entries.
 
 ### 5. Reporting flow

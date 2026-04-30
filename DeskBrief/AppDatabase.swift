@@ -518,7 +518,7 @@ final class AppDatabase: @unchecked Sendable {
     func fetchDailyReport(for dayStart: Date) throws -> DailyReportRecord? {
         try queue.sync {
             let statement = try prepareStatement("""
-                SELECT day_start, daily_summary_text, category_summaries_json
+                SELECT day_start, daily_summary_text, category_summaries_json, is_temporary
                 FROM daily_reports
                 WHERE day_start = ?
                 LIMIT 1;
@@ -534,10 +534,12 @@ final class AppDatabase: @unchecked Sendable {
             let dayStart = Date(timeIntervalSince1970: sqlite3_column_double(statement, 0))
             let dailySummaryText = string(at: 1, from: statement)
             let categorySummaries = try decodeCategorySummaries(from: string(at: 2, from: statement))
+            let isTemporary = sqlite3_column_int64(statement, 3) != 0
             return DailyReportRecord(
                 dayStart: dayStart,
                 dailySummaryText: dailySummaryText,
-                categorySummaries: categorySummaries
+                categorySummaries: categorySummaries,
+                isTemporary: isTemporary
             )
         }
     }
@@ -545,25 +547,29 @@ final class AppDatabase: @unchecked Sendable {
     func upsertDailyReport(
         dayStart: Date,
         dailySummaryText: String,
-        categorySummaries: [String: String]
+        categorySummaries: [String: String],
+        isTemporary: Bool = false
     ) throws {
         try queue.sync {
             let statement = try prepareStatement("""
                 INSERT INTO daily_reports (
                     day_start,
                     daily_summary_text,
-                    category_summaries_json
+                    category_summaries_json,
+                    is_temporary
                 )
-                VALUES (?, ?, ?)
+                VALUES (?, ?, ?, ?)
                 ON CONFLICT(day_start) DO UPDATE SET
                     daily_summary_text = excluded.daily_summary_text,
-                    category_summaries_json = excluded.category_summaries_json;
+                    category_summaries_json = excluded.category_summaries_json,
+                    is_temporary = excluded.is_temporary;
             """)
             defer { sqlite3_finalize(statement) }
 
             sqlite3_bind_double(statement, 1, dayStart.timeIntervalSince1970)
             bind(dailySummaryText, at: 2, to: statement)
             bind(try encodeCategorySummaries(categorySummaries), at: 3, to: statement)
+            sqlite3_bind_int64(statement, 4, isTemporary ? 1 : 0)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
@@ -612,7 +618,8 @@ final class AppDatabase: @unchecked Sendable {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 day_start DOUBLE NOT NULL UNIQUE,
                 daily_summary_text TEXT NOT NULL,
-                category_summaries_json TEXT NOT NULL
+                category_summaries_json TEXT NOT NULL,
+                is_temporary INTEGER NOT NULL DEFAULT 0
             );
         """)
 
