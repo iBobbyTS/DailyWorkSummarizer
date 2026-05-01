@@ -167,6 +167,8 @@ final class ReportsViewModel: ObservableObject {
             do {
                 let record = try await dailyReportSummaryService.summarizeDay(dayStart)
                 selectedDailyReport = record
+            } catch is CancellationError {
+                return
             } catch {
                 dailyReportGenerationError = error.localizedDescription
                 logStore?.addError(source: .summary, context: "Failed to summarize selected day", error: error)

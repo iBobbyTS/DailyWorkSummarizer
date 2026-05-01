@@ -11,7 +11,7 @@ The app is centered around a small set of long-lived services created at launch 
 - `ScreenshotService`
   Periodic capture scheduling, permission checks, and idle detection.
 - `AnalysisService`
-  Main-actor coordinator for pending screenshot runs, timers, cancellation, appends, and UI-facing progress.
+  Main-actor coordinator for pending screenshot runs, timers, cancellation, appends, runtime model labels, and UI-facing progress.
 - `ActiveAnalysisRun`
   Per-run queue and counters used by `AnalysisService`, isolated in `ActiveAnalysisRun.swift`.
 - `AnalysisServicePolicy`
@@ -19,11 +19,13 @@ The app is centered around a small set of long-lived services created at launch 
 - `AnalysisWorker`
   Non-main async worker in `AnalysisWorker.swift` used by `AnalysisService` for image loading, OCR, model invocation, structured parsing, and retry behavior.
 - `DailyReportSummaryService`
-  Daily-summary generation and backfill for missing days.
+  Daily-summary generation, runtime state, cancellation, and backfill for missing days.
 - `LLMService`
   Shared provider adapter for OpenAI, Anthropic, LM Studio, and Apple Intelligence.
 - `LMStudioModelLifecycle`
   Explicit LM Studio load/unload helper used by analysis, summaries, and settings model tests when the corresponding model profile has lifecycle management enabled.
+- `MenuBarApp` / `AppDelegate`
+  Menu bar state rendering, current-status sections, force-unload actions, and window/menu orchestration.
 - `ReportsViewModel`
   Report range construction, chart data, heatmap data, and daily report presentation in `ReportsViewModel.swift`.
 - `ReportsView`
@@ -39,7 +41,7 @@ The app is centered around a small set of long-lived services created at launch 
 - The app opens or creates the SQLite database.
 - Settings are loaded from UserDefaults and Keychain.
 - Services are created and started.
-- The menu bar UI reflects pending screenshots, active analysis state, and the log viewer entry point.
+- The menu bar UI reflects pending screenshots, active analysis state, active summary state, force-unload actions, and the log viewer entry point.
 
 ### 2. Screenshot capture flow
 
@@ -60,6 +62,7 @@ The app is centered around a small set of long-lived services created at launch 
 - It creates a compact `analysis_runs` record for run-level status/counts and processes screenshots one by one.
 - `analysis_runs.total_items` is updated when the active queue grows so the run progress stays aligned with the appended screenshots.
 - `AnalysisService` keeps run state on the main actor, but delegates each screenshot's long-running image load, OCR, model request, and response parsing to `AnalysisWorker` so UI state updates and cancellation stay responsive.
+- `MenuBarApp` subscribes to both analysis and summary runtime notifications so the Current Status submenu can show running analysis, running summaries, and manual LM Studio force-unload actions without relying on internal loaded-instance caches.
 - Depending on provider and analysis mode, the worker either:
   - runs local OCR first and sends text to a model, or
   - sends the screenshot image to a remote multimodal endpoint.
@@ -82,6 +85,7 @@ The app is centered around a small set of long-lived services created at launch 
 - The summary is generated through the configured work-content model profile via `LLMService`.
 - If the work-content summary profile enables LM Studio lifecycle management, `DailyReportSummaryService` explicitly loads the summary model before generation and unloads it after generation.
 - When called by `AnalysisService` immediately after a completed analysis run, `DailyReportSummaryService` can instead reuse an already loaded LM Studio model or load a different summary model according to the handoff policy and the two lifecycle toggles.
+- `DailyReportSummaryService` also exposes observable runtime state so the menu bar can render "Running: Work Content Summary" plus a progress percentage.
 - Results are stored in `daily_reports`; temporary summaries are marked with `is_temporary` instead of encoded into summary text.
 - Background summary failures are recorded in `app_logs`; cancellation and no-activity outcomes are diagnostic `log` entries, while provider, database, and lifecycle failures are `error` entries.
 
@@ -115,6 +119,7 @@ Each profile also carries its own LM Studio lifecycle toggle so the app can skip
 
 - Persistence changes emit notifications through `NotificationCenter`.
 - UI-facing observable objects subscribe to those notifications and reload derived state.
+- `AnalysisService` and `DailyReportSummaryService` both post status-change notifications so the menu bar can update current-state text and force-unload button availability without polling.
 - `SettingsStore` is the authoritative source for user-editable configuration at runtime.
 - Services consume immutable snapshots when starting work to avoid mid-run drift.
 - `AppLogStore` is the authoritative source for runtime log entries shown in the UI; it reloads from SQLite after each mutation and emits `appLogsDidChange`.

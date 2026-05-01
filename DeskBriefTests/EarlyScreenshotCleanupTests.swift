@@ -104,9 +104,10 @@ extension DeskBriefTests {
             now: now
         )
 
-        #expect(result.files(for: .oneDay) == [rootScreenshot])
-        #expect(!result.files(for: .oneDay).contains(previewScreenshot))
-        #expect(!result.files(for: .oneDay).contains(tempScreenshot))
+        let oneDayFiles = result.files(for: .oneDay).map(\.standardizedFileURL)
+        #expect(oneDayFiles == [rootScreenshot.standardizedFileURL])
+        #expect(!oneDayFiles.contains(previewScreenshot.standardizedFileURL))
+        #expect(!oneDayFiles.contains(tempScreenshot.standardizedFileURL))
     }
 
     @Test func earlyScreenshotCleanupDoesNotStartDuplicateCalculationWhileOneIsRunning() async throws {

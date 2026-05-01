@@ -740,6 +740,48 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func lmStudioSummaryForceUnloadQueriesLoadedModelsListBeforeUnloading() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentSummaryProvider = .lmStudio
+        store.workContentSummaryAPIBaseURL = "http://127.0.0.1:1234"
+        store.workContentSummaryModelName = "summary-model"
+        store.workContentSummaryLMStudioContextLength = 12_000
+        store.workContentSummaryLMStudioAutoLoadUnloadModel = false
+
+        let session = makeMockSession { request in
+            try lmStudioLifecycleTestResponse(for: request)
+        }
+        let service = DailyReportSummaryService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            session: session
+        )
+
+        let didUnload = try await service.forceUnloadManagedModel()
+
+        #expect(didUnload)
+        #expect(MockURLProtocol.requestPaths == ["/api/v1/models", "/api/v1/models/unload"])
+    }
+
+    @MainActor
     @Test func lmStudioAnalysisWorkerPropagatesModelInstanceIDToCleanupLog() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory

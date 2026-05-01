@@ -508,6 +508,7 @@ struct AnalysisRuntimeState {
     let isRunning: Bool
     let stoppingStage: AnalysisStoppingStage?
     let startedAt: Date?
+    let modelName: String?
     let completedCount: Int
     let totalCount: Int
 
@@ -517,6 +518,56 @@ struct AnalysisRuntimeState {
         isRunning: false,
         stoppingStage: nil,
         startedAt: nil,
+        modelName: nil,
+        completedCount: 0,
+        totalCount: 0
+    )
+}
+
+enum ForceUnloadTarget: String, CaseIterable, Codable, Hashable, Identifiable {
+    case screenshotAnalysis
+    case workContentSummary
+
+    var id: String { rawValue }
+
+    var menuTitleKey: L10n.Key {
+        switch self {
+        case .screenshotAnalysis:
+            return .menuForceUnloadScreenshotAnalysisModel
+        case .workContentSummary:
+            return .menuForceUnloadWorkContentSummaryModel
+        }
+    }
+
+    func profile(from snapshot: AppSettingsSnapshot) -> ModelProfileSettings {
+        switch self {
+        case .screenshotAnalysis:
+            return snapshot.screenshotAnalysisModelProfile
+        case .workContentSummary:
+            return snapshot.workContentSummaryModelProfile
+        }
+    }
+}
+
+struct DailyReportSummaryRuntimeState {
+    let isRunning: Bool
+    let isStopping: Bool
+    let modelName: String?
+    let completedCount: Int
+    let totalCount: Int
+
+    var progressPercentage: Int {
+        guard totalCount > 0 else {
+            return 0
+        }
+        let resolved = Int((Double(completedCount) / Double(totalCount)) * 100.0)
+        return max(0, min(100, resolved))
+    }
+
+    static let idle = DailyReportSummaryRuntimeState(
+        isRunning: false,
+        isStopping: false,
+        modelName: nil,
         completedCount: 0,
         totalCount: 0
     )
@@ -775,5 +826,6 @@ extension Notification.Name {
     static let screenshotFileSaved = Notification.Name("DeskBrief.ScreenshotFileSaved")
     static let screenshotFilesDidChange = Notification.Name("DeskBrief.ScreenshotFilesDidChange")
     static let analysisStatusDidChange = Notification.Name("DeskBrief.AnalysisStatusDidChange")
+    static let dailyReportSummaryStatusDidChange = Notification.Name("DeskBrief.DailyReportSummaryStatusDidChange")
     static let appLogsDidChange = Notification.Name("DeskBrief.AppLogsDidChange")
 }

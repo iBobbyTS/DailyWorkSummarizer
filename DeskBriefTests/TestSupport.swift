@@ -215,6 +215,38 @@ func lmStudioLifecycleTestResponse(for request: URLRequest) throws -> (HTTPURLRe
             url: try #require(request.url),
             body: #"{"instance_id":"\#(instanceID)"}"#
         )
+    case "/api/v1/models":
+        return try makeHTTPResponse(
+            url: try #require(request.url),
+            body: """
+            {
+              "models": [
+                {
+                  "key": "analysis-model",
+                  "loaded_instances": [
+                    {
+                      "identifier": "analysis-model-instance",
+                      "config": {
+                        "context_length": 6000
+                      }
+                    }
+                  ]
+                },
+                {
+                  "key": "summary-model",
+                  "loaded_instances": [
+                    {
+                      "id": "summary-model-instance",
+                      "config": {
+                        "context_length": 12000
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            """
+        )
     case "/api/v1/chat":
         if body["input"] is String {
             return try makeHTTPResponse(

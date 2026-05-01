@@ -144,6 +144,8 @@ extension DeskBriefTests {
     }
 
     @Test func lmStudioLifecycleToggleStringsAreLocalized() async throws {
+        #expect(L10n.string(.appName, language: .simplifiedChinese) == "工迹")
+        #expect(L10n.string(.appName, language: .english) == "DeskBrief")
         #expect(
             L10n.string(.settingsModelLMStudioAutoLoadUnloadModel, language: .simplifiedChinese)
                 == "主动装卸载模型"
@@ -160,6 +162,8 @@ extension DeskBriefTests {
             L10n.string(.settingsModelLMStudioAutoLoadUnloadModelHelp, language: .english)
                 == "The app will proactively load and unload the model before and after analysis. If the model stays loaded in the background, turn this off."
         )
+        #expect(L10n.string(.menuForceUnloadScreenshotAnalysisModel, language: .simplifiedChinese) == "强制卸载截屏分析模型")
+        #expect(L10n.string(.menuForceUnloadWorkContentSummaryModel, language: .english) == "Force Unload Work Content Summary Model")
     }
 
     @MainActor
@@ -176,6 +180,7 @@ extension DeskBriefTests {
         let cleanupValues = topLevelItems[2].submenu?.items.compactMap { $0.representedObject as? Int }
         let startupModeValues = topLevelItems[5].submenu?.items.compactMap { $0.representedObject as? String }
         let statusSubmenuActions = topLevelItems[0].submenu?.items.compactMap { selectorName(for: $0) }
+        let statusSubmenu = try #require(topLevelItems[0].submenu)
 
         #expect(topLevelItems.count == 9)
         #expect(topLevelItems[0].submenu != nil)
@@ -189,6 +194,145 @@ extension DeskBriefTests {
         #expect(selectorName(for: topLevelItems[8]) == "quit")
         #expect(statusSubmenuActions?.contains("openLogs") == false)
         #expect(statusSubmenuActions?.contains("runAnalysisNow") == true)
+        #expect(statusSubmenu.items.count == 14)
+        #expect(statusSubmenu.items[8].isSeparatorItem)
+        #expect(NSStringFromSelector(try #require(statusSubmenu.items[9].action!)) == "openScreenshotsFolder")
+        #expect(NSStringFromSelector(try #require(statusSubmenu.items[10].action!)) == "runAnalysisNow")
+        #expect(statusSubmenu.items[11].isSeparatorItem)
+        #expect(statusSubmenu.items[12].action != nil)
+        #expect(statusSubmenu.items[13].action != nil)
+        #expect(NSStringFromSelector(try #require(statusSubmenu.items[12].action!)) == "forceUnloadModel:")
+        #expect(NSStringFromSelector(try #require(statusSubmenu.items[13].action!)) == "forceUnloadModel:")
+    }
+
+    @Test func statusMenuTextBuildersFormatRunningAnalysisAndSummaryState() async throws {
+        let analysisProfile = makeModelSettings(
+            provider: .lmStudio,
+            apiBaseURL: "http://127.0.0.1:1234",
+            modelName: "analysis-model"
+        )
+        let summaryProfile = makeModelSettings(
+            provider: .openAI,
+            apiBaseURL: "https://summary.example.com",
+            modelName: "summary-model"
+        )
+        let analysisState = AnalysisRuntimeState(
+            isRunning: true,
+            stoppingStage: nil,
+            startedAt: makeScreenshotDate(year: 2026, month: 4, day: 30, hour: 9, minute: 0),
+            modelName: "analysis-model",
+            completedCount: 2,
+            totalCount: 5
+        )
+        let stoppingAnalysisState = AnalysisRuntimeState(
+            isRunning: true,
+            stoppingStage: .unloadingModel,
+            startedAt: makeScreenshotDate(year: 2026, month: 4, day: 30, hour: 9, minute: 0),
+            modelName: "analysis-model",
+            completedCount: 3,
+            totalCount: 5
+        )
+        let summaryState = DailyReportSummaryRuntimeState(
+            isRunning: true,
+            isStopping: false,
+            modelName: "summary-model",
+            completedCount: 1,
+            totalCount: 4
+        )
+
+        #expect(
+            MenuBarStatusPresentation.currentModelLine(profile: analysisProfile, language: .simplifiedChinese)
+                == "当前加载模型：analysis-model"
+        )
+        #expect(
+            MenuBarStatusPresentation.currentModelLine(profile: summaryProfile, language: .english)
+                == "Current model: summary-model"
+        )
+        #expect(
+            MenuBarStatusPresentation.analysisRunningTitle(language: .simplifiedChinese)
+                == "正在进行：截屏分析"
+        )
+        #expect(
+            MenuBarStatusPresentation.summaryRunningTitle(language: .english)
+                == "Running: Work Content Summary"
+        )
+        #expect(
+            MenuBarStatusPresentation.summaryProgressLine(state: summaryState, language: .simplifiedChinese)
+                == "进度：25%"
+        )
+        #expect(
+            MenuBarStatusPresentation.summaryProgressLine(state: summaryState, language: .english)
+                == "Progress: 25%"
+        )
+        #expect(
+            MenuBarStatusPresentation.analysisProgressLine(
+                state: analysisState,
+                startedAt: analysisState.startedAt ?? Date(),
+                language: .simplifiedChinese
+            ).contains("正在分析从")
+        )
+        #expect(
+            MenuBarStatusPresentation.analysisProgressLine(
+                state: stoppingAnalysisState,
+                startedAt: stoppingAnalysisState.startedAt ?? Date(),
+                language: .simplifiedChinese
+            ).contains("正在停止本次分析")
+        )
+        #expect(
+            MenuBarStatusPresentation.forceUnloadButtonTitle(for: .workContentSummary, language: .simplifiedChinese)
+                == "强制卸载工作内容总结模型"
+        )
+        #expect(
+            MenuBarStatusPresentation.lifecycleDisabledConfirmation(appName: "工迹", language: .simplifiedChinese)
+                == "根据当前设置，模型装卸载不由工迹管理，是否仍要发起卸载请求？"
+        )
+        #expect(
+            MenuBarStatusPresentation.stopCurrentWorkConfirmation(language: .english)
+                == "Stop the current analysis or summary?"
+        )
+    }
+
+    @MainActor
+    @Test func forceUnloadScreenshotAnalysisUsesLoadedModelsListWhenInstanceIDIsNotTracked() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .lmStudio
+        store.apiBaseURL = "http://127.0.0.1:1234"
+        store.modelName = "analysis-model"
+        store.screenshotAnalysisLMStudioAutoLoadUnloadModel = false
+        store.imageAnalysisMethod = .multimodal
+
+        let session = makeMockSession { request in
+            try lmStudioLifecycleTestResponse(for: request)
+        }
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            dailyReportSummaryService: DailyReportSummaryService(database: database, settingsStore: store, session: session),
+            session: session
+        )
+
+        let didUnload = try await service.forceUnloadManagedModel()
+
+        #expect(didUnload)
+        #expect(MockURLProtocol.requestPaths == ["/api/v1/models", "/api/v1/models/unload"])
     }
 
     @Test func settingsTerminologySeparatesScreenshotAnalysisAndWorkContentSummary() async throws {

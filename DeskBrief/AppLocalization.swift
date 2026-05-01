@@ -123,6 +123,7 @@ nonisolated enum L10n {
         case settingsReportTitle
         case settingsReportWeekStart
         case settingsCountdown
+        case appName
         case statusAccessibilityDescription
         case menuNoPending
         case menuOpenScreenshotsFolder
@@ -156,8 +157,18 @@ nonisolated enum L10n {
         case menuSummaryPausingStoppingGeneration
         case menuSummaryPausingUnloadingModel
         case menuSummaryAnalyzing
+        case menuCurrentStatusRunningScreenshotAnalysis
+        case menuCurrentStatusRunningWorkContentSummary
+        case menuCurrentStatusCurrentModel
+        case menuCurrentStatusProgress
         case menuSummaryPending
         case menuNextScreenshotAt
+        case menuForceUnloadScreenshotAnalysisModel
+        case menuForceUnloadWorkContentSummaryModel
+        case menuForceUnloadConfirmStopAnalysis
+        case menuForceUnloadConfirmLifecycleDisabled
+        case menuForceUnloadNoLoadedModel
+        case menuForceUnloadFailedTitle
         case logsEmptyTitle
         case logsEmptyDescription
         case logsCopyAll
@@ -320,7 +331,8 @@ nonisolated enum L10n {
             .settingsReportTitle: "报告设置",
             .settingsReportWeekStart: "一周的第一天",
             .settingsCountdown: "倒计时：%d秒",
-            .statusAccessibilityDescription: "每日工作总结",
+            .appName: "工迹",
+            .statusAccessibilityDescription: "工迹",
             .menuNoPending: "当前没有待分析的截屏",
             .menuOpenScreenshotsFolder: "打开截屏文件夹",
             .menuShowLogs: "显示日志",
@@ -333,6 +345,10 @@ nonisolated enum L10n {
             .menuCurrentStatus: "当前状态",
             .menuSettings: "设置",
             .menuReports: "查看报告",
+            .menuCurrentStatusRunningScreenshotAnalysis: "正在进行：截屏分析",
+            .menuCurrentStatusRunningWorkContentSummary: "正在进行：工作内容总结",
+            .menuCurrentStatusCurrentModel: "当前加载模型：%@",
+            .menuCurrentStatusProgress: "进度：%d%%",
             .menuClearEarlyScreenshots: "清除早期截屏",
             .menuClearEarlyScreenshotsOneDay: "一天以前",
             .menuClearEarlyScreenshotsOneWeek: "一周以前",
@@ -355,6 +371,12 @@ nonisolated enum L10n {
             .menuSummaryAnalyzing: "正在分析从 %@ 开始的截屏（%d/%d）",
             .menuSummaryPending: "当前截屏从 %@ 开始，共 %d 张",
             .menuNextScreenshotAt: "下一次会在%@进行截屏",
+            .menuForceUnloadScreenshotAnalysisModel: "强制卸载截屏分析模型",
+            .menuForceUnloadWorkContentSummaryModel: "强制卸载工作内容总结模型",
+            .menuForceUnloadConfirmStopAnalysis: "是否停止本次分析",
+            .menuForceUnloadConfirmLifecycleDisabled: "根据当前设置，模型装卸载不由%@管理，是否仍要发起卸载请求？",
+            .menuForceUnloadNoLoadedModel: "未找到匹配的已加载模型，已跳过卸载。",
+            .menuForceUnloadFailedTitle: "强制卸载模型失败",
             .logsEmptyTitle: "当前没有日志",
             .logsEmptyDescription: "这里会显示分析错误，以及后续模型调试日志。",
             .logsCopyAll: "全部复制",
@@ -515,6 +537,7 @@ nonisolated enum L10n {
             .settingsReportTitle: "Report Settings",
             .settingsReportWeekStart: "First day of the week",
             .settingsCountdown: "Countdown: %d sec",
+            .appName: "DeskBrief",
             .statusAccessibilityDescription: "DeskBrief",
             .menuNoPending: "No screenshots pending analysis",
             .menuOpenScreenshotsFolder: "Open Screenshots Folder",
@@ -528,6 +551,10 @@ nonisolated enum L10n {
             .menuCurrentStatus: "Current Status",
             .menuSettings: "Settings",
             .menuReports: "View Reports",
+            .menuCurrentStatusRunningScreenshotAnalysis: "Running: Screenshot Analysis",
+            .menuCurrentStatusRunningWorkContentSummary: "Running: Work Content Summary",
+            .menuCurrentStatusCurrentModel: "Current model: %@",
+            .menuCurrentStatusProgress: "Progress: %d%%",
             .menuClearEarlyScreenshots: "Clear Early Screenshots",
             .menuClearEarlyScreenshotsOneDay: "Older Than 1 Day",
             .menuClearEarlyScreenshotsOneWeek: "Older Than 1 Week",
@@ -550,6 +577,12 @@ nonisolated enum L10n {
             .menuSummaryAnalyzing: "Analyzing screenshots starting at %@ (%d/%d)",
             .menuSummaryPending: "Pending screenshots since %@, %d total",
             .menuNextScreenshotAt: "Next screenshot at %@",
+            .menuForceUnloadScreenshotAnalysisModel: "Force Unload Screenshot Analysis Model",
+            .menuForceUnloadWorkContentSummaryModel: "Force Unload Work Content Summary Model",
+            .menuForceUnloadConfirmStopAnalysis: "Stop the current analysis or summary?",
+            .menuForceUnloadConfirmLifecycleDisabled: "According to the current settings, model load/unload is not managed by %@. Do you still want to send an unload request?",
+            .menuForceUnloadNoLoadedModel: "No loaded model matched the current configuration, so unload was skipped.",
+            .menuForceUnloadFailedTitle: "Force unload failed",
             .logsEmptyTitle: "No Logs",
             .logsEmptyDescription: "Analysis errors and later model-debugging logs will appear here.",
             .logsCopyAll: "Copy All",

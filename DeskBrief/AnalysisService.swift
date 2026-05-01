@@ -136,6 +136,7 @@ final class AnalysisService {
         }
         updateRuntimeState(
             startedAt: runtimeState.startedAt,
+            modelName: runtimeState.modelName,
             completedCount: runtimeState.completedCount,
             totalCount: runtimeState.totalCount,
             stoppingStage: .stoppingGeneration
@@ -336,6 +337,7 @@ final class AnalysisService {
         activeAnalysisRun = run
         updateRuntimeState(
             startedAt: run.startedAt,
+            modelName: snapshot.modelName,
             completedCount: run.completedCount,
             totalCount: run.totalCount,
             stoppingStage: nil
@@ -451,6 +453,7 @@ final class AnalysisService {
                     run.completedCount += 1
                     updateRuntimeState(
                         startedAt: run.startedAt,
+                        modelName: snapshot.modelName,
                         completedCount: run.completedCount,
                         totalCount: run.totalCount
                     )
@@ -506,6 +509,7 @@ final class AnalysisService {
                 run.completedCount += 1
                 updateRuntimeState(
                     startedAt: run.startedAt,
+                    modelName: snapshot.modelName,
                     completedCount: run.completedCount,
                     totalCount: run.totalCount
                 )
@@ -552,6 +556,7 @@ final class AnalysisService {
             ) {
                 updateRuntimeState(
                     startedAt: run.startedAt,
+                    modelName: snapshot.modelName,
                     completedCount: run.completedCount,
                     totalCount: run.totalCount,
                     stoppingStage: unloadingStage
@@ -672,6 +677,7 @@ final class AnalysisService {
         }
         updateRuntimeState(
             startedAt: run.startedAt,
+            modelName: run.settings.modelName,
             completedCount: run.completedCount,
             totalCount: run.totalCount
         )
@@ -715,6 +721,7 @@ final class AnalysisService {
 
     private func updateRuntimeState(
         startedAt: Date?,
+        modelName: String?,
         completedCount: Int,
         totalCount: Int,
         stoppingStage: AnalysisStoppingStage? = nil
@@ -723,9 +730,37 @@ final class AnalysisService {
             isRunning: true,
             stoppingStage: stoppingStage ?? runtimeState.stoppingStage,
             startedAt: startedAt,
+            modelName: modelName ?? runtimeState.modelName,
             completedCount: completedCount,
             totalCount: totalCount
         )
+    }
+
+    func forceUnloadManagedModel() async throws -> Bool {
+        let snapshot = settingsStore.snapshot.screenshotAnalysisModelProfile
+        guard snapshot.provider == .lmStudio else {
+            return false
+        }
+
+        if runtimeState.isRunning {
+            cancelCurrentRun()
+            await waitForAnalysisToStop()
+        }
+
+        do {
+            try await lmStudioLifecycle.unload(settings: snapshot, instanceID: nil)
+            return true
+        } catch LMStudioModelLifecycleError.missingLoadedInstanceID {
+            logStore.add(
+                level: .log,
+                source: .lmStudio,
+                message: localized(.menuForceUnloadNoLoadedModel)
+            )
+            return false
+        } catch {
+            logStore.addError(source: .lmStudio, context: "Forced unload of screenshot analysis model failed", error: error)
+            throw error
+        }
     }
 
     private func finishAnalysisRun(
@@ -807,6 +842,13 @@ final class AnalysisService {
         } catch {
             logStore.addError(source: .lmStudio, context: "LM Studio model unload failed", error: error)
             return
+        }
+    }
+
+    private func waitForAnalysisToStop(timeoutSeconds: TimeInterval = 8) async {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while runtimeState.isRunning && Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
         }
     }
 

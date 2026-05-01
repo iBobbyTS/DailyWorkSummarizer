@@ -14,7 +14,7 @@ This glossary keeps DeskBrief's common Simplified Chinese and English product te
 
 | Simplified Chinese | English | Notes |
 | --- | --- | --- |
-| DeskBrief | DeskBrief | Product name. Do not translate. |
+| 工迹 | DeskBrief | Product name. Use the localized app name in UI and alerts. |
 | 截屏 | Screenshot | Noun/adjective for saved screen images. |
 | 截屏分析 | Screenshot Analysis | Settings tab and model profile for analyzing screenshots. |
 | 工作内容总结 | Work Content Summary | Settings tab and model profile for daily-report summarization. |

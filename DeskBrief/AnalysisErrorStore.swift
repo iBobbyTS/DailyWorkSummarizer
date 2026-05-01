@@ -41,7 +41,11 @@ final class AppLogStore: ObservableObject {
         )
 
         do {
-            try database.insertAppLog(entry, maxEntries: maxEntries)
+            do {
+                try database.insertAppLog(entry, maxEntries: maxEntries)
+            } catch {
+                try database.insertAppLog(entry, maxEntries: maxEntries)
+            }
             entries = try database.fetchAppLogs(limit: maxEntries)
         } catch {
             entries.insert(entry, at: 0)

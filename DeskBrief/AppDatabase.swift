@@ -88,6 +88,7 @@ final class AppDatabase: @unchecked Sendable {
 
     func fetchCategoryRules() throws -> [CategoryRule] {
         try queue.sync {
+            try ensureTableExistsLocked("category_rules")
             let statement = try prepareStatement("""
                 SELECT id, name, description, color_hex
                 FROM category_rules
@@ -381,6 +382,7 @@ final class AppDatabase: @unchecked Sendable {
 
     func fetchReportSourceItems() throws -> [ReportSourceItem] {
         try queue.sync {
+            try ensureTableExistsLocked("analysis_results")
             let statement = try prepareStatement("""
                 SELECT
                     id,
@@ -651,6 +653,21 @@ final class AppDatabase: @unchecked Sendable {
             throw DatabaseError.prepareStatement(String(cString: sqlite3_errmsg(handle)))
         }
         return statement
+    }
+
+    private func ensureTableExistsLocked(_ tableName: String) throws {
+        let statement = try prepareStatement("""
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table' AND name = ?
+            LIMIT 1;
+        """)
+        defer { sqlite3_finalize(statement) }
+
+        bind(tableName, at: 1, to: statement)
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw DatabaseError.prepareStatement("missing table \(tableName)")
+        }
     }
 
     private func beginTransaction() throws {

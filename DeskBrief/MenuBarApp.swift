@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var databaseObserver: NSObjectProtocol?
     private var screenshotObserver: NSObjectProtocol?
     private var analysisObserver: NSObjectProtocol?
+    private var summaryObserver: NSObjectProtocol?
     private var logsObserver: NSObjectProtocol?
     private var didLogStatusMenuPendingScreenshotsFailure = false
     private var didLogStatusMenuAverageDurationFailure = false
@@ -35,6 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var logStore: AppLogStore?
     private let statusSummaryItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let statusAverageDurationItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let statusAnalysisTitleItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let statusAnalysisModelItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let statusAnalysisProgressItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let statusSummaryRunningTitleItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let statusSummaryRunningModelItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let statusSummaryRunningProgressItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let openScreenshotsItem = NSMenuItem(title: "", action: #selector(openScreenshotsFolder), keyEquivalent: "")
     private let viewLogsItem = NSMenuItem(title: "", action: #selector(openLogs), keyEquivalent: "")
     private let analysisStartupModeMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -50,6 +57,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private let earlyScreenshotCleanupCoordinator = EarlyScreenshotCleanupCoordinator()
     private var earlyScreenshotCleanupItems: [EarlyScreenshotCleanupScope: NSMenuItem] = [:]
     private var earlyScreenshotCleanupWaitTask: Task<Void, Never>?
+    private let statusForceUnloadDividerItem = NSMenuItem.separator()
+    private let statusActionDividerItem = NSMenuItem.separator()
+    private let forceUnloadScreenshotAnalysisItem = NSMenuItem(title: "", action: #selector(forceUnloadModel(_:)), keyEquivalent: "")
+    private let forceUnloadWorkContentSummaryItem = NSMenuItem(title: "", action: #selector(forceUnloadModel(_:)), keyEquivalent: "")
+    private var forceUnloadInFlightTargets = Set<ForceUnloadTarget>()
     private let quitMenuItem = NSMenuItem(title: "", action: #selector(quit), keyEquivalent: "q")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -108,6 +120,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
         if let analysisObserver {
             NotificationCenter.default.removeObserver(analysisObserver)
+        }
+        if let summaryObserver {
+            NotificationCenter.default.removeObserver(summaryObserver)
         }
         if let logsObserver {
             NotificationCenter.default.removeObserver(logsObserver)
@@ -180,6 +195,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             }
         }
 
+        summaryObserver = NotificationCenter.default.addObserver(
+            forName: .dailyReportSummaryStatusDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshStatusMenu()
+            }
+        }
+
         logsObserver = NotificationCenter.default.addObserver(
             forName: .appLogsDidChange,
             object: nil,
@@ -198,6 +223,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusSummaryItem.isEnabled = false
         statusAverageDurationItem.isEnabled = false
         statusAverageDurationItem.isHidden = true
+        [statusAnalysisTitleItem, statusAnalysisModelItem, statusAnalysisProgressItem, statusSummaryRunningTitleItem, statusSummaryRunningModelItem, statusSummaryRunningProgressItem].forEach {
+            $0.isEnabled = false
+            $0.isHidden = true
+        }
         openScreenshotsItem.target = self
         viewLogsItem.target = self
         viewLogsItem.isEnabled = true
@@ -208,6 +237,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         clearOneWeekScreenshotsItem.representedObject = EarlyScreenshotCleanupScope.oneWeek.rawValue
         earlyScreenshotCleanupItems[.oneDay] = clearOneDayScreenshotsItem
         earlyScreenshotCleanupItems[.oneWeek] = clearOneWeekScreenshotsItem
+        forceUnloadScreenshotAnalysisItem.target = self
+        forceUnloadScreenshotAnalysisItem.representedObject = ForceUnloadTarget.screenshotAnalysis.rawValue
+        forceUnloadWorkContentSummaryItem.target = self
+        forceUnloadWorkContentSummaryItem.representedObject = ForceUnloadTarget.workContentSummary.rawValue
+        statusForceUnloadDividerItem.isHidden = true
+        statusActionDividerItem.isHidden = false
 
         clearEarlyScreenshotsSubmenu.delegate = self
         clearEarlyScreenshotsSubmenu.addItem(clearOneDayScreenshotsItem)
@@ -226,9 +261,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let statusSubmenu = NSMenu()
         statusSubmenu.addItem(statusSummaryItem)
         statusSubmenu.addItem(statusAverageDurationItem)
-        statusSubmenu.addItem(.separator())
+        statusSubmenu.addItem(statusAnalysisTitleItem)
+        statusSubmenu.addItem(statusAnalysisModelItem)
+        statusSubmenu.addItem(statusAnalysisProgressItem)
+        statusSubmenu.addItem(statusSummaryRunningTitleItem)
+        statusSubmenu.addItem(statusSummaryRunningModelItem)
+        statusSubmenu.addItem(statusSummaryRunningProgressItem)
+        statusSubmenu.addItem(statusActionDividerItem)
         statusSubmenu.addItem(openScreenshotsItem)
         statusSubmenu.addItem(analyzeNowItem)
+        statusSubmenu.addItem(statusForceUnloadDividerItem)
+        statusSubmenu.addItem(forceUnloadScreenshotAnalysisItem)
+        statusSubmenu.addItem(forceUnloadWorkContentSummaryItem)
 
         menu.addItem(currentStatusMenuItem)
         menu.setSubmenu(statusSubmenu, for: currentStatusMenuItem)
@@ -350,6 +394,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
 
+    @objc private func forceUnloadModel(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let target = ForceUnloadTarget(rawValue: rawValue) else {
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.forceUnloadModel(for: target)
+        }
+    }
+
     @objc private func clearEarlyScreenshots(_ sender: NSMenuItem) {
         guard let rawValue = sender.representedObject as? Int,
               let scope = EarlyScreenshotCleanupScope(rawValue: rawValue) else {
@@ -377,6 +433,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             NSApp.activate(ignoringOtherApps: true)
         }
         window.makeKeyAndOrderFront(nil)
+    }
+
+    private func forceUnloadModel(for target: ForceUnloadTarget) async {
+        guard let settingsStore, let analysisService, let dailyReportSummaryService, let logStore else { return }
+        guard !forceUnloadInFlightTargets.contains(target) else { return }
+
+        forceUnloadInFlightTargets.insert(target)
+        defer {
+            forceUnloadInFlightTargets.remove(target)
+            refreshStatusMenu()
+        }
+
+        let language = settingsStore.appLanguage
+        let profile = target.profile(from: settingsStore.snapshot)
+        guard profile.provider == .lmStudio else {
+            return
+        }
+
+        let anyWorkRunning = analysisService.currentState.isRunning || dailyReportSummaryService.currentState.isRunning
+        if anyWorkRunning {
+            guard confirmForceUnloadShouldStopCurrentWork(language: language) else {
+                return
+            }
+            analysisService.cancelCurrentRun()
+            dailyReportSummaryService.cancelCurrentSummary()
+            await waitForCurrentWorkToStop()
+        }
+
+        if !profile.automaticallyLoadAndUnloadModel {
+            let appName = text(.appName, language: language)
+            guard confirmForceUnloadWhenLifecycleDisabled(appName: appName, language: language) else {
+                return
+            }
+        }
+
+        do {
+            let didUnload: Bool
+            switch target {
+            case .screenshotAnalysis:
+                didUnload = try await analysisService.forceUnloadManagedModel()
+            case .workContentSummary:
+                didUnload = try await dailyReportSummaryService.forceUnloadManagedModel()
+            }
+
+            if didUnload {
+                refreshStatusMenu()
+            }
+        } catch {
+            logStore.addError(source: .lmStudio, context: "Forced unload failed for \(target.rawValue)", error: error)
+            presentForceUnloadFailureAlert(error, language: language)
+        }
     }
 
     private func openEarlyScreenshotCleanupSubmenu() {
@@ -473,6 +580,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
 
+    private func confirmForceUnloadShouldStopCurrentWork(language: AppLanguage) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = text(.menuForceUnloadConfirmStopAnalysis, language: language)
+        alert.addButton(withTitle: text(.commonConfirm, language: language))
+        alert.addButton(withTitle: text(.commonCancel, language: language))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func confirmForceUnloadWhenLifecycleDisabled(appName: String, language: AppLanguage) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = text(.menuForceUnloadConfirmLifecycleDisabled, arguments: [appName], language: language)
+        alert.addButton(withTitle: text(.commonConfirm, language: language))
+        alert.addButton(withTitle: text(.commonCancel, language: language))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func presentForceUnloadFailureAlert(_ error: Error, language: AppLanguage) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = text(.menuForceUnloadFailedTitle, language: language)
+        alert.informativeText = error.localizedDescription
+        alert.addButton(withTitle: text(.commonConfirm, language: language))
+        alert.runModal()
+    }
+
+    private func waitForCurrentWorkToStop(timeoutSeconds: TimeInterval = 8) async {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            let analysisRunning = analysisService?.currentState.isRunning ?? false
+            let summaryRunning = dailyReportSummaryService?.currentState.isRunning ?? false
+            if !analysisRunning && !summaryRunning {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
     private func refreshStatusMenu() {
         guard let database else { return }
 
@@ -489,6 +635,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             }
         }
         let analysisState = analysisService?.currentState ?? .idle
+        let summaryState = dailyReportSummaryService?.currentState ?? .idle
         let lastAverageDuration: Double?
         do {
             lastAverageDuration = try database.fetchLatestAnalysisAverageDurationSeconds()
@@ -502,6 +649,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
         let analysisStartupMode = settingsStore?.analysisStartupMode ?? AppDefaults.analysisStartupMode
         let language = settingsStore?.appLanguage ?? .current
+        let snapshot = settingsStore?.snapshot
 
         viewLogsItem.title = text(.menuShowLogs, language: language)
         viewLogsItem.isEnabled = true
@@ -512,72 +660,99 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             item.state = mode == analysisStartupMode ? .on : .off
         }
 
-        if let lastAverageDuration {
-            let durationText = averageDurationFormatter(language: language).string(from: NSNumber(value: lastAverageDuration))
-                ?? String(format: "%.1f", lastAverageDuration)
-            statusAverageDurationItem.title = text(.menuLastAverageDuration, arguments: [durationText], language: language)
-            statusAverageDurationItem.isHidden = false
-        } else {
+        let anyWorkRunning = analysisState.isRunning || summaryState.isRunning
+        statusSummaryItem.isHidden = anyWorkRunning
+        statusAnalysisTitleItem.isHidden = !analysisState.isRunning
+        statusAnalysisModelItem.isHidden = !analysisState.isRunning
+        statusAnalysisProgressItem.isHidden = !analysisState.isRunning
+        statusSummaryRunningTitleItem.isHidden = !summaryState.isRunning
+        statusSummaryRunningModelItem.isHidden = !summaryState.isRunning
+        statusSummaryRunningProgressItem.isHidden = !summaryState.isRunning
+
+        if anyWorkRunning {
             statusAverageDurationItem.title = ""
             statusAverageDurationItem.isHidden = true
+
+            if analysisState.isRunning, let analysisProfile = snapshot?.screenshotAnalysisModelProfile {
+                statusAnalysisTitleItem.title = MenuBarStatusPresentation.analysisRunningTitle(language: language)
+                statusAnalysisModelItem.title = MenuBarStatusPresentation.currentModelLine(profile: analysisProfile, language: language)
+                let startedAt = analysisState.startedAt ?? pendingScreenshots.first?.capturedAt ?? Date()
+                statusAnalysisProgressItem.title = MenuBarStatusPresentation.analysisProgressLine(
+                    state: analysisState,
+                    startedAt: startedAt,
+                    language: language
+                )
+            }
+
+            if summaryState.isRunning, let summaryProfile = snapshot?.workContentSummaryModelProfile {
+                statusSummaryRunningTitleItem.title = MenuBarStatusPresentation.summaryRunningTitle(language: language)
+                statusSummaryRunningModelItem.title = MenuBarStatusPresentation.currentModelLine(profile: summaryProfile, language: language)
+                statusSummaryRunningProgressItem.title = MenuBarStatusPresentation.summaryProgressLine(
+                    state: summaryState,
+                    language: language
+                )
+            }
+        } else {
+            if let lastAverageDuration {
+                let durationText = averageDurationFormatter(language: language).string(from: NSNumber(value: lastAverageDuration))
+                    ?? String(format: "%.1f", lastAverageDuration)
+                statusAverageDurationItem.title = text(.menuLastAverageDuration, arguments: [durationText], language: language)
+                statusAverageDurationItem.isHidden = false
+            } else {
+                statusAverageDurationItem.title = ""
+                statusAverageDurationItem.isHidden = true
+            }
+
+            if let earliestScreenshotTime = pendingScreenshots.first?.capturedAt {
+                statusSummaryItem.title = text(
+                    .menuSummaryPending,
+                    arguments: [
+                        statusDateFormatter(language: language).string(from: earliestScreenshotTime),
+                        pendingScreenshots.count,
+                    ],
+                    language: language
+                )
+            } else if let nextScreenshotDate = screenshotService?.nextScreenshotDate {
+                statusSummaryItem.title = text(
+                    .menuNextScreenshotAt,
+                    arguments: [statusDateFormatter(language: language).string(from: nextScreenshotDate)],
+                    language: language
+                )
+            } else {
+                statusSummaryItem.title = text(.menuNoPending, language: language)
+            }
         }
 
         if analysisState.isRunning {
-            let startedAt = analysisState.startedAt ?? pendingScreenshots.first?.capturedAt ?? Date()
-            if analysisState.isStopping {
-                let stoppingStage = analysisState.stoppingStage ?? .stoppingGeneration
-                statusSummaryItem.title = text(
-                    stoppingStage.statusSummaryLocalizationKey,
-                    arguments: [
-                        statusDateFormatter(language: language).string(from: startedAt),
-                        analysisState.completedCount,
-                        analysisState.totalCount,
-                    ],
-                    language: language
-                )
-                analyzeNowItem.title = text(stoppingStage.analyzeNowLocalizationKey, language: language)
-                analyzeNowItem.isEnabled = false
-            } else {
-                statusSummaryItem.title = text(
-                    .menuSummaryAnalyzing,
-                    arguments: [
-                        statusDateFormatter(language: language).string(from: startedAt),
-                        analysisState.completedCount,
-                        analysisState.totalCount,
-                    ],
-                    language: language
-                )
-                analyzeNowItem.title = text(.menuAnalyzeNowPause, language: language)
-                analyzeNowItem.isEnabled = true
-            }
-            return
-        }
-
-        if let earliestScreenshotTime = pendingScreenshots.first?.capturedAt {
-            statusSummaryItem.title = text(
-                .menuSummaryPending,
-                arguments: [
-                    statusDateFormatter(language: language).string(from: earliestScreenshotTime),
-                    pendingScreenshots.count,
-                ],
-                language: language
-            )
-            analyzeNowItem.title = text(.menuAnalyzeNowStart, language: language)
-            analyzeNowItem.isEnabled = true
-            return
-        }
-
-        if let nextScreenshotDate = screenshotService?.nextScreenshotDate {
-            statusSummaryItem.title = text(
-                .menuNextScreenshotAt,
-                arguments: [statusDateFormatter(language: language).string(from: nextScreenshotDate)],
-                language: language
-            )
+            analyzeNowItem.title = analysisState.isStopping
+                ? text(analysisState.stoppingStage?.analyzeNowLocalizationKey ?? .menuAnalyzeNowPause, language: language)
+                : text(.menuAnalyzeNowPause, language: language)
+            analyzeNowItem.isEnabled = !analysisState.isStopping
         } else {
-            statusSummaryItem.title = text(.menuNoPending, language: language)
+            analyzeNowItem.title = text(.menuAnalyzeNowStart, language: language)
+            analyzeNowItem.isEnabled = pendingScreenshots.first != nil
         }
-        analyzeNowItem.title = text(.menuAnalyzeNowStart, language: language)
-        analyzeNowItem.isEnabled = false
+
+        let screenshotProfile = snapshot?.screenshotAnalysisModelProfile
+        let summaryProfile = snapshot?.workContentSummaryModelProfile
+        let screenshotForceVisible = screenshotProfile?.provider == .lmStudio
+        let summaryForceVisible = summaryProfile?.provider == .lmStudio
+
+        forceUnloadScreenshotAnalysisItem.title = MenuBarStatusPresentation.forceUnloadButtonTitle(
+            for: .screenshotAnalysis,
+            language: language
+        )
+        forceUnloadScreenshotAnalysisItem.isHidden = !screenshotForceVisible
+        forceUnloadScreenshotAnalysisItem.isEnabled = screenshotForceVisible && !forceUnloadInFlightTargets.contains(.screenshotAnalysis)
+
+        forceUnloadWorkContentSummaryItem.title = MenuBarStatusPresentation.forceUnloadButtonTitle(
+            for: .workContentSummary,
+            language: language
+        )
+        forceUnloadWorkContentSummaryItem.isHidden = !summaryForceVisible
+        forceUnloadWorkContentSummaryItem.isEnabled = summaryForceVisible && !forceUnloadInFlightTargets.contains(.workContentSummary)
+
+        statusForceUnloadDividerItem.isHidden = !(screenshotForceVisible || summaryForceVisible)
     }
 
     private func refreshLocalizedUI() {

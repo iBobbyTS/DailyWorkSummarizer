@@ -31,6 +31,7 @@ It is responsible for:
 
 LM Studio keeps one extra helper layer in `LMStudioAPI.swift` because the app also uses LM Studio's native model-management endpoints.
 Model lifecycle calls are intentionally kept outside `LLMService.send(_:)`: feature services can explicitly load an LM Studio model before sending chat requests when the per-profile lifecycle toggle is enabled, or skip lifecycle calls when the selected model is already resident in the background.
+Manual force-unload actions use the same lifecycle helper with a nil `instanceID`, which makes `LMStudioModelLifecycle` re-query `GET /api/v1/models` and resolve the currently loaded instance by model name plus context length instead of trusting any cached app-side loaded state.
 
 ## Screenshot analysis modes
 
@@ -165,6 +166,7 @@ Explicit lifecycle calls:
   with the loaded model `instance_id`.
 - Fallback unload:
   when the app did not capture an `instance_id`, it reads `GET /api/v1/models` and matches a loaded instance by trimmed model name plus `context_length`.
+  This is also the path used by the menu-bar force-unload fallback when automatic unload fails or a user explicitly requests a manual unload.
 
 Entry-point behavior:
 

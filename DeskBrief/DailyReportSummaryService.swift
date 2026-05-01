@@ -74,6 +74,7 @@ private actor AsyncLock {
     }
 }
 
+@MainActor
 final class DailyReportSummaryService {
     private let database: AppDatabase
     private let settingsStore: SettingsStore
@@ -81,6 +82,11 @@ final class DailyReportSummaryService {
     private let llmService: LLMService
     private let lmStudioLifecycle: LMStudioModelLifecycle
     private let lock = AsyncLock()
+    private var runtimeState: DailyReportSummaryRuntimeState = .idle {
+        didSet {
+            NotificationCenter.default.post(name: .dailyReportSummaryStatusDidChange, object: nil)
+        }
+    }
 
     init(
         database: AppDatabase,
@@ -110,6 +116,8 @@ final class DailyReportSummaryService {
             try await lock.withLock {
                 try await summarizeMissingDailyReportsLocked(lmStudioLifecyclePolicy: lmStudioLifecyclePolicy)
             }
+        } catch is CancellationError {
+            return
         } catch {
             recordSummaryError(error, context: "Failed to summarize missing daily reports")
             return
@@ -119,6 +127,52 @@ final class DailyReportSummaryService {
     func summarizeDay(_ dayStart: Date) async throws -> DailyReportRecord {
         try await lock.withLock {
             try await summarizeDayLocked(dayStart, lmStudioLifecyclePolicy: .automaticUnload)
+        }
+    }
+
+    var currentState: DailyReportSummaryRuntimeState {
+        runtimeState
+    }
+
+    func cancelCurrentSummary() {
+        guard runtimeState.isRunning, !runtimeState.isStopping else {
+            return
+        }
+
+        runtimeState = DailyReportSummaryRuntimeState(
+            isRunning: true,
+            isStopping: true,
+            modelName: runtimeState.modelName,
+            completedCount: runtimeState.completedCount,
+            totalCount: runtimeState.totalCount
+        )
+        llmService.cancelActiveRemoteRequest()
+    }
+
+    func forceUnloadManagedModel() async throws -> Bool {
+        let snapshot = settingsStore.snapshot.workContentSummaryModelProfile
+        guard snapshot.provider == .lmStudio else {
+            return false
+        }
+
+        if runtimeState.isRunning {
+            cancelCurrentSummary()
+            await waitForSummaryToStop()
+        }
+
+        do {
+            try await lmStudioLifecycle.unload(settings: snapshot, instanceID: nil)
+            return true
+        } catch LMStudioModelLifecycleError.missingLoadedInstanceID {
+            logStore?.add(
+                level: .log,
+                source: .lmStudio,
+                message: localized(.menuForceUnloadNoLoadedModel, language: settingsStore.appLanguage)
+            )
+            return false
+        } catch {
+            logStore?.addError(source: .lmStudio, context: "Forced unload of work content summary model failed", error: error)
+            throw error
         }
     }
 
@@ -151,10 +205,18 @@ final class DailyReportSummaryService {
         }
 
         let activityDaySet = Set(reportableDayStarts)
+        updateRuntimeState(
+            modelName: snapshot.workContentSummaryModelProfile.modelName,
+            completedCount: 0,
+            totalCount: pendingDays.count
+        )
+        defer { runtimeState = .idle }
+
         try await withLMStudioLifecycleIfNeeded(
             settings: snapshot.workContentSummaryModelProfile,
             policy: lmStudioLifecyclePolicy
         ) {
+            var completedCount = 0
             for dayStart in pendingDays {
                 do {
                     _ = try await summarizeDayContentLocked(
@@ -162,10 +224,17 @@ final class DailyReportSummaryService {
                         snapshot: snapshot,
                         activityDaySet: activityDaySet
                     )
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch {
                     recordSummaryError(error, context: "Failed to summarize daily report for \(dayStart)")
-                    continue
                 }
+                completedCount += 1
+                updateRuntimeState(
+                    modelName: snapshot.workContentSummaryModelProfile.modelName,
+                    completedCount: completedCount,
+                    totalCount: pendingDays.count
+                )
             }
         }
     }
@@ -177,11 +246,25 @@ final class DailyReportSummaryService {
         let snapshot = await MainActor.run { settingsStore.snapshot }
         let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
         let activityDaySet = Set(try fetchReportableActivityDayStarts(calendar: calendar))
+        updateRuntimeState(
+            modelName: snapshot.workContentSummaryModelProfile.modelName,
+            completedCount: 0,
+            totalCount: 1
+        )
+        defer { runtimeState = .idle }
+
         return try await withLMStudioLifecycleIfNeeded(
             settings: snapshot.workContentSummaryModelProfile,
             policy: lmStudioLifecyclePolicy
         ) {
-            try await summarizeDayContentLocked(
+            defer {
+                updateRuntimeState(
+                    modelName: snapshot.workContentSummaryModelProfile.modelName,
+                    completedCount: 1,
+                    totalCount: 1
+                )
+            }
+            return try await summarizeDayContentLocked(
                 dayStart,
                 snapshot: snapshot,
                 activityDaySet: activityDaySet
@@ -499,6 +582,28 @@ final class DailyReportSummaryService {
         language: AppLanguage = .current
     ) -> String {
         L10n.string(key, language: language, arguments: arguments)
+    }
+
+    private func updateRuntimeState(
+        modelName: String?,
+        completedCount: Int,
+        totalCount: Int,
+        isStopping: Bool = false
+    ) {
+        runtimeState = DailyReportSummaryRuntimeState(
+            isRunning: true,
+            isStopping: isStopping,
+            modelName: modelName ?? runtimeState.modelName,
+            completedCount: completedCount,
+            totalCount: totalCount
+        )
+    }
+
+    private func waitForSummaryToStop(timeoutSeconds: TimeInterval = 8) async {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while runtimeState.isRunning && Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
     }
 
     private func mapLLMServiceError(
