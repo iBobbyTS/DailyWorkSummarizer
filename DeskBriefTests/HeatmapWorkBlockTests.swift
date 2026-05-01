@@ -270,6 +270,85 @@ extension DeskBriefTests {
         #expect(!prompt.contains("<index>"))
     }
 
+    @MainActor
+    @Test func backfillMissingSummariesCreatesDailyReportsAndWorkBlockSummaries() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let dayOne = calendar.date(from: DateComponents(year: 2026, month: 4, day: 20))!
+        let dayTwo = calendar.date(byAdding: .day, value: 1, to: dayOne)!
+        let workStart = calendar.date(byAdding: .hour, value: 9, to: dayOne)!
+        let meetingStart = calendar.date(byAdding: .minute, value: 20, to: workStart)!
+        let latestDayWorkStart = calendar.date(byAdding: .hour, value: 10, to: dayTwo)!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://work-content.example.com"
+        store.workContentSummaryModelName = "backfill-model"
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(capturedAt: workStart, categoryName: "专注工作", summaryText: "实现补漏入口", durationMinutesSnapshot: 10)
+        try database.insertAnalysisResult(capturedAt: calendar.date(byAdding: .minute, value: 10, to: workStart)!, categoryName: "专注工作", summaryText: "接入工作块补漏", durationMinutesSnapshot: 10)
+        try database.insertAnalysisResult(capturedAt: meetingStart, categoryName: "会议沟通", summaryText: "同步补漏入口", durationMinutesSnapshot: 10)
+        try database.insertAnalysisResult(capturedAt: latestDayWorkStart, categoryName: "专注工作", summaryText: "最新活动日不自动生成完整日报", durationMinutesSnapshot: 10)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            let requestBody = try #require(requestBodyData(from: request))
+            let body = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+            let messages = try #require(body["messages"] as? [[String: Any]])
+            let prompt = try #require(messages.first?["content"] as? String)
+            let content = if prompt.contains("dailySummary") {
+                #"{"dailySummary":"补齐了遗漏的日报","categorySummaries":{"专注工作":"补齐了专注工作日报","会议沟通":"补齐了会议沟通日报"}}"#
+            } else {
+                #"{"summary":"合并后的工作块补漏总结"}"#
+            }
+            let responsePayload: [String: Any] = [
+                "choices": [
+                    [
+                        "message": ["content": content],
+                        "finish_reason": "stop",
+                    ],
+                ],
+            ]
+            let responseData = try JSONSerialization.data(withJSONObject: responsePayload)
+            let responseBody = try #require(String(data: responseData, encoding: .utf8))
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: responseBody
+            )
+        }
+
+        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        await service.backfillMissingSummaries()
+
+        let dayOneReport = try #require(try database.fetchDailyReport(for: dayOne))
+        let dayTwoReport = try database.fetchDailyReport(for: dayTwo)
+        let summaries = try database.fetchDailyWorkBlockSummaries()
+        let workSummary = summaries.first { $0.startAt == workStart }
+        let meetingSummary = summaries.first { $0.startAt == meetingStart }
+        let latestDaySummary = summaries.first { $0.startAt == latestDayWorkStart }
+
+        #expect(MockURLProtocol.requestCount == 2)
+        #expect(dayOneReport.dailySummaryText == "补齐了遗漏的日报")
+        #expect(dayOneReport.categorySummaries["专注工作"] == "补齐了专注工作日报")
+        #expect(dayTwoReport == nil)
+        #expect(workSummary?.summaryText == "合并后的工作块补漏总结")
+        #expect(meetingSummary?.summaryText == "同步补漏入口")
+        #expect(latestDaySummary == nil)
+    }
+
     @Test func weeklyHeatmapOpacityNormalizesNonAbsenceTogetherAndAbsenceSeparately() async throws {
         let calendar = makeTestCalendar()
         let dayOne = calendar.date(from: DateComponents(year: 2026, month: 4, day: 20))!

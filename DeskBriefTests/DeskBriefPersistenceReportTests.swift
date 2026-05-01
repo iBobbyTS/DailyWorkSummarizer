@@ -812,6 +812,61 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func dailyReportSummaryServiceSkipsRowsWithoutAnalysisSummaries() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let dayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
+        let workTime = calendar.date(byAdding: .hour, value: 9, to: dayStart)!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://work-content.example.com"
+        store.workContentSummaryModelName = "daily-report-model"
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: workTime,
+            categoryName: "专注工作",
+            summaryText: "   ",
+            durationMinutesSnapshot: 30
+        )
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: #"{"choices":[{"message":{"content":"{}"},"finish_reason":"stop"}]}"#
+            )
+        }
+
+        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        var didSkipForNoActivity = false
+        do {
+            _ = try await service.summarizeDay(dayStart)
+        } catch DailyReportSummaryServiceError.noActivity(_) {
+            didSkipForNoActivity = true
+        } catch {
+            #expect(Bool(false), "Expected noActivity, got \(error)")
+        }
+
+        #expect(didSkipForNoActivity)
+        #expect(MockURLProtocol.requestCount == 0)
+        #expect(try database.fetchDailyReport(for: dayStart) == nil)
+    }
+
+    @MainActor
     @Test func dailyReportSummaryServiceSummarizesOnlyPendingDaysBeforeLatestActivityDay() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DeskBriefTests.\(UUID().uuidString)"

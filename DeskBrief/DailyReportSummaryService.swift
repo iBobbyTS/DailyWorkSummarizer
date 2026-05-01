@@ -704,7 +704,8 @@ final class DailyReportSummaryService {
 
         let calendar = Calendar.reportCalendar(language: language)
         let activityItems = try fetchReportableActivityItems(for: dayStart, calendar: calendar)
-        guard !activityItems.isEmpty else {
+        guard !activityItems.isEmpty,
+              activityItems.allSatisfy(Self.hasNonEmptySummary) else {
             throw DailyReportSummaryServiceError.noActivity(
                 localized(.reportDailySummaryNoActivity, language: language)
             )
@@ -800,10 +801,7 @@ final class DailyReportSummaryService {
                 style: durationStyle,
                 language: language
             )
-            let itemSummary = item.itemSummaryText?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let resolvedSummary = (itemSummary?.isEmpty == false)
-                ? itemSummary!
-                : localized(.reportAbsenceSummaryPlaceholder, language: language)
+            let resolvedSummary = item.itemSummaryText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return "\(timeFormatter.string(from: item.capturedAt)) | \(durationText) | \(item.categoryName) | \(resolvedSummary)"
         }
 
@@ -822,8 +820,8 @@ final class DailyReportSummaryService {
     }
 
     private func fetchReportableActivityDayStarts(calendar: Calendar) throws -> [Date] {
-        let dayStarts = try database.fetchReportSourceItems()
-            .filter { Self.isReportableCategory($0.categoryName) }
+        let dayStarts = try database.fetchReportActivityItems()
+            .filter { Self.isReportableCategory($0.categoryName) && Self.hasNonEmptySummary($0) }
             .map { calendar.startOfDay(for: $0.capturedAt) }
         return Array(Set(dayStarts)).sorted()
     }
@@ -844,6 +842,11 @@ final class DailyReportSummaryService {
 
     private static func isReportableCategory(_ categoryName: String) -> Bool {
         categoryName != AppDefaults.absenceCategoryName
+    }
+
+    private static func hasNonEmptySummary(_ item: DailyReportActivityItem) -> Bool {
+        let text = item.itemSummaryText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !text.isEmpty
     }
 
     private func requestSummary(

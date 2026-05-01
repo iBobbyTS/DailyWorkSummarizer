@@ -91,6 +91,7 @@ For daily summaries:
 
 - The app sends the daily activity prompt directly as text.
 - The model is used with the `.general` use case.
+- Reportable activity rows must already have non-empty analysis summaries before they are included; the prompt does not synthesize compatibility placeholder text for old summary-less rows.
 
 Important constraint:
 

@@ -81,7 +81,7 @@ The app is centered around a small set of long-lived services created at launch 
 - Items captured during the target day are clipped at the next day boundary when their stored duration crosses midnight.
 - The service does not need the first result from the following day for daily-summary generation because each persisted result already carries its own `duration_minutes_snapshot`.
 - Away or inactive intervals are not persisted and are not included in daily-summary generation or per-category summaries.
-- It builds a text timeline prompt from category, duration, and per-item summary data.
+- It builds a text timeline prompt from category, duration, and per-item summary data. Reportable rows without non-empty analysis summaries are treated as not ready and are not handled with historical fallback placeholders.
 - The summary is generated through the configured work-content model profile via `LLMService`.
 - If the work-content summary profile enables LM Studio lifecycle management, `DailyReportSummaryService` explicitly loads the summary model before generation and unloads it after generation.
 - When called by `AnalysisService` immediately after a completed analysis run, `DailyReportSummaryService` can instead reuse an already loaded LM Studio model or load a different summary model according to the handoff policy and the two lifecycle toggles.

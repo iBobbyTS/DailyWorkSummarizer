@@ -40,6 +40,7 @@ Away intervals are not persisted; report views derive display-only `离开` bloc
 Failed per-screenshot attempts are counted on `analysis_runs` but are not persisted as `analysis_results` rows.
 Duplicate capture-time results are treated as already processed: the screenshot file is removed and the original `analysis_results` row remains unchanged.
 Temporary daily reports are tracked by `daily_reports.is_temporary`.
+Daily report generation expects every reportable `analysis_results` row in the requested day to have a non-empty `summary_text`. Rows without summaries are treated as not ready; the app no longer uses compatibility placeholder text for old summary-less analysis results.
 Daily work-block summaries are derived from `analysis_results` and stored only when the source data is useful enough for hover text. A single source item keeps its original non-empty summary. A multi-item block calls the work-content model only when at least two source items have non-empty summaries; otherwise the block is skipped and logged as an ignorable summary event.
 When report rendering mixes `daily_work_block_summaries` with raw `analysis_results`, summary rows take precedence and raw rows are clipped around them to avoid overlap. Raw `analysis_results.summary_text` values are not shown directly in daily heatmap hover text; they must be copied or summarized into `daily_work_block_summaries` first.
 
