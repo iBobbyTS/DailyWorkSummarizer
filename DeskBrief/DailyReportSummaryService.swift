@@ -251,7 +251,6 @@ final class DailyReportSummaryService {
             return
         }
 
-        let activityDaySet = Set(reportableDayStarts)
         updateRuntimeState(
             modelName: snapshot.workContentSummaryModelProfile.modelName,
             completedCount: 0,
@@ -269,7 +268,7 @@ final class DailyReportSummaryService {
                     _ = try await summarizeDayContentLocked(
                         dayStart,
                         snapshot: snapshot,
-                        activityDaySet: activityDaySet
+                        isTemporary: false
                     )
                 } catch is CancellationError {
                     throw CancellationError()
@@ -324,7 +323,6 @@ final class DailyReportSummaryService {
             )
             completedCount += try await summarizeDailyReportsWorkLocked(
                 pendingDays: pendingDays,
-                activityDaySet: Set(reportableDayStarts),
                 snapshot: snapshot,
                 completedCountOffset: completedCount,
                 totalCount: candidateBlocks.count + pendingDays.count
@@ -376,7 +374,6 @@ final class DailyReportSummaryService {
             )
             completedCount += try await summarizeDailyReportsWorkLocked(
                 pendingDays: pendingDays,
-                activityDaySet: Set(reportableDayStarts),
                 snapshot: snapshot,
                 completedCountOffset: completedCount,
                 totalCount: candidateBlocks.count + pendingDays.count
@@ -391,7 +388,6 @@ final class DailyReportSummaryService {
 
     private func summarizeDailyReportsWorkLocked(
         pendingDays: [Date],
-        activityDaySet: Set<Date>,
         snapshot: AppSettingsSnapshot,
         completedCountOffset: Int,
         totalCount: Int
@@ -406,7 +402,7 @@ final class DailyReportSummaryService {
                 _ = try await summarizeDayContentLocked(
                     dayStart,
                     snapshot: snapshot,
-                    activityDaySet: activityDaySet
+                    isTemporary: false
                 )
             } catch is CancellationError {
                 throw CancellationError()
@@ -653,7 +649,12 @@ final class DailyReportSummaryService {
     ) async throws -> DailyReportRecord {
         let snapshot = await MainActor.run { settingsStore.snapshot }
         let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
-        let activityDaySet = Set(try fetchReportableActivityDayStarts(calendar: calendar))
+        let normalizedDayStart = calendar.startOfDay(for: dayStart)
+        let latestDayStart = try fetchReportableActivityDayStarts(calendar: calendar).last
+        let isTemporary = !Self.shouldWriteFinalDailyReport(
+            for: normalizedDayStart,
+            latestReportableDayStart: latestDayStart
+        )
         updateRuntimeState(
             modelName: snapshot.workContentSummaryModelProfile.modelName,
             completedCount: 0,
@@ -673,9 +674,9 @@ final class DailyReportSummaryService {
                 )
             }
             return try await summarizeDayContentLocked(
-                dayStart,
+                normalizedDayStart,
                 snapshot: snapshot,
-                activityDaySet: activityDaySet
+                isTemporary: isTemporary
             )
         }
     }
@@ -683,7 +684,7 @@ final class DailyReportSummaryService {
     private func summarizeDayContentLocked(
         _ dayStart: Date,
         snapshot: AppSettingsSnapshot,
-        activityDaySet: Set<Date>
+        isTemporary: Bool
     ) async throws -> DailyReportRecord {
         let language = snapshot.appLanguage
         let settings = snapshot.workContentSummaryModelProfile
@@ -730,8 +731,6 @@ final class DailyReportSummaryService {
             )
         }
 
-        let nextDayStart = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
-        let isTemporary = !activityDaySet.contains(nextDayStart)
         let record = storedRecord(
             from: parsed,
             dayStart: dayStart,
@@ -831,7 +830,7 @@ final class DailyReportSummaryService {
         before dayStartExclusive: Date
     ) throws -> [Date] {
         try dayStarts
-            .filter { $0 < dayStartExclusive }
+            .filter { Self.shouldWriteFinalDailyReport(for: $0, latestReportableDayStart: dayStartExclusive) }
             .filter { dayStart in
                 guard let report = try database.fetchDailyReport(for: dayStart) else {
                     return true
@@ -847,6 +846,16 @@ final class DailyReportSummaryService {
     private static func hasNonEmptySummary(_ item: DailyReportActivityItem) -> Bool {
         let text = item.itemSummaryText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return !text.isEmpty
+    }
+
+    private static func shouldWriteFinalDailyReport(
+        for dayStart: Date,
+        latestReportableDayStart: Date?
+    ) -> Bool {
+        guard let latestReportableDayStart else {
+            return false
+        }
+        return dayStart < latestReportableDayStart
     }
 
     private func requestSummary(

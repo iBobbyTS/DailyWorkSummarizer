@@ -944,4 +944,153 @@ extension DeskBriefTests {
         #expect(firstDayReport.categorySummaries["专注工作"] == "完成了第一天的最终分类总结")
         #expect(secondDayReport == nil)
     }
+
+    @MainActor
+    @Test func dailyReportSummaryServiceMarksManualGapDayFinalWhenLaterActivityExists() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let gapDay = calendar.date(from: DateComponents(year: 2026, month: 4, day: 27))!
+        let laterDay = calendar.date(from: DateComponents(year: 2026, month: 4, day: 30))!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://work-content.example.com"
+        store.workContentSummaryModelName = "daily-report-model"
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: gapDay)!,
+            categoryName: "专注工作",
+            summaryText: "整理断档日期的日报逻辑",
+            durationMinutesSnapshot: 30
+        )
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 10, to: laterDay)!,
+            categoryName: "专注工作",
+            summaryText: "最新活动日不应自动完整总结",
+            durationMinutesSnapshot: 30
+        )
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"dailySummary\\":\\"完成了断档日期日报\\",\\"categorySummaries\\":{\\"专注工作\\":\\"修复了断档日期临时状态\\"}}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        let report = try await service.summarizeDay(gapDay)
+        let storedReport = try #require(try database.fetchDailyReport(for: gapDay))
+
+        #expect(MockURLProtocol.requestCount == 1)
+        #expect(!report.isTemporary)
+        #expect(!storedReport.isTemporary)
+        #expect(storedReport.dailySummaryText == "完成了断档日期日报")
+        #expect(storedReport.categorySummaries["专注工作"] == "修复了断档日期临时状态")
+        #expect(try database.fetchDailyReport(for: laterDay) == nil)
+    }
+
+    @MainActor
+    @Test func dailyReportSummaryServiceBackfillsGapDayAsFinalBeforeLatestActivity() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let gapDay = calendar.date(from: DateComponents(year: 2026, month: 4, day: 27))!
+        let laterDay = calendar.date(from: DateComponents(year: 2026, month: 4, day: 30))!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://work-content.example.com"
+        store.workContentSummaryModelName = "daily-report-model"
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: gapDay)!,
+            categoryName: "专注工作",
+            summaryText: "整理断档日期的自动补日报逻辑",
+            durationMinutesSnapshot: 30
+        )
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 10, to: laterDay)!,
+            categoryName: "专注工作",
+            summaryText: "最新活动日保留给未来自动补日报",
+            durationMinutesSnapshot: 30
+        )
+        try database.upsertDailyReport(
+            dayStart: gapDay,
+            dailySummaryText: "旧的临时断档日报",
+            categorySummaries: ["专注工作": "旧的临时断档分类总结"],
+            isTemporary: true
+        )
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"dailySummary\\":\\"补齐了断档日期日报\\",\\"categorySummaries\\":{\\"专注工作\\":\\"补齐了断档日期分类总结\\"}}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        await service.summarizeMissingDailyReportsIfNeeded()
+
+        let gapDayReport = try #require(try database.fetchDailyReport(for: gapDay))
+        let laterDayReport = try database.fetchDailyReport(for: laterDay)
+
+        #expect(MockURLProtocol.requestCount == 1)
+        #expect(!gapDayReport.isTemporary)
+        #expect(gapDayReport.dailySummaryText == "补齐了断档日期日报")
+        #expect(gapDayReport.categorySummaries["专注工作"] == "补齐了断档日期分类总结")
+        #expect(laterDayReport == nil)
+    }
 }
