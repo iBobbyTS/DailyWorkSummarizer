@@ -134,6 +134,7 @@ nonisolated enum L10n {
         case menuAnalyzeNowPause
         case menuAnalyzeNowPausingStoppingGeneration
         case menuAnalyzeNowPausingUnloadingModel
+        case menuBackfillMissingSummaries
         case menuCurrentStatus
         case menuSettings
         case menuReports
@@ -218,6 +219,10 @@ nonisolated enum L10n {
         case reportSummarizing
         case reportDailySummaryTitle
         case reportTemporarySummary
+        case reportHeatmapNoSelectedCategoriesTitle
+        case reportHeatmapNoSelectedCategoriesDescription
+        case reportHeatmapYesterday
+        case reportHeatmapTomorrow
         case reportAbsenceSummaryPlaceholder
         case reportDailySummaryInvalidResponse
         case reportDailySummaryNoActivity
@@ -342,6 +347,7 @@ nonisolated enum L10n {
             .menuAnalyzeNowPause: "停止本次分析",
             .menuAnalyzeNowPausingStoppingGeneration: "正在停止本次分析（正在停止生成）",
             .menuAnalyzeNowPausingUnloadingModel: "正在停止本次分析（正在卸载模型）",
+            .menuBackfillMissingSummaries: "检查并补充过去遗漏的总结",
             .menuCurrentStatus: "当前状态",
             .menuSettings: "设置",
             .menuReports: "查看报告",
@@ -426,6 +432,10 @@ nonisolated enum L10n {
             .reportSummarizing: "总结中…",
             .reportDailySummaryTitle: "日报总结",
             .reportTemporarySummary: "临时总结",
+            .reportHeatmapNoSelectedCategoriesTitle: "未选择分类",
+            .reportHeatmapNoSelectedCategoriesDescription: "请选择至少一个分类后再查看热力图。",
+            .reportHeatmapYesterday: "昨天",
+            .reportHeatmapTomorrow: "明天",
             .reportAbsenceSummaryPlaceholder: "该时间段没有截屏，用户离开了工位或未在电脑前活动。",
             .reportDailySummaryInvalidResponse: "模型返回无法解析为有效的日报 JSON 总结结果",
             .reportDailySummaryNoActivity: "当天没有可用于总结的活动记录",
@@ -548,6 +558,7 @@ nonisolated enum L10n {
             .menuAnalyzeNowPause: "Stop Current Analysis",
             .menuAnalyzeNowPausingStoppingGeneration: "Stopping (Stopping Generation)",
             .menuAnalyzeNowPausingUnloadingModel: "Stopping (Unloading Model)",
+            .menuBackfillMissingSummaries: "Fill Missing Summaries",
             .menuCurrentStatus: "Current Status",
             .menuSettings: "Settings",
             .menuReports: "View Reports",
@@ -632,6 +643,10 @@ nonisolated enum L10n {
             .reportSummarizing: "Summarizing…",
             .reportDailySummaryTitle: "Daily Summary",
             .reportTemporarySummary: "Temporary Summary",
+            .reportHeatmapNoSelectedCategoriesTitle: "No Categories Selected",
+            .reportHeatmapNoSelectedCategoriesDescription: "Select at least one category to view the heatmap.",
+            .reportHeatmapYesterday: "Yesterday",
+            .reportHeatmapTomorrow: "Tomorrow",
             .reportAbsenceSummaryPlaceholder: "No screenshot was captured in this period because the user was away from the desk or inactive on the computer.",
             .reportDailySummaryInvalidResponse: "The model response could not be parsed into a valid daily report JSON result",
             .reportDailySummaryNoActivity: "There are no activity records available for this day",
@@ -999,6 +1014,60 @@ nonisolated enum L10n {
             3. `categorySummaries` must contain each category from the list above exactly once, and every key must exactly match the category name
             4. Every category summary must be a non-empty string
             5. Do not return Markdown, explanations, reasoning, or any extra text
+            """
+        }
+    }
+
+    static func dailyWorkBlockSummaryPrompt(
+        category: String,
+        sourceSummaries: [String],
+        summaryInstruction: String,
+        language: AppLanguage = .current
+    ) -> String {
+        let summaryList = sourceSummaries.map { "- \($0)" }.joined(separator: "\n")
+        let trimmedInstruction = summaryInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedInstruction = trimmedInstruction.isEmpty
+            ? AppDefaults.defaultSummaryInstruction(language: language)
+            : trimmedInstruction
+
+        switch language {
+        case .simplifiedChinese:
+            return """
+            你是一个连续工作块总结助手。请根据下面同一分类、连续的一段工作记录，生成一句简短总结。
+            只总结工作内容本身，不要提及时间、时长、开始结束时间、日期、时间跨度或时间安排评价。
+
+            分类：
+            \(category)
+
+            源记录总结：
+            \(summaryList)
+
+            总结要求：
+            \(resolvedInstruction)
+
+            返回要求：
+            1. 返回 JSON，格式为 {"summary":"连续工作块总结"}
+            2. `summary` 必须是非空字符串
+            3. 不要返回 Markdown、解释、思考过程或其他多余文本
+            """
+        case .english:
+            return """
+            You are a continuous work block summarizer. Based on the records below from one continuous block in the same category, write one short summary.
+            Only summarize the work itself. Do not mention time, duration, start or end time, dates, time spans, or evaluate the schedule.
+
+            Category:
+            \(category)
+
+            Source summaries:
+            \(summaryList)
+
+            Summary requirements:
+            \(resolvedInstruction)
+
+            Output requirements:
+            1. Return JSON in this format: {"summary":"continuous work block summary"}
+            2. `summary` must be a non-empty string
+            3. Do not return Markdown, explanations, reasoning, or any extra text
             """
         }
     }

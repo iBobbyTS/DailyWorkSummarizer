@@ -10,6 +10,7 @@ struct HeatmapTimelineView: View {
     let overlayDailyHeatmap: Bool
     let includeWorkdays: Bool
     let includeWeekends: Bool
+    @Binding var hoveredDailyHeatmapEvent: HeatmapEvent?
 
     var body: some View {
         switch kind {
@@ -18,7 +19,8 @@ struct HeatmapTimelineView: View {
                 range: range,
                 categories: categories,
                 items: items,
-                categoryColors: categoryColors
+                categoryColors: categoryColors,
+                hoveredEvent: $hoveredDailyHeatmapEvent
             )
         case .week:
             WeeklyHeatmapView(
@@ -188,6 +190,7 @@ private struct DailyHeatmapView: View {
     let categories: [String]
     let items: [HeatmapEvent]
     let categoryColors: [String: Color]
+    @Binding var hoveredEvent: HeatmapEvent?
 
     private let labelWidth: CGFloat = 96
     private let rowHeight: CGFloat = 26
@@ -202,6 +205,7 @@ private struct DailyHeatmapView: View {
             let canvasHeight = max(CGFloat(categories.count) * rowStride - rowSpacing, rowHeight)
             let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
             let tickDates = timelineTicks(canvasWidth: canvasWidth)
+            let hoverFrames = hoverFrames(rowIndexMap: rowIndexMap, rowStride: rowStride, canvasWidth: canvasWidth)
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .bottom, spacing: 0) {
@@ -262,11 +266,20 @@ private struct DailyHeatmapView: View {
                                     .offset(
                                         x: position(for: item.start, in: canvasWidth),
                                         y: CGFloat(rowIndex) * rowStride + 2
-                                    )
+                                )
                             }
                         }
                     }
                     .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
+                    .contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        switch phase {
+                        case .active(let location):
+                            hoveredEvent = hoverFrames.last(where: { $0.rect.contains(location) })?.event
+                        case .ended:
+                            hoveredEvent = nil
+                        }
+                    }
                 }
             }
             .padding(.horizontal, horizontalPadding)
@@ -288,6 +301,28 @@ private struct DailyHeatmapView: View {
     private func eventWidth(for item: HeatmapEvent, in width: CGFloat) -> CGFloat {
         let totalDuration = max(range.interval.duration, 1)
         return CGFloat(item.end.timeIntervalSince(item.start) / totalDuration) * width
+    }
+
+    private func hoverFrames(
+        rowIndexMap: [String: Int],
+        rowStride: CGFloat,
+        canvasWidth: CGFloat
+    ) -> [DailyHeatmapHoverFrame] {
+        items.compactMap { item in
+            guard let rowIndex = rowIndexMap[item.category] else {
+                return nil
+            }
+
+            let startX = position(for: item.start, in: canvasWidth)
+            let width = max(eventWidth(for: item, in: canvasWidth), 1)
+            let rect = CGRect(
+                x: startX,
+                y: CGFloat(rowIndex) * rowStride + 2,
+                width: width,
+                height: rowHeight - 4
+            )
+            return DailyHeatmapHoverFrame(event: item, rect: rect)
+        }
     }
 
     private func timelineTicks(canvasWidth: CGFloat) -> [Date] {
@@ -318,6 +353,11 @@ private struct DailyHeatmapView: View {
     }
 }
 
+private struct DailyHeatmapHoverFrame {
+    let event: HeatmapEvent
+    let rect: CGRect
+}
+
 private struct WeeklyHeatmapView: View {
     let categories: [String]
     let items: [HeatmapEvent]
@@ -339,7 +379,6 @@ private struct WeeklyHeatmapView: View {
             let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
             let tickDates = timelineTicks(canvasWidth: canvasWidth)
             let fragments = weeklyFragments()
-            let opacity = fragmentOpacity(for: fragments)
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .bottom, spacing: 0) {
@@ -392,7 +431,7 @@ private struct WeeklyHeatmapView: View {
                         ForEach(fragments) { fragment in
                             if let rowIndex = rowIndexMap[fragment.category] {
                                 RoundedRectangle(cornerRadius: 7)
-                                    .fill((categoryColors[fragment.category] ?? .accentColor).opacity(opacity))
+                                    .fill((categoryColors[fragment.category] ?? .accentColor).opacity(fragmentOpacity(for: fragment, among: fragments)))
                                     .frame(
                                         width: max(position(for: fragment.endSeconds, in: canvasWidth) - position(for: fragment.startSeconds, in: canvasWidth), 1),
                                         height: rowHeight - 4
@@ -417,12 +456,11 @@ private struct WeeklyHeatmapView: View {
         )
     }
 
-    private func fragmentOpacity(for fragments: [WeeklyHeatmapFragment]) -> Double {
-        let recordedDayCount = Set(fragments.map(\.dayStart)).count
-        guard recordedDayCount > 0 else {
-            return 0
-        }
-        return 1.0 / Double(recordedDayCount)
+    private func fragmentOpacity(for fragment: WeeklyHeatmapFragment, among fragments: [WeeklyHeatmapFragment]) -> Double {
+        WeeklyHeatmapOpacity.opacity(
+            for: fragment.opacitySample,
+            among: fragments.map(\.opacitySample)
+        )
     }
 
     private func weeklyFragments() -> [WeeklyHeatmapFragment] {
@@ -505,6 +543,48 @@ private struct WeeklyHeatmapFragment: Identifiable {
     let dayStart: Date
     let startSeconds: TimeInterval
     let endSeconds: TimeInterval
+
+    var durationSeconds: TimeInterval {
+        max(endSeconds - startSeconds, 0)
+    }
+
+    var opacitySample: WeeklyHeatmapOpacitySample {
+        WeeklyHeatmapOpacitySample(
+            category: category,
+            dayStart: dayStart,
+            durationSeconds: durationSeconds
+        )
+    }
+}
+
+struct WeeklyHeatmapOpacitySample: Hashable {
+    let category: String
+    let dayStart: Date
+    let durationSeconds: TimeInterval
+}
+
+enum WeeklyHeatmapOpacity {
+    static func opacity(
+        for sample: WeeklyHeatmapOpacitySample,
+        among samples: [WeeklyHeatmapOpacitySample]
+    ) -> Double {
+        let isAbsence = sample.category == AppDefaults.absenceCategoryName
+        let dailyTotals = Dictionary(grouping: samples) { $0.dayStart }
+            .mapValues { daySamples in
+                daySamples
+                    .filter { ($0.category == AppDefaults.absenceCategoryName) == isAbsence }
+                    .reduce(0.0) { total, sample in
+                        total + sample.durationSeconds
+                    }
+            }
+
+        guard let maxTotal = dailyTotals.values.max(), maxTotal > 0 else {
+            return 0.18
+        }
+
+        let normalized = Swift.min(Swift.max((dailyTotals[sample.dayStart] ?? 0) / maxTotal, 0), 1)
+        return 0.18 + 0.70 * normalized
+    }
 }
 
 private struct OverlayDailyHeatmapView: View {

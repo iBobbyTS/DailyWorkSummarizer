@@ -443,12 +443,55 @@ struct ReportSourceItem: Identifiable {
     let durationMinutes: Int
 }
 
-struct DailyReportActivityItem: Identifiable {
+struct DailyReportActivityItem: Identifiable, Hashable {
     let id: Int64
     let capturedAt: Date
     let categoryName: String
     let durationMinutes: Int
     let itemSummaryText: String?
+}
+
+struct DailyWorkBlockSummaryRecord: Identifiable, Hashable {
+    let id: Int64
+    let categoryName: String
+    let startAt: Date
+    let endAt: Date
+    let summaryText: String
+
+    var durationMinutes: Int {
+        max(Int((endAt.timeIntervalSince(startAt) / 60.0).rounded()), 1)
+    }
+
+    var interval: DateInterval {
+        DateInterval(start: startAt, end: endAt)
+    }
+}
+
+struct DailyWorkBlock: Identifiable, Hashable {
+    let categoryName: String
+    let startAt: Date
+    let endAt: Date
+    let sourceItems: [DailyReportActivityItem]
+    let isClosed: Bool
+
+    var id: String {
+        "\(categoryName)-\(startAt.timeIntervalSince1970)-\(endAt.timeIntervalSince1970)"
+    }
+
+    var durationMinutes: Int {
+        max(Int((endAt.timeIntervalSince(startAt) / 60.0).rounded()), 1)
+    }
+
+    var interval: DateInterval {
+        DateInterval(start: startAt, end: endAt)
+    }
+
+    var nonEmptySourceSummaries: [String] {
+        sourceItems.compactMap { item in
+            let text = item.itemSummaryText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return text.isEmpty ? nil : text
+        }
+    }
 }
 
 struct DailyReportRecord: Equatable {
@@ -680,6 +723,29 @@ struct HeatmapEvent: Identifiable {
     let start: Date
     let end: Date
     let durationMinutes: Int
+    let summaryText: String?
+    let summaryStart: Date?
+    let summaryEnd: Date?
+
+    init(
+        id: String,
+        category: String,
+        start: Date,
+        end: Date,
+        durationMinutes: Int,
+        summaryText: String? = nil,
+        summaryStart: Date? = nil,
+        summaryEnd: Date? = nil
+    ) {
+        self.id = id
+        self.category = category
+        self.start = start
+        self.end = end
+        self.durationMinutes = durationMinutes
+        self.summaryText = summaryText
+        self.summaryStart = summaryStart
+        self.summaryEnd = summaryEnd
+    }
 }
 
 nonisolated struct AnalysisResponse {
@@ -769,6 +835,24 @@ extension Date {
 extension ReportSourceItem {
     nonisolated var endAt: Date {
         capturedAt.addingTimeInterval(TimeInterval(durationMinutes * 60))
+    }
+}
+
+extension DailyReportActivityItem {
+    nonisolated var endAt: Date {
+        capturedAt.addingTimeInterval(TimeInterval(durationMinutes * 60))
+    }
+}
+
+extension ScreenshotFileRecord {
+    nonisolated var endAt: Date {
+        capturedAt.addingTimeInterval(TimeInterval(durationMinutes * 60))
+    }
+}
+
+extension HeatmapEvent {
+    nonisolated var hoverSummaryInterval: DateInterval {
+        DateInterval(start: summaryStart ?? start, end: summaryEnd ?? end)
     }
 }
 

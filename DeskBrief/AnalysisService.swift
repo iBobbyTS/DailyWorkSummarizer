@@ -606,9 +606,14 @@ final class AnalysisService {
             averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
             errorMessage: run.failureCount > 0 ? localized(.analysisPartialFailures, language: snapshot.appLanguage) : nil
         )
+        let affectedDayStarts = Self.affectedDayStarts(
+            from: run.screenshots,
+            calendar: Calendar.reportCalendar(language: snapshot.appLanguage)
+        )
         await summarizeMissingReportsAfterAnalysis(
             snapshot: snapshot,
-            loadedAnalysisModel: loadedAnalysisModel
+            loadedAnalysisModel: loadedAnalysisModel,
+            affectedDayStarts: affectedDayStarts
         )
     }
 
@@ -623,7 +628,8 @@ final class AnalysisService {
 
     private func summarizeMissingReportsAfterAnalysis(
         snapshot: AppSettingsSnapshot,
-        loadedAnalysisModel: LMStudioLoadedModel?
+        loadedAnalysisModel: LMStudioLoadedModel?,
+        affectedDayStarts: Set<Date>
     ) async {
         let analysisSettings = snapshot.screenshotAnalysisModelProfile
         let summarySettings = snapshot.workContentSummaryModelProfile
@@ -646,7 +652,8 @@ final class AnalysisService {
             )
         }
 
-        await dailyReportSummaryService.summarizeMissingDailyReportsIfNeeded(
+        await dailyReportSummaryService.summarizeAffectedSummaries(
+            for: affectedDayStarts,
             lmStudioLifecyclePolicy: (summaryLifecycleEnabled && !canReuseAnalysisModel)
                 ? .automaticUnload
                 : .alreadyLoadedKeepLoaded
@@ -859,6 +866,32 @@ final class AnalysisService {
 
     private func localized(_ key: L10n.Key, arguments: [CVarArg], language: AppLanguage? = nil) -> String {
         L10n.string(key, language: language ?? settingsStore.appLanguage, arguments: arguments)
+    }
+
+    private static func affectedDayStarts(
+        from screenshots: [ScreenshotFileRecord],
+        calendar: Calendar
+    ) -> Set<Date> {
+        var dayStarts = Set<Date>()
+
+        for screenshot in screenshots {
+            let start = screenshot.capturedAt
+            let end = screenshot.endAt
+            let lastInstant = end > start ? end.addingTimeInterval(-0.001) : start
+            let firstDayStart = calendar.startOfDay(for: start)
+            let lastDayStart = calendar.startOfDay(for: lastInstant)
+
+            var currentDayStart = firstDayStart
+            while currentDayStart <= lastDayStart {
+                dayStarts.insert(currentDayStart)
+                guard let nextDayStart = calendar.date(byAdding: .day, value: 1, to: currentDayStart) else {
+                    break
+                }
+                currentDayStart = nextDayStart
+            }
+        }
+
+        return dayStarts
     }
 
     private func recordLMStudioModelInstanceIfNeeded(_ modelInstanceID: String?, provider: ModelProvider) {

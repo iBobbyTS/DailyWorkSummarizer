@@ -164,6 +164,8 @@ extension DeskBriefTests {
         )
         #expect(L10n.string(.menuForceUnloadScreenshotAnalysisModel, language: .simplifiedChinese) == "强制卸载截屏分析模型")
         #expect(L10n.string(.menuForceUnloadWorkContentSummaryModel, language: .english) == "Force Unload Work Content Summary Model")
+        #expect(L10n.string(.menuBackfillMissingSummaries, language: .simplifiedChinese) == "检查并补充过去遗漏的总结")
+        #expect(L10n.string(.menuBackfillMissingSummaries, language: .english) == "Fill Missing Summaries")
     }
 
     @MainActor
@@ -194,15 +196,16 @@ extension DeskBriefTests {
         #expect(selectorName(for: topLevelItems[8]) == "quit")
         #expect(statusSubmenuActions?.contains("openLogs") == false)
         #expect(statusSubmenuActions?.contains("runAnalysisNow") == true)
-        #expect(statusSubmenu.items.count == 14)
+        #expect(statusSubmenu.items.count == 15)
         #expect(statusSubmenu.items[8].isSeparatorItem)
-        #expect(NSStringFromSelector(try #require(statusSubmenu.items[9].action!)) == "openScreenshotsFolder")
-        #expect(NSStringFromSelector(try #require(statusSubmenu.items[10].action!)) == "runAnalysisNow")
-        #expect(statusSubmenu.items[11].isSeparatorItem)
-        #expect(statusSubmenu.items[12].action != nil)
+        #expect(selectorName(for: statusSubmenu.items[9]) == "openScreenshotsFolder")
+        #expect(selectorName(for: statusSubmenu.items[10]) == "runAnalysisNow")
+        #expect(selectorName(for: statusSubmenu.items[11]) == "backfillMissingSummaries")
+        #expect(statusSubmenu.items[12].isSeparatorItem)
         #expect(statusSubmenu.items[13].action != nil)
-        #expect(NSStringFromSelector(try #require(statusSubmenu.items[12].action!)) == "forceUnloadModel:")
-        #expect(NSStringFromSelector(try #require(statusSubmenu.items[13].action!)) == "forceUnloadModel:")
+        #expect(statusSubmenu.items[14].action != nil)
+        #expect(selectorName(for: statusSubmenu.items[13]) == "forceUnloadModel:")
+        #expect(selectorName(for: statusSubmenu.items[14]) == "forceUnloadModel:")
     }
 
     @Test func statusMenuTextBuildersFormatRunningAnalysisAndSummaryState() async throws {

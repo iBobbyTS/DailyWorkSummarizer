@@ -2,14 +2,17 @@
 
 ## Model surfaces in the app
 
-The app uses model integration in two places:
+The app uses model integration in three places:
 
 - Screenshot analysis
   Categorize a screenshot and generate a short item summary.
 - Daily report summarization
   Generate a daily summary and per-category summaries from structured activity text.
+- Daily work-block summarization
+  Merge contiguous same-category item summaries into one hover summary for the daily report heatmap.
 
 These two features use separate settings and may use different providers.
+Daily reports and daily work-block summaries both use the work-content summary profile.
 
 ## Supported providers
 
@@ -93,6 +96,17 @@ Important constraint:
 
 - The current implementation does not send screenshot image bytes directly into `FoundationModels`.
 - In practice, Apple Intelligence should be treated as an OCR-first local analysis option in this project.
+
+## Daily work-block summary prompts
+
+Daily work-block summary prompts are intentionally narrower than full daily-report prompts:
+
+- one request summarizes exactly one contiguous block
+- the request includes category name and source summary text only
+- the request does not include explicit timestamps, dates, durations, or source item identifiers
+- the response contract is a single JSON object: `{"summary":"..."}`
+
+The service stores a single source item's existing summary directly. For multi-item blocks, it calls the model only when at least two source items have non-empty summaries; blocks that only have classification labels or too little summary text are skipped and logged as ignorable summary events.
 
 ## Provider-specific request behavior
 

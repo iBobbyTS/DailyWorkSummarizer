@@ -1,3 +1,4 @@
+import AppKit
 import Charts
 import SwiftUI
 
@@ -5,6 +6,7 @@ struct ReportsView: View {
     @ObservedObject var viewModel: ReportsViewModel
     @State private var hoveredLegendCategory: String?
     @State private var hoveredBarCategory: String?
+    @State private var hoveredHeatmapEvent: HeatmapEvent?
     @State private var legendHoverRects: [CGRect] = []
 
     private var language: AppLanguage {
@@ -29,6 +31,24 @@ struct ReportsView: View {
         )
     }
 
+    private var hoveredHeatmapSummary: (title: String, summary: String)? {
+        guard viewModel.selectedKind == .day,
+              let selectedRange = viewModel.selectedRange,
+              let hoveredHeatmapEvent,
+              let summary = ReportHeatmapFormatting.summaryText(for: hoveredHeatmapEvent) else {
+            return nil
+        }
+
+        return (
+            title: ReportHeatmapFormatting.title(
+                for: hoveredHeatmapEvent,
+                in: selectedRange.interval,
+                language: language
+            ),
+            summary: summary
+        )
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             leftPanel
@@ -41,79 +61,90 @@ struct ReportsView: View {
         }
         .frame(minWidth: 960, minHeight: 640)
         .onChange(of: viewModel.selectedKind) { _, _ in
-            clearHoveredCategory()
+            clearHoveredState()
         }
         .onChange(of: viewModel.selectedVisualization) { _, _ in
-            clearHoveredCategory()
+            clearHoveredState()
         }
         .onChange(of: viewModel.selectedRangeID) { _, _ in
-            clearHoveredCategory()
+            clearHoveredState()
+        }
+        .onChange(of: viewModel.selectedHeatmapCategories) { _, _ in
+            clearHoveredState()
         }
     }
 
     private var leftPanel: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Picker(text(.reportType), selection: $viewModel.selectedKind) {
-                ForEach(ReportKind.allCases) { kind in
-                    Text(kind.title(in: language)).tag(kind)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            HStack {
-                Button(text(.reportPreviousPage)) {
-                    viewModel.showPreviousPage()
-                }
-                .disabled(viewModel.selectedPage == 0)
-
-                Spacer()
-
-                Text("\(viewModel.selectedPage + 1) / \(viewModel.totalPages)")
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Button(text(.reportNextPage)) {
-                    viewModel.showNextPage()
-                }
-                .disabled(viewModel.selectedPage + 1 >= viewModel.totalPages)
-            }
-
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    ForEach(viewModel.pageItems) { range in
-                        Button {
-                            viewModel.selectedRangeID = range.id
-                        } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(range.label)
-                                    .font(.headline)
-                                    .foregroundStyle(.primary)
-                                HStack(spacing: 8) {
-                                    Text(text(.reportTotalDuration, arguments: [
-                                        range.totalHours.durationText(for: viewModel.selectedKind, language: language)
-                                    ]))
-                                        .foregroundStyle(.secondary)
-                                    if viewModel.selectedKind != .day {
-                                        Text(text(.reportAverageDuration, arguments: [
-                                            range.averageHoursPerDay.durationText(for: viewModel.selectedKind, language: language)
-                                        ]))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(viewModel.selectedRangeID == range.id ? Color.accentColor.opacity(0.14) : Color.gray.opacity(0.08))
-                            )
-                        }
-                        .buttonStyle(.plain)
+        ZStack(alignment: .topTrailing) {
+            VStack(alignment: .leading, spacing: 16) {
+                Picker(text(.reportType), selection: $viewModel.selectedKind) {
+                    ForEach(ReportKind.allCases) { kind in
+                        Text(kind.title(in: language)).tag(kind)
                     }
                 }
+                .pickerStyle(.segmented)
+
+                HStack {
+                    Button(text(.reportPreviousPage)) {
+                        viewModel.showPreviousPage()
+                    }
+                    .disabled(viewModel.selectedPage == 0)
+
+                    Spacer()
+
+                    Text("\(viewModel.selectedPage + 1) / \(viewModel.totalPages)")
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button(text(.reportNextPage)) {
+                        viewModel.showNextPage()
+                    }
+                    .disabled(viewModel.selectedPage + 1 >= viewModel.totalPages)
+                }
+
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(viewModel.pageItems) { range in
+                            Button {
+                                viewModel.selectedRangeID = range.id
+                            } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text(range.label)
+                                        .font(.headline)
+                                        .foregroundStyle(.primary)
+                                    HStack(spacing: 8) {
+                                        Text(text(.reportTotalDuration, arguments: [
+                                            range.totalHours.durationText(for: viewModel.selectedKind, language: language)
+                                        ]))
+                                            .foregroundStyle(.secondary)
+                                        if viewModel.selectedKind != .day {
+                                            Text(text(.reportAverageDuration, arguments: [
+                                                range.averageHoursPerDay.durationText(for: viewModel.selectedKind, language: language)
+                                            ]))
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(viewModel.selectedRangeID == range.id ? Color.accentColor.opacity(0.14) : Color.gray.opacity(0.08))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
             }
-            .frame(maxHeight: .infinity, alignment: .top)
+
+            if let hoveredHeatmapSummary {
+                heatmapHoverCard(summary: hoveredHeatmapSummary)
+                    .padding(.top, 88)
+                    .padding(.trailing, 8)
+            }
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .padding(20)
@@ -128,7 +159,9 @@ struct ReportsView: View {
             )
         })
         let barChartItems = viewModel.chartItems.filter { $0.category != AppDefaults.absenceCategoryName }
-        let visibleLegendItems = viewModel.selectedVisualization == .barChart ? barChartItems : viewModel.chartItems
+        let legendItems = viewModel.chartItems
+        let hasAnyChartData = !viewModel.chartItems.isEmpty
+        let hasHeatmapSelection = !viewModel.heatmapCategories.isEmpty
 
         return VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .center, spacing: 12) {
@@ -189,79 +222,45 @@ struct ReportsView: View {
                     .toggleStyle(.switch)
             }
 
-            if visibleLegendItems.isEmpty {
-                Spacer()
-                ContentUnavailableView(
-                    text(.reportNoDataTitle),
-                    systemImage: viewModel.selectedVisualization == .barChart ? "chart.bar.xaxis" : "square.grid.3x2",
-                    description: Text(text(.reportNoDataDescription))
-                )
-                .frame(maxWidth: .infinity)
-                Spacer()
-            } else {
-                legendFlow(items: visibleLegendItems, categoryColors: categoryColors)
+            if viewModel.selectedVisualization == .barChart {
+                if hasAnyChartData {
+                    legendFlow(items: legendItems, categoryColors: categoryColors, interactive: false)
 
-                if let hoveredCategorySummary {
-                    categorySummaryCard(summary: hoveredCategorySummary)
+                    if let hoveredCategorySummary {
+                        categorySummaryCard(summary: hoveredCategorySummary)
+                    }
+
+                    if barChartItems.isEmpty {
+                        Spacer()
+                        ContentUnavailableView(
+                            text(.reportNoDataTitle),
+                            systemImage: "chart.bar.xaxis",
+                            description: Text(text(.reportNoDataDescription))
+                        )
+                        .frame(maxWidth: .infinity)
+                        Spacer()
+                    } else {
+                        chartView(barChartItems: barChartItems, categoryColors: categoryColors)
+                    }
+                } else {
+                    Spacer()
+                    ContentUnavailableView(
+                        text(.reportNoDataTitle),
+                        systemImage: "chart.bar.xaxis",
+                        description: Text(text(.reportNoDataDescription))
+                    )
+                    .frame(maxWidth: .infinity)
+                    Spacer()
                 }
+            } else {
+                if hasAnyChartData {
+                    legendFlow(items: legendItems, categoryColors: categoryColors, interactive: true)
 
-                Group {
-                    if viewModel.selectedVisualization == .barChart {
-                        Chart(Array(barChartItems.enumerated()), id: \.element.category) { index, item in
-                            BarMark(
-                                x: .value(text(.reportCategoryAxis), displayCategory(item.category)),
-                                y: .value(text(.reportTotalHoursAxis), item.hours)
-                            )
-                            .foregroundStyle(categoryColors[item.category] ?? Color(hexRGB: AppDefaults.categoryColorPreset(at: index)))
-                            .annotation(position: .top) {
-                                Text(item.hours.durationText(for: viewModel.selectedKind, language: language))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .chartXAxisLabel(text(.reportCategoryAxis))
-                        .chartYAxisLabel(text(.reportTotalHoursAxis))
-                        .chartLegend(.hidden)
-                        .chartOverlay { proxy in
-                            GeometryReader { geometry in
-                                Rectangle()
-                                    .fill(.clear)
-                                    .contentShape(Rectangle())
-                                    .onContinuousHover { phase in
-                                        guard viewModel.selectedKind == .day else {
-                                            hoveredBarCategory = nil
-                                            return
-                                        }
+                    if let hoveredCategorySummary {
+                        categorySummaryCard(summary: hoveredCategorySummary)
+                    }
 
-                                        switch phase {
-                                        case .active(let location):
-                                            guard let plotFrameAnchor = proxy.plotFrame else {
-                                                hoveredBarCategory = nil
-                                                return
-                                            }
-                                            let plotFrame = geometry[plotFrameAnchor]
-                                            let relativeX = location.x - plotFrame.origin.x
-                                            let relativeY = location.y - plotFrame.origin.y
-                                            guard relativeX >= 0,
-                                                  relativeX <= plotFrame.width,
-                                                  relativeY >= 0,
-                                                  relativeY <= plotFrame.height else {
-                                                hoveredBarCategory = nil
-                                                return
-                                            }
-
-                                            hoveredBarCategory = resolvedHoveredBarCategory(
-                                                at: relativeX,
-                                                proxy: proxy,
-                                                items: barChartItems
-                                            )
-                                        case .ended:
-                                            hoveredBarCategory = nil
-                                        }
-                                    }
-                            }
-                        }
-                    } else if let selectedRange = viewModel.selectedRange {
+                    if hasHeatmapSelection, let selectedRange = viewModel.selectedRange {
                         HeatmapTimelineView(
                             kind: viewModel.selectedKind,
                             range: selectedRange,
@@ -270,26 +269,106 @@ struct ReportsView: View {
                             categoryColors: categoryColors,
                             overlayDailyHeatmap: viewModel.overlayDailyHeatmap,
                             includeWorkdays: viewModel.includeWorkdays,
-                            includeWeekends: viewModel.includeWeekends
+                            includeWeekends: viewModel.includeWeekends,
+                            hoveredDailyHeatmapEvent: $hoveredHeatmapEvent
                         )
+                    } else {
+                        Spacer()
+                        ContentUnavailableView(
+                            text(.reportHeatmapNoSelectedCategoriesTitle),
+                            systemImage: "square.grid.3x2",
+                            description: Text(text(.reportHeatmapNoSelectedCategoriesDescription))
+                        )
+                        .frame(maxWidth: .infinity)
+                        Spacer()
                     }
+                } else {
+                    Spacer()
+                    ContentUnavailableView(
+                        text(.reportNoDataTitle),
+                        systemImage: "square.grid.3x2",
+                        description: Text(text(.reportNoDataDescription))
+                    )
+                    .frame(maxWidth: .infinity)
+                    Spacer()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(24)
     }
 
+    private func chartView(
+        barChartItems: [CategoryDuration],
+        categoryColors: [String: Color]
+    ) -> some View {
+        Chart(Array(barChartItems.enumerated()), id: \.element.category) { index, item in
+            BarMark(
+                x: .value(text(.reportCategoryAxis), displayCategory(item.category)),
+                y: .value(text(.reportTotalHoursAxis), item.hours)
+            )
+            .foregroundStyle(categoryColors[item.category] ?? Color(hexRGB: AppDefaults.categoryColorPreset(at: index)))
+            .annotation(position: .top) {
+                Text(item.hours.durationText(for: viewModel.selectedKind, language: language))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .chartXAxisLabel(text(.reportCategoryAxis))
+        .chartYAxisLabel(text(.reportTotalHoursAxis))
+        .chartLegend(.hidden)
+        .chartOverlay { proxy in
+            GeometryReader { geometry in
+                Rectangle()
+                    .fill(.clear)
+                    .contentShape(Rectangle())
+                    .onContinuousHover { phase in
+                        guard viewModel.selectedKind == .day else {
+                            hoveredBarCategory = nil
+                            return
+                        }
+
+                        switch phase {
+                        case .active(let location):
+                            guard let plotFrameAnchor = proxy.plotFrame else {
+                                hoveredBarCategory = nil
+                                return
+                            }
+                            let plotFrame = geometry[plotFrameAnchor]
+                            let relativeX = location.x - plotFrame.origin.x
+                            let relativeY = location.y - plotFrame.origin.y
+                            guard relativeX >= 0,
+                                  relativeX <= plotFrame.width,
+                                  relativeY >= 0,
+                                  relativeY <= plotFrame.height else {
+                                hoveredBarCategory = nil
+                                return
+                            }
+
+                            hoveredBarCategory = resolvedHoveredBarCategory(
+                                at: relativeX,
+                                proxy: proxy,
+                                items: barChartItems
+                            )
+                        case .ended:
+                            hoveredBarCategory = nil
+                        }
+                    }
+            }
+        }
+    }
+
     private func legendFlow(
         items: [CategoryDuration],
-        categoryColors: [String: Color]
+        categoryColors: [String: Color],
+        interactive: Bool
     ) -> some View {
         WrappingFlowLayout(horizontalSpacing: 10, verticalSpacing: 10) {
             ForEach(Array(items.enumerated()), id: \.element.category) { index, item in
                 legendItem(
                     color: categoryColors[item.category] ?? Color(hexRGB: AppDefaults.categoryColorPreset(at: index)),
-                    item: item
+                    item: item,
+                    interactive: interactive
                 )
                 .background(
                     GeometryReader { proxy in
@@ -327,7 +406,24 @@ struct ReportsView: View {
         }
     }
 
-    private func legendItem(color: Color, item: CategoryDuration) -> some View {
+    @ViewBuilder
+    private func legendItem(color: Color, item: CategoryDuration, interactive: Bool) -> some View {
+        let isSelected = !interactive || viewModel.isHeatmapCategorySelected(item.category)
+        let content = legendItemContent(color: color, item: item, isSelected: isSelected)
+
+        if interactive {
+            Button {
+                viewModel.toggleHeatmapCategory(item.category)
+            } label: {
+                content
+            }
+            .buttonStyle(.plain)
+        } else {
+            content
+        }
+    }
+
+    private func legendItemContent(color: Color, item: CategoryDuration, isSelected: Bool) -> some View {
         HStack(spacing: 8) {
             RoundedRectangle(cornerRadius: 4)
                 .fill(color)
@@ -344,6 +440,7 @@ struct ReportsView: View {
             RoundedRectangle(cornerRadius: 12)
                 .fill(hoveredLegendCategory == item.category ? Color.accentColor.opacity(0.14) : Color.gray.opacity(0.08))
         )
+        .opacity(isSelected ? 1 : 0.45)
         .onHover { isHovering in
             guard viewModel.selectedKind == .day else { return }
 
@@ -355,6 +452,31 @@ struct ReportsView: View {
                 hoveredLegendCategory = nil
             }
         }
+    }
+
+    private func heatmapHoverCard(summary: (title: String, summary: String)) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(summary.title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+
+            Text(summary.summary)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(14)
+        .frame(width: 280, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
+                .shadow(color: Color.black.opacity(0.16), radius: 10, x: 0, y: 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+        )
+        .allowsHitTesting(false)
     }
 
     private func dailySummaryCard(report: DailyReportRecord) -> some View {
@@ -427,9 +549,10 @@ struct ReportsView: View {
         return items.first { displayCategory($0.category) == displayName }?.category
     }
 
-    private func clearHoveredCategory() {
+    private func clearHoveredState() {
         hoveredLegendCategory = nil
         hoveredBarCategory = nil
+        hoveredHeatmapEvent = nil
     }
 
     private func text(_ key: L10n.Key) -> String {

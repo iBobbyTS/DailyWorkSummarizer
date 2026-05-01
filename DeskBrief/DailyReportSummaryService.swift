@@ -17,6 +17,19 @@ private struct ParsedDailyReportPayload: Decodable {
     }
 }
 
+private struct ParsedDailyWorkBlockPayload: Decodable {
+    let summary: String
+
+    private enum CodingKeys: String, CodingKey {
+        case summary
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        summary = try container.decode(String.self, forKey: .summary)
+    }
+}
+
 enum DailyReportSummaryServiceError: LocalizedError {
     case invalidConfiguration(String)
     case invalidResponse(String)
@@ -120,6 +133,40 @@ final class DailyReportSummaryService {
             return
         } catch {
             recordSummaryError(error, context: "Failed to summarize missing daily reports")
+            return
+        }
+    }
+
+    func backfillMissingSummaries(
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .automaticUnload
+    ) async {
+        do {
+            try await lock.withLock {
+                try await summarizeBackfillLocked(lmStudioLifecyclePolicy: lmStudioLifecyclePolicy)
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            recordSummaryError(error, context: "Failed to backfill missing summaries")
+            return
+        }
+    }
+
+    func summarizeAffectedSummaries(
+        for dayStarts: Set<Date>,
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .automaticUnload
+    ) async {
+        do {
+            try await lock.withLock {
+                try await summarizeAffectedSummariesLocked(
+                    dayStarts: dayStarts,
+                    lmStudioLifecyclePolicy: lmStudioLifecyclePolicy
+                )
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            recordSummaryError(error, context: "Failed to summarize affected summaries")
             return
         }
     }
@@ -236,6 +283,367 @@ final class DailyReportSummaryService {
                     totalCount: pendingDays.count
                 )
             }
+        }
+    }
+
+    private func summarizeBackfillLocked(
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
+    ) async throws {
+        let snapshot = await MainActor.run { settingsStore.snapshot }
+        let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
+        let candidateBlocks = try candidateWorkBlocks(targetDayStarts: nil)
+        let reportableDayStarts = try fetchReportableActivityDayStarts(calendar: calendar)
+        let latestDayStart = reportableDayStarts.last
+        let pendingDays = try pendingReportableDayStarts(
+            in: reportableDayStarts,
+            before: latestDayStart ?? .distantPast
+        )
+
+        guard !candidateBlocks.isEmpty || !pendingDays.isEmpty else {
+            return
+        }
+
+        updateRuntimeState(
+            modelName: snapshot.workContentSummaryModelProfile.modelName,
+            completedCount: 0,
+            totalCount: candidateBlocks.count + pendingDays.count
+        )
+        defer { runtimeState = .idle }
+
+        try await withLMStudioLifecycleIfNeeded(
+            settings: snapshot.workContentSummaryModelProfile,
+            policy: lmStudioLifecyclePolicy
+        ) {
+            var completedCount = 0
+            completedCount += try await summarizeWorkBlocksWorkLocked(
+                blocks: candidateBlocks,
+                snapshot: snapshot,
+                targetDayStarts: nil,
+                completedCountOffset: completedCount,
+                totalCount: candidateBlocks.count + pendingDays.count
+            )
+            completedCount += try await summarizeDailyReportsWorkLocked(
+                pendingDays: pendingDays,
+                activityDaySet: Set(reportableDayStarts),
+                snapshot: snapshot,
+                completedCountOffset: completedCount,
+                totalCount: candidateBlocks.count + pendingDays.count
+            )
+            updateRuntimeState(
+                modelName: snapshot.workContentSummaryModelProfile.modelName,
+                completedCount: completedCount,
+                totalCount: candidateBlocks.count + pendingDays.count
+            )
+        }
+    }
+
+    private func summarizeAffectedSummariesLocked(
+        dayStarts: Set<Date>,
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
+    ) async throws {
+        let snapshot = await MainActor.run { settingsStore.snapshot }
+        let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
+        let candidateBlocks = try candidateWorkBlocks(targetDayStarts: dayStarts)
+        let reportableDayStarts = try fetchReportableActivityDayStarts(calendar: calendar)
+        let latestDayStart = reportableDayStarts.last
+        let pendingDays = try pendingReportableDayStarts(
+            in: reportableDayStarts,
+            before: latestDayStart ?? .distantPast
+        )
+
+        guard !candidateBlocks.isEmpty || !pendingDays.isEmpty else {
+            return
+        }
+
+        updateRuntimeState(
+            modelName: snapshot.workContentSummaryModelProfile.modelName,
+            completedCount: 0,
+            totalCount: candidateBlocks.count + pendingDays.count
+        )
+        defer { runtimeState = .idle }
+
+        try await withLMStudioLifecycleIfNeeded(
+            settings: snapshot.workContentSummaryModelProfile,
+            policy: lmStudioLifecyclePolicy
+        ) {
+            var completedCount = 0
+            completedCount += try await summarizeWorkBlocksWorkLocked(
+                blocks: candidateBlocks,
+                snapshot: snapshot,
+                targetDayStarts: dayStarts,
+                completedCountOffset: completedCount,
+                totalCount: candidateBlocks.count + pendingDays.count
+            )
+            completedCount += try await summarizeDailyReportsWorkLocked(
+                pendingDays: pendingDays,
+                activityDaySet: Set(reportableDayStarts),
+                snapshot: snapshot,
+                completedCountOffset: completedCount,
+                totalCount: candidateBlocks.count + pendingDays.count
+            )
+            updateRuntimeState(
+                modelName: snapshot.workContentSummaryModelProfile.modelName,
+                completedCount: completedCount,
+                totalCount: candidateBlocks.count + pendingDays.count
+            )
+        }
+    }
+
+    private func summarizeDailyReportsWorkLocked(
+        pendingDays: [Date],
+        activityDaySet: Set<Date>,
+        snapshot: AppSettingsSnapshot,
+        completedCountOffset: Int,
+        totalCount: Int
+    ) async throws -> Int {
+        guard !pendingDays.isEmpty else {
+            return 0
+        }
+
+        var completedCount = 0
+        for dayStart in pendingDays {
+            do {
+                _ = try await summarizeDayContentLocked(
+                    dayStart,
+                    snapshot: snapshot,
+                    activityDaySet: activityDaySet
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                recordSummaryError(error, context: "Failed to summarize daily report for \(dayStart)")
+            }
+            completedCount += 1
+            updateRuntimeState(
+                modelName: snapshot.workContentSummaryModelProfile.modelName,
+                completedCount: completedCountOffset + completedCount,
+                totalCount: totalCount
+            )
+        }
+
+        return completedCount
+    }
+
+    private func summarizeWorkBlocksWorkLocked(
+        blocks: [DailyWorkBlock],
+        snapshot: AppSettingsSnapshot,
+        targetDayStarts: Set<Date>?,
+        completedCountOffset: Int,
+        totalCount: Int
+    ) async throws -> Int {
+        guard !blocks.isEmpty else {
+            return 0
+        }
+
+        let language = snapshot.appLanguage
+        let settings = snapshot.workContentSummaryModelProfile
+        let calendar = Calendar.reportCalendar(language: language)
+        let targetIntervals = targetDayStarts.map { dayStarts -> [DateInterval] in
+            dayStarts.compactMap { dayStart in
+                let end = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
+                return DateInterval(start: dayStart, end: end)
+            }
+        }
+
+        let relevantBlocks = blocks.filter { block in
+            guard block.categoryName != AppDefaults.absenceCategoryName,
+                  block.isClosed else {
+                return false
+            }
+
+            guard let targetIntervals else {
+                return true
+            }
+
+            return targetIntervals.contains { $0.intersects(block.interval) }
+        }
+
+        let existingSummaries = try database.fetchDailyWorkBlockSummaries()
+        let relevantExistingSummaries = existingSummaries.filter { summary in
+            guard let targetIntervals else {
+                return true
+            }
+            let interval = summary.interval
+            return targetIntervals.contains { $0.intersects(interval) }
+        }
+        let existingSummaryMap = Dictionary(uniqueKeysWithValues: relevantExistingSummaries.map { summary in
+            (workBlockKey(startAt: summary.startAt, endAt: summary.endAt), summary)
+        })
+
+        guard !relevantBlocks.isEmpty || !relevantExistingSummaries.isEmpty else {
+            return 0
+        }
+
+        var completedCount = 0
+        var retainedKeys = Set<String>()
+
+        for block in relevantBlocks {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+
+            do {
+                let key = workBlockKey(startAt: block.startAt, endAt: block.endAt)
+                let sourceSummaries = block.nonEmptySourceSummaries
+                let existingSummary = existingSummaryMap[key]
+
+                if block.sourceItems.count == 1 {
+                    if let directSummary = sourceSummaries.first, !directSummary.isEmpty {
+                        if existingSummary == nil {
+                            try database.upsertDailyWorkBlockSummary(
+                                categoryName: block.categoryName,
+                                startAt: block.startAt,
+                                endAt: block.endAt,
+                                summaryText: directSummary
+                            )
+                        }
+                        retainedKeys.insert(key)
+                    } else if let existingSummary {
+                        try database.deleteDailyWorkBlockSummaries(ids: [existingSummary.id])
+                    } else {
+                        recordSummarySkip(
+                            "Skipped work block summary for \(block.categoryName) because there is no source summary."
+                        )
+                    }
+                } else if sourceSummaries.count >= 2 {
+                    if existingSummary == nil {
+                        let summaryText = try await summarizeWorkBlockContentLocked(
+                            block: block,
+                            sourceSummaries: sourceSummaries,
+                            snapshot: snapshot
+                        )
+                        try database.upsertDailyWorkBlockSummary(
+                            categoryName: block.categoryName,
+                            startAt: block.startAt,
+                            endAt: block.endAt,
+                            summaryText: summaryText
+                        )
+                    }
+                    retainedKeys.insert(key)
+                } else if let existingSummary {
+                    try database.deleteDailyWorkBlockSummaries(ids: [existingSummary.id])
+                } else {
+                    recordSummarySkip(
+                        "Skipped work block summary for \(block.categoryName) because it has fewer than 2 non-empty source summaries."
+                    )
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                recordSummaryError(
+                    error,
+                    context: "Failed to persist work block summary for \(block.categoryName) (\(block.startAt) - \(block.endAt))"
+                )
+            }
+
+            completedCount += 1
+            updateRuntimeState(
+                modelName: settings.modelName,
+                completedCount: completedCountOffset + completedCount,
+                totalCount: totalCount
+            )
+        }
+
+        let staleSummaryIDs = relevantExistingSummaries
+            .filter { !retainedKeys.contains(workBlockKey(startAt: $0.startAt, endAt: $0.endAt)) }
+            .map(\.id)
+
+        if !staleSummaryIDs.isEmpty {
+            try database.deleteDailyWorkBlockSummaries(ids: staleSummaryIDs)
+        }
+
+        return completedCount
+    }
+
+    private func summarizeWorkBlockContentLocked(
+        block: DailyWorkBlock,
+        sourceSummaries: [String],
+        snapshot: AppSettingsSnapshot
+    ) async throws -> String {
+        let language = snapshot.appLanguage
+        let settings = snapshot.workContentSummaryModelProfile
+
+        if settings.provider.requiresRemoteConfiguration {
+            guard !settings.apiBaseURL.isEmpty else {
+                throw DailyReportSummaryServiceError.invalidConfiguration(
+                    localized(.analysisNeedsBaseURL, language: language)
+                )
+            }
+
+            guard !settings.modelName.isEmpty else {
+                throw DailyReportSummaryServiceError.invalidConfiguration(
+                    localized(.analysisNeedsModelName, language: language)
+                )
+            }
+        }
+
+        let prompt = L10n.dailyWorkBlockSummaryPrompt(
+            category: block.categoryName,
+            sourceSummaries: sourceSummaries,
+            summaryInstruction: snapshot.summaryInstruction,
+            language: language
+        )
+        let payload = try await requestSummary(prompt: prompt, settings: settings, language: language)
+
+        guard let summary = Self.extractDailyWorkBlockResponse(from: payload) else {
+            throw DailyReportSummaryServiceError.invalidResponse(
+                localized(.reportDailySummaryInvalidResponse, language: language)
+            )
+        }
+
+        return summary
+    }
+
+    private func candidateWorkBlocks(targetDayStarts: Set<Date>?) throws -> [DailyWorkBlock] {
+        let activityItems = try database.fetchReportActivityItems()
+        let blocks = DailyWorkBlockComposer.groupBlocks(from: activityItems)
+
+        guard let targetDayStarts else {
+            return blocks
+        }
+
+        let calendar = Calendar.reportCalendar
+        let targetIntervals = targetDayStarts.compactMap { dayStart -> DateInterval? in
+            guard let end = calendar.date(byAdding: .day, value: 1, to: dayStart) else {
+                return nil
+            }
+            return DateInterval(start: dayStart, end: end)
+        }
+
+        guard !targetIntervals.isEmpty else {
+            return []
+        }
+
+        return blocks.filter { block in
+            targetIntervals.contains { $0.intersects(block.interval) }
+        }
+    }
+
+    private func workBlockKey(startAt: Date, endAt: Date) -> String {
+        "\(startAt.timeIntervalSince1970)-\(endAt.timeIntervalSince1970)"
+    }
+
+    nonisolated static func extractDailyWorkBlockResponse(from rawText: String) -> String? {
+        let candidates = responseCandidates(from: rawText)
+        for candidate in candidates {
+            guard let data = candidate.data(using: .utf8),
+                  let payload = try? JSONDecoder().decode(ParsedDailyWorkBlockPayload.self, from: data) else {
+                continue
+            }
+
+            let summary = payload.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !summary.isEmpty else {
+                continue
+            }
+
+            return summary
+        }
+        return nil
+    }
+
+    private func recordSummarySkip(_ message: String) {
+        Task { @MainActor [weak logStore] in
+            logStore?.add(level: .log, source: .summary, message: message)
         }
     }
 

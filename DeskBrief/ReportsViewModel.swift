@@ -8,6 +8,7 @@ final class ReportsViewModel: ObservableObject {
         didSet {
             dailyReportGenerationError = nil
             selectedPage = 0
+            shouldResetHeatmapSelection = true
             rebuildRanges()
         }
     }
@@ -21,6 +22,7 @@ final class ReportsViewModel: ObservableObject {
     @Published var selectedRangeID: String? {
         didSet {
             dailyReportGenerationError = nil
+            shouldResetHeatmapSelection = true
             updateChartItems()
         }
     }
@@ -29,11 +31,13 @@ final class ReportsViewModel: ObservableObject {
     @Published var overlayDailyHeatmap = false
     @Published var includeWorkdays = true {
         didSet {
+            shouldResetHeatmapSelection = true
             updateChartItems()
         }
     }
     @Published var includeWeekends = true {
         didSet {
+            shouldResetHeatmapSelection = true
             updateChartItems()
         }
     }
@@ -44,6 +48,7 @@ final class ReportsViewModel: ObservableObject {
     @Published private(set) var chartItems: [CategoryDuration] = []
     @Published private(set) var heatmapItems: [HeatmapEvent] = []
     @Published private(set) var heatmapCategories: [String] = []
+    @Published private(set) var selectedHeatmapCategories: Set<String> = []
     @Published private(set) var totalPages: Int = 1
     @Published private(set) var allRanges: [ReportRange] = []
 
@@ -52,8 +57,10 @@ final class ReportsViewModel: ObservableObject {
     private let dailyReportSummaryService: DailyReportSummaryService
     private let logStore: AppLogStore?
     private var sourceItems: [ReportSourceItem] = []
+    private var heatmapCategoryUniverse: [String] = []
     private var databaseObserver: AnyCancellable?
     private var settingsObserver: AnyCancellable?
+    private var shouldResetHeatmapSelection = true
 
     init(
         database: AppDatabase,
@@ -90,7 +97,25 @@ final class ReportsViewModel: ObservableObject {
             from: persistedItems,
             calendar: .reportCalendar
         )
+        shouldResetHeatmapSelection = true
         rebuildRanges()
+    }
+
+    func toggleHeatmapCategory(_ category: String) {
+        guard heatmapCategoryUniverse.contains(category) else {
+            return
+        }
+
+        if selectedHeatmapCategories.contains(category) {
+            selectedHeatmapCategories.remove(category)
+        } else {
+            selectedHeatmapCategories.insert(category)
+        }
+        updateChartItems()
+    }
+
+    func isHeatmapCategorySelected(_ category: String) -> Bool {
+        selectedHeatmapCategories.contains(category)
     }
 
     func showPreviousPage() {
@@ -206,6 +231,7 @@ final class ReportsViewModel: ObservableObject {
             chartItems = []
             heatmapItems = []
             heatmapCategories = []
+            selectedHeatmapCategories = []
             selectedDailyReport = nil
             return
         }
@@ -223,34 +249,21 @@ final class ReportsViewModel: ObservableObject {
         }
         .sorted(by: Self.categoryDurationSort)
 
-        heatmapCategories = chartItems.map(\.category)
-        heatmapItems = visibleItems
-            .compactMap { item in
-                let start = max(item.capturedAt, selectedRange.interval.start)
-                let end = min(
-                    item.capturedAt.addingTimeInterval(TimeInterval(item.durationMinutes * 60)),
-                    selectedRange.interval.end
-                )
-
-                guard end > start else {
-                    return nil
-                }
-
-                return HeatmapEvent(
-                    id: "\(item.id)-\(Int(start.timeIntervalSince1970))-\(item.durationMinutes)",
-                    category: item.categoryName,
-                    start: start,
-                    end: end,
-                    durationMinutes: item.durationMinutes
-                )
+        let availableHeatmapCategories = chartItems.map(\.category)
+        if shouldResetHeatmapSelection || Set(availableHeatmapCategories) != Set(heatmapCategoryUniverse) {
+            let availableSet = Set(availableHeatmapCategories)
+            let preserved = selectedHeatmapCategories.intersection(availableSet)
+            let missing = availableSet.subtracting(selectedHeatmapCategories)
+            selectedHeatmapCategories = preserved.union(missing)
+            if selectedHeatmapCategories.isEmpty, !availableSet.isEmpty {
+                selectedHeatmapCategories = availableSet
             }
-            .sorted { lhs, rhs in
-                if lhs.start == rhs.start {
-                    return lhs.category < rhs.category
-                }
-                return lhs.start < rhs.start
-            }
-            .mergedContiguousEvents()
+            shouldResetHeatmapSelection = false
+        }
+
+        heatmapCategoryUniverse = availableHeatmapCategories
+        heatmapCategories = availableHeatmapCategories.filter { selectedHeatmapCategories.contains($0) }
+        heatmapItems = buildHeatmapItems(for: selectedRange, visibleItems: visibleItems)
         updateSelectedDailyReport()
     }
 
@@ -266,6 +279,69 @@ final class ReportsViewModel: ObservableObject {
         } catch {
             selectedDailyReport = nil
             logStore?.addError(source: .reports, context: "Failed to load selected daily report", error: error)
+        }
+    }
+
+    private func buildHeatmapItems(for range: ReportRange, visibleItems: [ReportSourceItem]) -> [HeatmapEvent] {
+        let selectedCategories = selectedHeatmapCategories
+        guard !selectedCategories.isEmpty else {
+            return []
+        }
+
+        let selectedSet = Set(selectedCategories)
+        switch selectedKind {
+        case .day:
+            do {
+                let calendar = Calendar.reportCalendar(language: appLanguage)
+                let dailyItems = try database.fetchDailyReportActivityItems(for: range.interval.start, calendar: calendar)
+                let summaryLookup = Dictionary(uniqueKeysWithValues: dailyItems.map { ($0.id, $0.itemSummaryText) })
+                let heatmapItems = visibleItems.map { item in
+                    DailyReportActivityItem(
+                        id: item.id,
+                        capturedAt: item.capturedAt,
+                        categoryName: item.categoryName,
+                        durationMinutes: item.durationMinutes,
+                        itemSummaryText: summaryLookup[item.id] ?? nil
+                    )
+                }
+                let workBlockSummaries = try database.fetchDailyWorkBlockSummaries(intersecting: range.interval)
+                return DailyWorkBlockComposer.composeDailyHeatmapEvents(
+                    rawItems: heatmapItems,
+                    blockSummaries: workBlockSummaries,
+                    range: range.interval,
+                    selectedCategories: selectedSet
+                )
+            } catch {
+                logStore?.addError(source: .reports, context: "Failed to load daily heatmap items", error: error)
+                return []
+            }
+        case .week, .month, .year:
+            return visibleItems
+                .filter { selectedSet.contains($0.categoryName) }
+                .compactMap { item in
+                    let start = max(item.capturedAt, range.interval.start)
+                    let end = min(item.endAt, range.interval.end)
+                    guard end > start else {
+                        return nil
+                    }
+
+                    return HeatmapEvent(
+                        id: "\(item.id)-\(Int(start.timeIntervalSince1970))-\(item.durationMinutes)",
+                        category: item.categoryName,
+                        start: start,
+                        end: end,
+                        durationMinutes: max(Int((end.timeIntervalSince(start) / 60.0).rounded()), 1),
+                        summaryStart: start,
+                        summaryEnd: end
+                    )
+                }
+                .sorted { lhs, rhs in
+                    if lhs.start == rhs.start {
+                        return lhs.category < rhs.category
+                    }
+                    return lhs.start < rhs.start
+                }
+                .mergedContiguousEvents()
         }
     }
 
@@ -518,37 +594,5 @@ final class ReportsViewModel: ObservableObject {
             let clippedEnd = min(record.endAt, dayEnd)
             return clippedEnd > clippedStart && clippedEnd > lateThreshold
         }
-    }
-}
-
-private extension Array where Element == HeatmapEvent {
-    func mergedContiguousEvents(tolerance: TimeInterval = 1) -> [HeatmapEvent] {
-        guard var current = first else {
-            return []
-        }
-
-        var merged: [HeatmapEvent] = []
-
-        for event in dropFirst() {
-            if event.category == current.category,
-               event.start.timeIntervalSince(current.end) <= tolerance {
-                current = HeatmapEvent(
-                    id: current.id,
-                    category: current.category,
-                    start: current.start,
-                    end: Swift.max(current.end, event.end),
-                    durationMinutes: Swift.max(
-                        Int((Swift.max(current.end, event.end).timeIntervalSince(current.start) / 60.0).rounded()),
-                        1
-                    )
-                )
-            } else {
-                merged.append(current)
-                current = event
-            }
-        }
-
-        merged.append(current)
-        return merged
     }
 }

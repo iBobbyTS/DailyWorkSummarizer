@@ -25,6 +25,8 @@ The app stores runtime data under Application Support:
   `captured_at` is unique; duplicate inserts are ignored so an existing result is not overwritten.
 - `daily_reports`
   Generated daily summaries and per-category summary payloads for reportable, non-away activity. `is_temporary` marks summaries that may be replaced after the next day has activity.
+- `daily_work_block_summaries`
+  Daily heatmap hover summaries for contiguous same-category work blocks. The schema is intentionally minimal: `id`, `category_name`, `start_at`, `end_at`, and `summary_text`, with `(start_at, end_at)` unique. Cross-day blocks are stored as one interval instead of being split by date.
 - `app_logs`
   Persistent runtime log entries for recoverable runtime failures and debugging events. Sources include analysis, LM Studio, screenshot capture, reports, daily summaries, settings, and app-level status refreshes.
 
@@ -38,6 +40,8 @@ Away intervals are not persisted; report views derive display-only `离开` bloc
 Failed per-screenshot attempts are counted on `analysis_runs` but are not persisted as `analysis_results` rows.
 Duplicate capture-time results are treated as already processed: the screenshot file is removed and the original `analysis_results` row remains unchanged.
 Temporary daily reports are tracked by `daily_reports.is_temporary`.
+Daily work-block summaries are derived from `analysis_results` and stored only when the source data is useful enough for hover text. A single source item keeps its original non-empty summary. A multi-item block calls the work-content model only when at least two source items have non-empty summaries; otherwise the block is skipped and logged as an ignorable summary event.
+When report rendering mixes `daily_work_block_summaries` with raw `analysis_results`, summary rows take precedence and raw rows are clipped around them to avoid overlap. Raw `analysis_results.summary_text` values are not shown directly in daily heatmap hover text; they must be copied or summarized into `daily_work_block_summaries` first.
 
 Runtime failures that the app can recover from should still be visible in `app_logs`:
 
@@ -137,12 +141,20 @@ sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
 Daily report activity items are based on the target day plus the immediately preceding result when that result overlaps the day by `duration_minutes_snapshot`.
 The summarizer clips overlapping activity to the day interval before building the model prompt, so a result captured at 23:53 for 10 minutes appears in the next day's prompt as a 00:00 activity for the overlapping minutes.
 It does not read the first result after the day because persisted result durations already define each result's end time.
+Work-block summary generation uses the uncropped `analysis_results` timeline so cross-day blocks remain intact for storage and AI summarization.
 
 Recent daily reports:
 
 ```sh
 sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select id,datetime(day_start,'unixepoch','localtime'),is_temporary,substr(daily_summary_text,1,120) from daily_reports order by day_start desc limit 20;"
+```
+
+Recent daily work-block summaries:
+
+```sh
+sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
+  "select id,category_name,datetime(start_at,'unixepoch','localtime'),datetime(end_at,'unixepoch','localtime'),substr(summary_text,1,120) from daily_work_block_summaries order by start_at desc limit 20;"
 ```
 
 Recent runtime logs:

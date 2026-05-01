@@ -410,6 +410,41 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
+    func fetchReportActivityItems() throws -> [DailyReportActivityItem] {
+        try queue.sync {
+            try ensureTableExistsLocked("analysis_results")
+            let statement = try prepareStatement("""
+                SELECT
+                    id,
+                    captured_at,
+                    category_name,
+                    duration_minutes_snapshot AS duration_minutes,
+                    summary_text AS item_summary_text
+                FROM analysis_results
+                WHERE category_name IS NOT NULL
+                ORDER BY captured_at ASC, id ASC;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            var items: [DailyReportActivityItem] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let itemSummaryText = sqlite3_column_type(statement, 4) == SQLITE_NULL
+                    ? nil
+                    : string(at: 4, from: statement)
+                items.append(
+                    DailyReportActivityItem(
+                        id: sqlite3_column_int64(statement, 0),
+                        capturedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 1)),
+                        categoryName: string(at: 2, from: statement),
+                        durationMinutes: Int(sqlite3_column_int64(statement, 3)),
+                        itemSummaryText: itemSummaryText
+                    )
+                )
+            }
+            return items
+        }
+    }
+
     func fetchActivityDayStarts(calendar: Calendar = .reportCalendar) throws -> [Date] {
         let sourceItems = try fetchReportSourceItems()
         return Array(Set(sourceItems.map { calendar.startOfDay(for: $0.capturedAt) }))
@@ -489,6 +524,131 @@ final class AppDatabase: @unchecked Sendable {
                 items.append(item)
             }
             return items
+        }
+    }
+
+    func fetchDailyWorkBlockSummaries() throws -> [DailyWorkBlockSummaryRecord] {
+        try queue.sync {
+            try ensureTableExistsLocked("daily_work_block_summaries")
+            let statement = try prepareStatement("""
+                SELECT id, category_name, start_at, end_at, summary_text
+                FROM daily_work_block_summaries
+                ORDER BY start_at ASC, end_at ASC, id ASC;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            var records: [DailyWorkBlockSummaryRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                records.append(
+                    DailyWorkBlockSummaryRecord(
+                        id: sqlite3_column_int64(statement, 0),
+                        categoryName: string(at: 1, from: statement),
+                        startAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 2)),
+                        endAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 3)),
+                        summaryText: string(at: 4, from: statement)
+                    )
+                )
+            }
+            return records
+        }
+    }
+
+    func fetchDailyWorkBlockSummaries(intersecting interval: DateInterval) throws -> [DailyWorkBlockSummaryRecord] {
+        try queue.sync {
+            try ensureTableExistsLocked("daily_work_block_summaries")
+            let statement = try prepareStatement("""
+                SELECT id, category_name, start_at, end_at, summary_text
+                FROM daily_work_block_summaries
+                WHERE start_at < ? AND end_at > ?
+                ORDER BY start_at ASC, end_at ASC, id ASC;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_double(statement, 1, interval.end.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 2, interval.start.timeIntervalSince1970)
+
+            var records: [DailyWorkBlockSummaryRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                records.append(
+                    DailyWorkBlockSummaryRecord(
+                        id: sqlite3_column_int64(statement, 0),
+                        categoryName: string(at: 1, from: statement),
+                        startAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 2)),
+                        endAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 3)),
+                        summaryText: string(at: 4, from: statement)
+                    )
+                )
+            }
+            return records
+        }
+    }
+
+    func upsertDailyWorkBlockSummary(
+        categoryName: String,
+        startAt: Date,
+        endAt: Date,
+        summaryText: String
+    ) throws {
+        try queue.sync {
+            let statement = try prepareStatement("""
+                INSERT INTO daily_work_block_summaries (
+                    category_name,
+                    start_at,
+                    end_at,
+                    summary_text
+                )
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(start_at, end_at) DO UPDATE SET
+                    category_name = excluded.category_name,
+                    summary_text = excluded.summary_text;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            bind(categoryName, at: 1, to: statement)
+            sqlite3_bind_double(statement, 2, startAt.timeIntervalSince1970)
+            sqlite3_bind_double(statement, 3, endAt.timeIntervalSince1970)
+            bind(summaryText, at: 4, to: statement)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
+            }
+            postChangeNotification()
+        }
+    }
+
+    func deleteDailyWorkBlockSummaries(ids: [Int64]) throws {
+        guard !ids.isEmpty else {
+            return
+        }
+
+        try queue.sync {
+            try beginTransaction()
+            do {
+                let statement = try prepareStatement("DELETE FROM daily_work_block_summaries WHERE id = ?;")
+                defer { sqlite3_finalize(statement) }
+
+                for id in ids {
+                    sqlite3_reset(statement)
+                    sqlite3_clear_bindings(statement)
+                    sqlite3_bind_int64(statement, 1, id)
+                    guard sqlite3_step(statement) == SQLITE_DONE else {
+                        throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
+                    }
+                }
+
+                try commitTransaction()
+                postChangeNotification()
+            } catch {
+                let operationError = error
+                do {
+                    try rollbackTransaction()
+                } catch {
+                    throw DatabaseError.execute(
+                        "transaction failed: \(String(describing: operationError)); rollback failed: \(String(describing: error))"
+                    )
+                }
+                throw operationError
+            }
         }
     }
 
@@ -616,6 +776,17 @@ final class AppDatabase: @unchecked Sendable {
         """)
 
         try execute("""
+            CREATE TABLE IF NOT EXISTS daily_work_block_summaries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_name TEXT NOT NULL,
+                start_at DOUBLE NOT NULL,
+                end_at DOUBLE NOT NULL,
+                summary_text TEXT NOT NULL,
+                UNIQUE(start_at, end_at)
+            );
+        """)
+
+        try execute("""
             CREATE TABLE IF NOT EXISTS daily_reports (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 day_start DOUBLE NOT NULL UNIQUE,
@@ -637,6 +808,8 @@ final class AppDatabase: @unchecked Sendable {
 
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_category_name ON analysis_results (category_name, captured_at DESC);")
         try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_results_captured_at_unique ON analysis_results (captured_at);")
+        try execute("CREATE INDEX IF NOT EXISTS idx_daily_work_block_summaries_interval ON daily_work_block_summaries (start_at ASC, end_at ASC);")
+        try execute("CREATE INDEX IF NOT EXISTS idx_daily_work_block_summaries_category_name ON daily_work_block_summaries (category_name, start_at ASC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_daily_reports_day_start ON daily_reports (day_start DESC);")
         try execute("CREATE INDEX IF NOT EXISTS idx_app_logs_created_at ON app_logs (created_at DESC);")
     }

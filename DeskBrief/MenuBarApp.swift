@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private let statusSummaryRunningModelItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let statusSummaryRunningProgressItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let openScreenshotsItem = NSMenuItem(title: "", action: #selector(openScreenshotsFolder), keyEquivalent: "")
+    private let backfillMissingSummariesItem = NSMenuItem(title: "", action: #selector(backfillMissingSummaries), keyEquivalent: "")
     private let viewLogsItem = NSMenuItem(title: "", action: #selector(openLogs), keyEquivalent: "")
     private let analysisStartupModeMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var analysisStartupModeItems: [AnalysisStartupMode: NSMenuItem] = [:]
@@ -228,6 +229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             $0.isHidden = true
         }
         openScreenshotsItem.target = self
+        backfillMissingSummariesItem.target = self
         viewLogsItem.target = self
         viewLogsItem.isEnabled = true
         analyzeNowItem.target = self
@@ -270,6 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusSubmenu.addItem(statusActionDividerItem)
         statusSubmenu.addItem(openScreenshotsItem)
         statusSubmenu.addItem(analyzeNowItem)
+        statusSubmenu.addItem(backfillMissingSummariesItem)
         statusSubmenu.addItem(statusForceUnloadDividerItem)
         statusSubmenu.addItem(forceUnloadScreenshotAnalysisItem)
         statusSubmenu.addItem(forceUnloadWorkContentSummaryItem)
@@ -391,6 +394,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             analysisService.cancelCurrentRun()
         } else {
             analysisService.runNow()
+        }
+    }
+
+    @objc private func backfillMissingSummaries() {
+        guard let dailyReportSummaryService else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await dailyReportSummaryService.backfillMissingSummaries()
+            self.refreshStatusMenu()
         }
     }
 
@@ -653,6 +666,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         viewLogsItem.title = text(.menuShowLogs, language: language)
         viewLogsItem.isEnabled = true
+        backfillMissingSummariesItem.title = text(.menuBackfillMissingSummaries, language: language)
         analysisStartupModeMenuItem.title = text(.menuAnalysisStartupMode, language: language)
         for mode in AnalysisStartupMode.allCases {
             guard let item = analysisStartupModeItems[mode] else { continue }
@@ -733,6 +747,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             analyzeNowItem.isEnabled = pendingScreenshots.first != nil
         }
 
+        backfillMissingSummariesItem.isEnabled = !anyWorkRunning
+
         let screenshotProfile = snapshot?.screenshotAnalysisModelProfile
         let summaryProfile = snapshot?.workContentSummaryModelProfile
         let screenshotForceVisible = screenshotProfile?.provider == .lmStudio
@@ -764,6 +780,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         currentStatusMenuItem.title = text(.menuCurrentStatus, language: language)
         openScreenshotsItem.title = text(.menuOpenScreenshotsFolder, language: language)
+        backfillMissingSummariesItem.title = text(.menuBackfillMissingSummaries, language: language)
         settingsMenuItem.title = text(.menuSettings, language: language)
         reportsMenuItem.title = text(.menuReports, language: language)
         clearEarlyScreenshotsMenuItem.title = text(.menuClearEarlyScreenshots, language: language)

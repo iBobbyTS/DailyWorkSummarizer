@@ -19,7 +19,7 @@ The app is centered around a small set of long-lived services created at launch 
 - `AnalysisWorker`
   Non-main async worker in `AnalysisWorker.swift` used by `AnalysisService` for image loading, OCR, model invocation, structured parsing, and retry behavior.
 - `DailyReportSummaryService`
-  Daily-summary generation, runtime state, cancellation, and backfill for missing days.
+  Daily-summary generation, contiguous daily work-block summary generation, runtime state, cancellation, and backfill for missing work summaries.
 - `LLMService`
   Shared provider adapter for OpenAI, Anthropic, LM Studio, and Apple Intelligence.
 - `LMStudioModelLifecycle`
@@ -27,7 +27,7 @@ The app is centered around a small set of long-lived services created at launch 
 - `MenuBarApp` / `AppDelegate`
   Menu bar state rendering, current-status sections, force-unload actions, and window/menu orchestration.
 - `ReportsViewModel`
-  Report range construction, chart data, heatmap data, and daily report presentation in `ReportsViewModel.swift`.
+  Report range construction, chart data, heatmap data, daily work-block summary mixing, and daily report presentation in `ReportsViewModel.swift`.
 - `ReportsView`
   Report window composition in `ReportsView.swift`, with legend helpers in `ReportLegendViews.swift` and heatmap renderers in `ReportHeatmapViews.swift`.
 - `AppLogStore`
@@ -87,6 +87,9 @@ The app is centered around a small set of long-lived services created at launch 
 - When called by `AnalysisService` immediately after a completed analysis run, `DailyReportSummaryService` can instead reuse an already loaded LM Studio model or load a different summary model according to the handoff policy and the two lifecycle toggles.
 - `DailyReportSummaryService` also exposes observable runtime state so the menu bar can render "Running: Work Content Summary" plus a progress percentage.
 - Results are stored in `daily_reports`; temporary summaries are marked with `is_temporary` instead of encoded into summary text.
+- Contiguous same-category work blocks are also summarized into `daily_work_block_summaries` for daily heatmap hover text. Cross-day blocks stay whole for model summarization and storage, and rendering clips them to the visible report range.
+- Work-block summary prompts include only category and source summary text. They intentionally do not include explicit start times, end times, durations, or dates so the model does not evaluate the schedule itself.
+- A single source item with a non-empty summary is stored directly. A multi-item block calls the model only when at least two source items have non-empty summaries, and each model request summarizes exactly one block.
 - Background summary failures are recorded in `app_logs`; cancellation and no-activity outcomes are diagnostic `log` entries, while provider, database, and lifecycle failures are `error` entries.
 
 ### 5. Reporting flow
@@ -99,6 +102,9 @@ The app is centered around a small set of long-lived services created at launch 
   - aggregated category durations for bar charts
   - normalized event blocks for heatmaps
   - daily summary records for the selected day
+- Daily heatmaps prefer `daily_work_block_summaries` where records overlap the visible range. Uncovered time ranges fall back to `analysis_results` for visual blocks only; hover text is shown only for records stored in `daily_work_block_summaries`. Overlaps are subtracted so a stored work-block summary owns its full interval.
+- Weekly heatmaps normalize brightness for selected non-away categories as one combined pool, while away time is normalized separately. The preserved Other category and Away are ordered last in legends and heatmap rows; bar charts omit Away bars but keep Away in the legend.
+- Daily heatmap hover details are shown in the left report-selection area so hover text does not move the heatmap layout. The visible rectangle is clipped to the selected day, but the hover title uses the full stored work-block time span.
 - Chart legends, bars, and heatmap blocks use the fixed color stored on each category rule, with a preset fallback for historical categories that are no longer configured.
 - `ReportsView.swift` stays focused on panel composition and high-level chart selection. `ReportLegendViews.swift` owns legend hover geometry and wrapping layout, while `ReportHeatmapViews.swift` owns day, week, month, and year heatmap rendering.
 
