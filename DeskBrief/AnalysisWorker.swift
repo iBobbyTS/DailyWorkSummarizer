@@ -1,5 +1,6 @@
 import Foundation
 import FoundationModels
+import CoreGraphics
 import ImageIO
 import Vision
 
@@ -28,7 +29,17 @@ struct ParsedAnalysisPayload: Decodable {
     }
 }
 
+nonisolated struct ScreenshotBrightnessSignal: Equatable {
+    let averageEightBitPixelValue: Double
+
+    var isVisuallyActive: Bool {
+        averageEightBitPixelValue > AnalysisWorker.minimumActiveScreenshotAveragePixelValue
+    }
+}
+
 nonisolated final class AnalysisWorker: @unchecked Sendable {
+    nonisolated static let minimumActiveScreenshotAveragePixelValue = 2.0
+
     private let llmService: LLMService
 
     init(llmService: LLMService) {
@@ -93,6 +104,11 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         allowLengthRetry: Bool
     ) async throws -> AnalysisExecutionResult {
         let imageData = try await imageData(from: fileURL)
+        if let brightnessSignal = await brightnessSignal(from: imageData),
+           !brightnessSignal.isVisuallyActive {
+            return inactiveScreenshotResult()
+        }
+
         if settings.provider == .appleIntelligence {
             let recognizedText = try await recognizedText(from: imageData, language: settings.appLanguage)
             let response = try await analyzeImageWithAppleIntelligence(
@@ -199,6 +215,61 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         try await Task.detached(priority: .utility) {
             try Data(contentsOf: fileURL)
         }.value
+    }
+
+    private func brightnessSignal(from imageData: Data) async -> ScreenshotBrightnessSignal? {
+        await Task.detached(priority: .utility) {
+            Self.brightnessSignal(from: imageData)
+        }.value
+    }
+
+    nonisolated static func brightnessSignal(from imageData: Data) -> ScreenshotBrightnessSignal? {
+        guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+            return nil
+        }
+
+        return brightnessSignal(from: cgImage)
+    }
+
+    nonisolated static func brightnessSignal(from cgImage: CGImage) -> ScreenshotBrightnessSignal? {
+        let width = cgImage.width
+        let height = cgImage.height
+        let pixelCount = width * height
+        guard width > 0, height > 0, pixelCount > 0 else {
+            return nil
+        }
+
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var pixels = [UInt8](repeating: 0, count: pixelCount * bytesPerPixel)
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+
+        guard let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else {
+            return nil
+        }
+
+        context.interpolationQuality = .none
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        var total: UInt64 = 0
+        for index in stride(from: 0, to: pixels.count, by: bytesPerPixel) {
+            total += UInt64(pixels[index])
+            total += UInt64(pixels[index + 1])
+            total += UInt64(pixels[index + 2])
+        }
+
+        let average = Double(total) / Double(pixelCount * 3)
+        return ScreenshotBrightnessSignal(averageEightBitPixelValue: average)
     }
 
     private func recognizedText(from imageData: Data, language: AppLanguage) async throws -> String {
@@ -321,6 +392,20 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         validRules.first(where: \.isPreservedOther)?.name
             ?? validRules.first?.name
             ?? AppDefaults.preservedOtherCategoryName
+    }
+
+    private func inactiveScreenshotResult() -> AnalysisExecutionResult {
+        AnalysisExecutionResult(
+            response: AnalysisResponse(
+                category: AppDefaults.absenceCategoryName,
+                summary: AppDefaults.absenceCategoryName
+            ),
+            requestTiming: nil,
+            lmStudioTiming: nil,
+            ocrText: nil,
+            reasoningText: nil,
+            modelInstanceID: nil
+        )
     }
 
     private func appleIntelligenceAnalysisSchema(

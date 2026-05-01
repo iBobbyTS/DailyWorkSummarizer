@@ -66,6 +66,7 @@ The app is centered around a small set of long-lived services created at launch 
 - `analysis_runs.total_items` is updated when the active queue grows so the run progress stays aligned with the appended screenshots.
 - `AnalysisService` keeps run state on the main actor, but delegates each screenshot's long-running image load, OCR, model request, and response parsing to `AnalysisWorker` so UI state updates and cancellation stay responsive.
 - `MenuBarApp` subscribes to both analysis and summary runtime notifications so the Current Status submenu can show the active analysis or summary run and manual LM Studio force-unload actions without relying on internal loaded-instance caches.
+- Before OCR or a model request, `AnalysisWorker` decodes the screenshot into an 8-bit RGB buffer and averages all RGB pixel values. Screenshots with an average value of 2 or less are treated as inactive, recorded as `离开`, and removed through the same processed-file cleanup path.
 - Depending on provider and analysis mode, the worker either:
   - runs local OCR first and sends text to a model, or
   - sends the screenshot image to a remote multimodal endpoint.

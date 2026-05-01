@@ -23,6 +23,7 @@ The app stores runtime data under Application Support:
 - `analysis_results`
   Successful per-item screenshot analysis output, including capture time, category, summary, and duration snapshot.
   `captured_at` is unique; duplicate inserts are ignored so an existing result is not overwritten.
+  Screenshots whose decoded 8-bit RGB average is 2 or less are stored as the internal away category `离开` without making an OCR or model request, then the pending screenshot file is removed.
 - `daily_reports`
   Generated daily summaries and per-category summary payloads for reportable, non-away activity. `is_temporary` marks manual summaries for the latest reportable activity day, which may be replaced after later activity exists.
 - `daily_work_block_summaries`
@@ -36,7 +37,7 @@ The app stores runtime data under Application Support:
 
 SQLite is the source of truth for captured work history, analysis outputs, and generated daily reports.
 It also stores lightweight runtime logs in `app_logs`, capped to the latest 1000 entries.
-Away intervals are not persisted; report views derive display-only `离开` blocks from bounded gaps between adjacent successful analysis results.
+Away intervals caused by missing captures are not persisted; report views derive those display-only `离开` blocks from bounded gaps between adjacent successful analysis results. Fully dark screenshots can be persisted as `离开` results so their capture time is retained without sending the image to a model.
 Failed per-screenshot attempts are counted on `analysis_runs` but are not persisted as `analysis_results` rows.
 Duplicate capture-time results are treated as already processed: the screenshot file is removed and the original `analysis_results` row remains unchanged.
 Temporary daily reports are tracked by `daily_reports.is_temporary`. Automatic backfill only writes final reports for days before the latest reportable activity day; manual immediate summaries use the same day-completion rule to decide whether the requested day is temporary.

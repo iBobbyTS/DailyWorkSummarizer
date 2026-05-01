@@ -1,8 +1,10 @@
 import CoreGraphics
 import Foundation
 import FoundationModels
+import ImageIO
 import SQLite3
 import Testing
+import UniformTypeIdentifiers
 @testable import DeskBrief
 
 func makeTemporaryDatabaseURL() -> URL {
@@ -13,6 +15,60 @@ func makeTemporaryDatabaseURL() -> URL {
 
 func writeTestScreenshotPlaceholder(to url: URL) throws {
     try Data([0xFF, 0xD8, 0xFF, 0xD9]).write(to: url)
+}
+
+func writeSolidTestScreenshot(
+    to url: URL,
+    gray: UInt8,
+    width: Int = 4,
+    height: Int = 4
+) throws {
+    let pixelCount = width * height
+    var pixels: [UInt8] = []
+    pixels.reserveCapacity(pixelCount * 4)
+    for _ in 0..<pixelCount {
+        pixels.append(gray)
+        pixels.append(gray)
+        pixels.append(gray)
+        pixels.append(UInt8.max)
+    }
+
+    let data = Data(pixels)
+    guard let provider = CGDataProvider(data: data as CFData),
+          let image = CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+          ),
+          let destination = CGImageDestinationCreateWithURL(
+            url as CFURL,
+            UTType.png.identifier as CFString,
+            1,
+            nil
+          ) else {
+        throw NSError(
+            domain: "DeskBriefTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to create solid test screenshot"]
+        )
+    }
+
+    CGImageDestinationAddImage(destination, image, nil)
+    guard CGImageDestinationFinalize(destination) else {
+        throw NSError(
+            domain: "DeskBriefTests",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to write solid test screenshot"]
+        )
+    }
 }
 
 func makeScreenshotDate(
