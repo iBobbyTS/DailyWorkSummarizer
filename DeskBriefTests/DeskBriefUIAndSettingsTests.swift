@@ -27,6 +27,13 @@ extension DeskBriefTests {
         }
     }
 
+    @Test func reportDayDisplayTextIncludesLocalizedWeekdaySuffix() async throws {
+        let dayStart = makeScreenshotDate(year: 2026, month: 4, day: 27, hour: 9, minute: 0)
+
+        #expect(L10n.reportDayDisplayText(for: dayStart, language: .simplifiedChinese) == "2026年4月27日·星期一")
+        #expect(L10n.reportDayDisplayText(for: dayStart, language: .english) == "Apr 27, 2026·Monday")
+    }
+
     @Test func legendHoverRectsBridgeRowsWithoutCoveringTrailingEmptySpace() async throws {
         let rects = LegendHoverGeometry.hoverRects(for: [
             CGRect(x: 90, y: 0, width: 70, height: 30),

@@ -524,7 +524,7 @@ final class ReportsViewModel: ObservableObject {
             case .day:
                 let end = calendar.date(byAdding: .day, value: 1, to: startDate) ?? startDate
                 interval = DateInterval(start: startDate, end: end)
-                label = L10n.reportDayFormatter(language: language).string(from: startDate)
+                label = L10n.reportDayDisplayText(for: startDate, language: language)
             case .week:
                 let end = calendar.date(byAdding: .day, value: 7, to: startDate) ?? startDate
                 interval = DateInterval(start: startDate, end: end)

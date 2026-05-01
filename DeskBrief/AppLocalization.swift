@@ -729,6 +729,12 @@ nonisolated enum L10n {
         dateFormatter(template: "yMMMd", language: language)
     }
 
+    static func reportDayDisplayText(for dayStart: Date, language: AppLanguage = .current) -> String {
+        let dayText = reportDayFormatter(language: language).string(from: dayStart)
+        let weekdayText = dateFormatter(template: "EEEE", language: language, timeZone: .current).string(from: dayStart)
+        return "\(dayText)·\(weekdayText)"
+    }
+
     static func reportMonthFormatter(language: AppLanguage = .current) -> DateFormatter {
         dateFormatter(template: "yMMMM", language: language)
     }
