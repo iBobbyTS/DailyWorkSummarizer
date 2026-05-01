@@ -189,7 +189,7 @@ Entry-point behavior:
 - Screenshot analysis loads the LM Studio analysis model once before a run and reuses it for all screenshots in that run when lifecycle management is enabled.
 - The settings model test path uses `load -> chat -> unload` when the screenshot-analysis profile has lifecycle management enabled.
 - Independent daily-summary generation uses `load -> summary chat -> unload` when its profile is LM Studio and lifecycle management is enabled.
-- Automatic daily-summary generation after a screenshot-analysis run can reuse, switch, or release the analysis model depending on the two model profiles and whether each profile has lifecycle management enabled.
+- Automatic daily-summary generation after a screenshot-analysis run is queued through the global run coordinator so summary runtime state starts only after analysis runtime state is idle. The LM Studio handoff can still reuse, switch, or release the analysis model depending on the two model profiles and whether each profile has lifecycle management enabled.
 
 Automatic analysis-to-summary handoff rules:
 

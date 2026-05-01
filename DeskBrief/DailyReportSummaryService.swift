@@ -50,7 +50,7 @@ enum DailyReportSummaryServiceError: LocalizedError {
     }
 }
 
-enum DailyReportLMStudioLifecyclePolicy {
+enum DailyReportLMStudioLifecyclePolicy: Equatable {
     case automaticUnload
     case alreadyLoadedKeepLoaded
 }
@@ -95,6 +95,9 @@ final class DailyReportSummaryService {
     private let llmService: LLMService
     private let lmStudioLifecycle: LMStudioModelLifecycle
     private let lock = AsyncLock()
+    let runCoordinator: AppRunCoordinator
+    private var activeSummaryTask: Task<Void, Never>?
+    private var pendingMergedSummaryRequest: DailyReportSummaryRequest?
     private var runtimeState: DailyReportSummaryRuntimeState = .idle {
         didSet {
             NotificationCenter.default.post(name: .dailyReportSummaryStatusDidChange, object: nil)
@@ -105,11 +108,13 @@ final class DailyReportSummaryService {
         database: AppDatabase,
         settingsStore: SettingsStore,
         logStore: AppLogStore? = nil,
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        runCoordinator: AppRunCoordinator? = nil
     ) {
         self.database = database
         self.settingsStore = settingsStore
         self.logStore = logStore
+        self.runCoordinator = runCoordinator ?? AppRunCoordinator()
         let resolvedSession = session ?? Self.makeSession()
         self.llmService = LLMService(session: resolvedSession)
         self.lmStudioLifecycle = LMStudioModelLifecycle(session: resolvedSession) { [weak settingsStore, weak logStore] chinese, english in
@@ -120,61 +125,82 @@ final class DailyReportSummaryService {
                 logStore.add(level: .log, source: .lmStudio, message: message)
             }
         }
+        self.runCoordinator.startSummaryHandler = { [weak self] request in
+            self?.startSummaryRun(with: request)
+        }
     }
 
     func summarizeMissingDailyReportsIfNeeded(
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .automaticUnload
     ) async {
-        do {
-            try await lock.withLock {
-                try await summarizeMissingDailyReportsLocked(lmStudioLifecyclePolicy: lmStudioLifecyclePolicy)
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            recordSummaryError(error, context: "Failed to summarize missing daily reports")
-            return
-        }
+        let request = DailyReportSummaryRequest.missingDailyReports(
+            lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
+            waiter: nil
+        )
+        await submitSummaryRequestAndWait(
+            request,
+            context: "Failed to summarize missing daily reports"
+        )
     }
 
     func backfillMissingSummaries(
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .automaticUnload
     ) async {
-        do {
-            try await lock.withLock {
-                try await summarizeBackfillLocked(lmStudioLifecyclePolicy: lmStudioLifecyclePolicy)
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            recordSummaryError(error, context: "Failed to backfill missing summaries")
-            return
-        }
+        let request = DailyReportSummaryRequest.backfill(
+            lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
+            waiter: nil
+        )
+        await submitSummaryRequestAndWait(
+            request,
+            context: "Failed to backfill missing summaries"
+        )
     }
 
     func summarizeAffectedSummaries(
         for dayStarts: Set<Date>,
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .automaticUnload
     ) async {
-        do {
-            try await lock.withLock {
-                try await summarizeAffectedSummariesLocked(
-                    dayStarts: dayStarts,
-                    lmStudioLifecyclePolicy: lmStudioLifecyclePolicy
-                )
-            }
-        } catch is CancellationError {
-            return
-        } catch {
-            recordSummaryError(error, context: "Failed to summarize affected summaries")
-            return
-        }
+        let request = DailyReportSummaryRequest.affectedSummaries(
+            dayStarts: dayStarts,
+            lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
+            waiter: nil
+        )
+        await submitSummaryRequestAndWait(
+            request,
+            context: "Failed to summarize affected summaries"
+        )
+    }
+
+    func enqueueAffectedSummariesAfterAnalysis(
+        for dayStarts: Set<Date>,
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
+    ) {
+        let request = DailyReportSummaryRequest.affectedSummaries(
+            dayStarts: dayStarts,
+            lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
+            waiter: nil
+        )
+        submitSummaryRequest(request)
     }
 
     func summarizeDay(_ dayStart: Date) async throws -> DailyReportRecord {
-        try await lock.withLock {
-            try await summarizeDayLocked(dayStart, lmStudioLifecyclePolicy: .automaticUnload)
+        let snapshot = settingsStore.snapshot
+        let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
+        let normalizedDayStart = calendar.startOfDay(for: dayStart)
+        let request = DailyReportSummaryRequest.explicitDay(
+            normalizedDayStart,
+            lmStudioLifecyclePolicy: .automaticUnload,
+            waiter: nil
+        )
+        guard let record = try await submitSummaryRequestAndReturnDailyReport(
+            request,
+            dayStart: normalizedDayStart
+        ) else {
+            throw DailyReportSummaryServiceError.noActivity(
+                localized(.reportDailySummaryNoActivity, language: snapshot.appLanguage)
+            )
         }
+        return record
     }
 
     var currentState: DailyReportSummaryRuntimeState {
@@ -194,6 +220,7 @@ final class DailyReportSummaryService {
             totalCount: runtimeState.totalCount
         )
         llmService.cancelActiveRemoteRequest()
+        activeSummaryTask?.cancel()
     }
 
     func forceUnloadManagedModel() async throws -> Bool {
@@ -223,6 +250,137 @@ final class DailyReportSummaryService {
         }
     }
 
+    private func submitSummaryRequestAndWait(
+        _ request: DailyReportSummaryRequest,
+        context: String
+    ) async {
+        do {
+            _ = try await submitSummaryRequestAndWaitForResult(request, expectedResult: .completion)
+        } catch is CancellationError {
+            return
+        } catch {
+            recordSummaryError(error, context: context)
+            return
+        }
+    }
+
+    private func submitSummaryRequestAndReturnDailyReport(
+        _ request: DailyReportSummaryRequest,
+        dayStart: Date
+    ) async throws -> DailyReportRecord? {
+        try await submitSummaryRequestAndWaitForResult(
+            request,
+            expectedResult: .dailyReport(dayStart)
+        )
+    }
+
+    private func submitSummaryRequestAndWaitForResult(
+        _ request: DailyReportSummaryRequest,
+        expectedResult: DailyReportSummaryWaiter.ExpectedResult
+    ) async throws -> DailyReportRecord? {
+        try await withCheckedThrowingContinuation { continuation in
+            let waiter = DailyReportSummaryWaiter(
+                expectedResult: expectedResult,
+                continuation: continuation
+            )
+            var waitingRequest = request
+            waitingRequest.waiters.append(waiter)
+            submitSummaryRequest(waitingRequest)
+        }
+    }
+
+    private func submitSummaryRequest(_ request: DailyReportSummaryRequest) {
+        switch runCoordinator.requestSummary(request) {
+        case .startNow:
+            startSummaryRun(with: request)
+        case .mergeIntoCurrentRun:
+            mergePendingSummaryRequest(request)
+        case .queued:
+            break
+        }
+    }
+
+    private func startSummaryRun(with request: DailyReportSummaryRequest) {
+        guard activeSummaryTask == nil else {
+            mergePendingSummaryRequest(request)
+            return
+        }
+
+        activeSummaryTask = Task { @MainActor [weak self] in
+            await self?.runSummaryLoop(initialRequest: request)
+        }
+    }
+
+    private func mergePendingSummaryRequest(_ request: DailyReportSummaryRequest) {
+        if var pendingMergedSummaryRequest {
+            pendingMergedSummaryRequest.merge(request)
+            self.pendingMergedSummaryRequest = pendingMergedSummaryRequest
+        } else {
+            pendingMergedSummaryRequest = request
+        }
+    }
+
+    private func runSummaryLoop(initialRequest: DailyReportSummaryRequest) async {
+        var currentRequest = initialRequest
+        var didCancel = false
+
+        while true {
+            let requestToRun = currentRequest
+            do {
+                let result = try await lock.withLock {
+                    try await executeSummaryRequestLocked(requestToRun)
+                }
+                resumeWaiters(in: requestToRun, result: result)
+            } catch is CancellationError {
+                resumeWaiters(in: requestToRun, error: CancellationError())
+                didCancel = true
+                break
+            } catch {
+                recordSummaryError(error, context: "Failed to run summary request")
+                resumeWaiters(in: requestToRun, error: error)
+            }
+
+            guard let nextRequest = takePendingMergedSummaryRequest() else {
+                break
+            }
+            currentRequest = nextRequest
+        }
+
+        if didCancel, let pendingRequest = takePendingMergedSummaryRequest() {
+            resumeWaiters(in: pendingRequest, error: CancellationError())
+        }
+
+        activeSummaryTask = nil
+        if runtimeState.isRunning {
+            runtimeState = .idle
+        }
+        runCoordinator.finishRun(.workContentSummary)
+    }
+
+    private func takePendingMergedSummaryRequest() -> DailyReportSummaryRequest? {
+        let request = pendingMergedSummaryRequest
+        pendingMergedSummaryRequest = nil
+        return request
+    }
+
+    private func resumeWaiters(
+        in request: DailyReportSummaryRequest,
+        result: DailyReportSummaryExecutionResult
+    ) {
+        for waiter in request.waiters {
+            waiter.resumeSuccess(result)
+        }
+    }
+
+    private func resumeWaiters(
+        in request: DailyReportSummaryRequest,
+        error: Error
+    ) {
+        for waiter in request.waiters {
+            waiter.resumeFailure(error)
+        }
+    }
+
     private static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpShouldSetCookies = false
@@ -233,156 +391,98 @@ final class DailyReportSummaryService {
         return URLSession(configuration: configuration)
     }
 
-    private func summarizeMissingDailyReportsLocked(
-        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
-    ) async throws {
+    private func executeSummaryRequestLocked(
+        _ request: DailyReportSummaryRequest
+    ) async throws -> DailyReportSummaryExecutionResult {
         let snapshot = await MainActor.run { settingsStore.snapshot }
         let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
         let reportableDayStarts = try fetchReportableActivityDayStarts(calendar: calendar)
-        guard let latestDayStart = reportableDayStarts.last else {
-            return
+        let latestDayStart = reportableDayStarts.last
+        let targetDayStarts = request.includesBackfill ? nil : request.affectedDayStarts
+
+        let candidateBlocks: [DailyWorkBlock]
+        if request.includesBackfill {
+            candidateBlocks = try candidateWorkBlocks(targetDayStarts: nil)
+        } else if !request.affectedDayStarts.isEmpty {
+            candidateBlocks = try candidateWorkBlocks(targetDayStarts: request.affectedDayStarts)
+        } else {
+            candidateBlocks = []
         }
 
-        let pendingDays = try pendingReportableDayStarts(
-            in: reportableDayStarts,
-            before: latestDayStart
-        )
-        guard !pendingDays.isEmpty else {
-            return
+        let pendingDays: [Date]
+        if request.includesBackfill || request.includesMissingDailyReports || !request.affectedDayStarts.isEmpty {
+            pendingDays = try pendingReportableDayStarts(
+                in: reportableDayStarts,
+                before: latestDayStart ?? .distantPast
+            )
+        } else {
+            pendingDays = []
+        }
+
+        let explicitDayStarts = request.explicitDayStarts.sorted()
+        let totalCount = candidateBlocks.count + pendingDays.count + explicitDayStarts.count
+        guard totalCount > 0 else {
+            return DailyReportSummaryExecutionResult()
         }
 
         updateRuntimeState(
             modelName: snapshot.workContentSummaryModelProfile.modelName,
             completedCount: 0,
-            totalCount: pendingDays.count
+            totalCount: totalCount
         )
-        defer { runtimeState = .idle }
 
-        try await withLMStudioLifecycleIfNeeded(
+        return try await withLMStudioLifecycleIfNeeded(
             settings: snapshot.workContentSummaryModelProfile,
-            policy: lmStudioLifecyclePolicy
+            policy: request.lmStudioLifecyclePolicy
         ) {
+            var result = DailyReportSummaryExecutionResult()
             var completedCount = 0
-            for dayStart in pendingDays {
+
+            completedCount += try await summarizeWorkBlocksWorkLocked(
+                blocks: candidateBlocks,
+                snapshot: snapshot,
+                targetDayStarts: targetDayStarts,
+                completedCountOffset: completedCount,
+                totalCount: totalCount
+            )
+            completedCount += try await summarizeDailyReportsWorkLocked(
+                pendingDays: pendingDays,
+                snapshot: snapshot,
+                completedCountOffset: completedCount,
+                totalCount: totalCount
+            )
+
+            for dayStart in explicitDayStarts {
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
+
                 do {
-                    _ = try await summarizeDayContentLocked(
+                    let isTemporary = !Self.shouldWriteFinalDailyReport(
+                        for: dayStart,
+                        latestReportableDayStart: latestDayStart
+                    )
+                    let record = try await summarizeDayContentLocked(
                         dayStart,
                         snapshot: snapshot,
-                        isTemporary: false
+                        isTemporary: isTemporary
                     )
+                    result.dailyReports[dayStart] = record
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
-                    recordSummaryError(error, context: "Failed to summarize daily report for \(dayStart)")
+                    result.dayErrors[dayStart] = error
                 }
+
                 completedCount += 1
                 updateRuntimeState(
                     modelName: snapshot.workContentSummaryModelProfile.modelName,
                     completedCount: completedCount,
-                    totalCount: pendingDays.count
+                    totalCount: totalCount
                 )
             }
-        }
-    }
 
-    private func summarizeBackfillLocked(
-        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
-    ) async throws {
-        let snapshot = await MainActor.run { settingsStore.snapshot }
-        let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
-        let candidateBlocks = try candidateWorkBlocks(targetDayStarts: nil)
-        let reportableDayStarts = try fetchReportableActivityDayStarts(calendar: calendar)
-        let latestDayStart = reportableDayStarts.last
-        let pendingDays = try pendingReportableDayStarts(
-            in: reportableDayStarts,
-            before: latestDayStart ?? .distantPast
-        )
-
-        guard !candidateBlocks.isEmpty || !pendingDays.isEmpty else {
-            return
-        }
-
-        updateRuntimeState(
-            modelName: snapshot.workContentSummaryModelProfile.modelName,
-            completedCount: 0,
-            totalCount: candidateBlocks.count + pendingDays.count
-        )
-        defer { runtimeState = .idle }
-
-        try await withLMStudioLifecycleIfNeeded(
-            settings: snapshot.workContentSummaryModelProfile,
-            policy: lmStudioLifecyclePolicy
-        ) {
-            var completedCount = 0
-            completedCount += try await summarizeWorkBlocksWorkLocked(
-                blocks: candidateBlocks,
-                snapshot: snapshot,
-                targetDayStarts: nil,
-                completedCountOffset: completedCount,
-                totalCount: candidateBlocks.count + pendingDays.count
-            )
-            completedCount += try await summarizeDailyReportsWorkLocked(
-                pendingDays: pendingDays,
-                snapshot: snapshot,
-                completedCountOffset: completedCount,
-                totalCount: candidateBlocks.count + pendingDays.count
-            )
-            updateRuntimeState(
-                modelName: snapshot.workContentSummaryModelProfile.modelName,
-                completedCount: completedCount,
-                totalCount: candidateBlocks.count + pendingDays.count
-            )
-        }
-    }
-
-    private func summarizeAffectedSummariesLocked(
-        dayStarts: Set<Date>,
-        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
-    ) async throws {
-        let snapshot = await MainActor.run { settingsStore.snapshot }
-        let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
-        let candidateBlocks = try candidateWorkBlocks(targetDayStarts: dayStarts)
-        let reportableDayStarts = try fetchReportableActivityDayStarts(calendar: calendar)
-        let latestDayStart = reportableDayStarts.last
-        let pendingDays = try pendingReportableDayStarts(
-            in: reportableDayStarts,
-            before: latestDayStart ?? .distantPast
-        )
-
-        guard !candidateBlocks.isEmpty || !pendingDays.isEmpty else {
-            return
-        }
-
-        updateRuntimeState(
-            modelName: snapshot.workContentSummaryModelProfile.modelName,
-            completedCount: 0,
-            totalCount: candidateBlocks.count + pendingDays.count
-        )
-        defer { runtimeState = .idle }
-
-        try await withLMStudioLifecycleIfNeeded(
-            settings: snapshot.workContentSummaryModelProfile,
-            policy: lmStudioLifecyclePolicy
-        ) {
-            var completedCount = 0
-            completedCount += try await summarizeWorkBlocksWorkLocked(
-                blocks: candidateBlocks,
-                snapshot: snapshot,
-                targetDayStarts: dayStarts,
-                completedCountOffset: completedCount,
-                totalCount: candidateBlocks.count + pendingDays.count
-            )
-            completedCount += try await summarizeDailyReportsWorkLocked(
-                pendingDays: pendingDays,
-                snapshot: snapshot,
-                completedCountOffset: completedCount,
-                totalCount: candidateBlocks.count + pendingDays.count
-            )
-            updateRuntimeState(
-                modelName: snapshot.workContentSummaryModelProfile.modelName,
-                completedCount: completedCount,
-                totalCount: candidateBlocks.count + pendingDays.count
-            )
+            return result
         }
     }
 
@@ -640,44 +740,6 @@ final class DailyReportSummaryService {
     private func recordSummarySkip(_ message: String) {
         Task { @MainActor [weak logStore] in
             logStore?.add(level: .log, source: .summary, message: message)
-        }
-    }
-
-    private func summarizeDayLocked(
-        _ dayStart: Date,
-        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
-    ) async throws -> DailyReportRecord {
-        let snapshot = await MainActor.run { settingsStore.snapshot }
-        let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
-        let normalizedDayStart = calendar.startOfDay(for: dayStart)
-        let latestDayStart = try fetchReportableActivityDayStarts(calendar: calendar).last
-        let isTemporary = !Self.shouldWriteFinalDailyReport(
-            for: normalizedDayStart,
-            latestReportableDayStart: latestDayStart
-        )
-        updateRuntimeState(
-            modelName: snapshot.workContentSummaryModelProfile.modelName,
-            completedCount: 0,
-            totalCount: 1
-        )
-        defer { runtimeState = .idle }
-
-        return try await withLMStudioLifecycleIfNeeded(
-            settings: snapshot.workContentSummaryModelProfile,
-            policy: lmStudioLifecyclePolicy
-        ) {
-            defer {
-                updateRuntimeState(
-                    modelName: snapshot.workContentSummaryModelProfile.modelName,
-                    completedCount: 1,
-                    totalCount: 1
-                )
-            }
-            return try await summarizeDayContentLocked(
-                normalizedDayStart,
-                snapshot: snapshot,
-                isTemporary: isTemporary
-            )
         }
     }
 

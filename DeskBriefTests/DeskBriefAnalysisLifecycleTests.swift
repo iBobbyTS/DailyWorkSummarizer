@@ -103,6 +103,132 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func analysisRequestWaitsForActiveSummaryRun() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let dayStart = calendar.date(from: DateComponents(year: 2026, month: 4, day: 26))!
+        let workStart = calendar.date(byAdding: .hour, value: 9, to: dayStart)!
+        let firstSummaryRequestStarted = DispatchSemaphore(value: 0)
+        let releaseFirstSummaryRequest = DispatchSemaphore(value: 0)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "analysis-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .manual
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://summary.example.com"
+        store.workContentSummaryModelName = "summary-model"
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: workStart,
+            categoryName: "专注工作",
+            summaryText: "实现全局互斥",
+            durationMinutesSnapshot: 10
+        )
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .minute, value: 10, to: workStart)!,
+            categoryName: "专注工作",
+            summaryText: "合并总结请求",
+            durationMinutesSnapshot: 10
+        )
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .minute, value: 20, to: workStart)!,
+            categoryName: "会议沟通",
+            summaryText: "关闭前一个工作块",
+            durationMinutesSnapshot: 10
+        )
+        let existingRunCount = try fetchInt("SELECT COUNT(*) FROM analysis_runs;", databaseURL: databaseURL)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            if MockURLProtocol.requestCount == 1 {
+                firstSummaryRequestStarted.signal()
+                _ = releaseFirstSummaryRequest.wait(timeout: .now() + 5)
+            }
+
+            let content: String
+            if MockURLProtocol.requestCount == 2 {
+                content = #"{"category":"专注工作","summary":"排队后分析"}"#
+            } else {
+                let requestBody = requestBodyData(from: request)
+                let body = try requestBody.flatMap {
+                    try JSONSerialization.jsonObject(with: $0) as? [String: Any]
+                } ?? [:]
+                let messages = body["messages"] as? [[String: Any]]
+                let prompt = messages?.first?["content"] as? String ?? ""
+                content = prompt.contains("dailySummary")
+                    ? #"{"dailySummary":"全局互斥后的日报","categorySummaries":{"专注工作":"分析和总结没有重叠","会议沟通":"同步状态"}}"#
+                    : #"{"summary":"合并后的工作块总结"}"#
+            }
+            let responsePayload: [String: Any] = [
+                "choices": [
+                    [
+                        "message": ["content": content],
+                        "finish_reason": "stop",
+                    ],
+                ],
+            ]
+            let responseData = try JSONSerialization.data(withJSONObject: responsePayload)
+            let responseBody = try #require(String(data: responseData, encoding: .utf8))
+            return try makeHTTPResponse(url: try #require(request.url), body: responseBody)
+        }
+
+        let summaryService = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        let analysisService = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            dailyReportSummaryService: summaryService,
+            session: session
+        )
+
+        let summaryTask = Task { @MainActor in
+            await summaryService.backfillMissingSummaries()
+        }
+        #expect(await waitForSemaphore(firstSummaryRequestStarted, timeoutSeconds: 5))
+        #expect(summaryService.currentState.isRunning)
+
+        let screenshotURL = try database.screenshotsDirectory().appendingPathComponent("20260426-1000-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: screenshotURL)
+        analysisService.runNow()
+        try await Task.sleep(for: .milliseconds(200))
+
+        #expect(summaryService.currentState.isRunning)
+        #expect(!analysisService.currentState.isRunning)
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_runs;", databaseURL: databaseURL) == existingRunCount)
+
+        releaseFirstSummaryRequest.signal()
+        await summaryTask.value
+
+        let didAnalyze = await waitUntil(timeoutSeconds: 8) {
+            (try? fetchInt("SELECT COUNT(*) FROM analysis_runs;", databaseURL: databaseURL)) == existingRunCount + 1
+                && !analysisService.currentState.isRunning
+                && !summaryService.currentState.isRunning
+        }
+
+        #expect(didAnalyze)
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_results WHERE summary_text = '排队后分析';", databaseURL: databaseURL) == 1)
+    }
+
+    @MainActor
     @Test func runningAnalysisAppendsNewScreenshotsToCurrentRun() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory

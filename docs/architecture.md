@@ -10,6 +10,8 @@ The app is centered around a small set of long-lived services created at launch 
   UserDefaults and Keychain-backed settings state exposed to SwiftUI.
 - `ScreenshotService`
   Periodic capture scheduling, permission checks, and idle detection.
+- `AppRunCoordinator`
+  Main-actor run gate that keeps screenshot analysis and work-content summary runs mutually exclusive, with one coalesced pending bucket per run kind.
 - `AnalysisService`
   Main-actor coordinator for pending screenshot runs, timers, cancellation, appends, runtime model labels, and UI-facing progress.
 - `ActiveAnalysisRun`
@@ -41,7 +43,7 @@ The app is centered around a small set of long-lived services created at launch 
 - The app opens or creates the SQLite database.
 - Settings are loaded from UserDefaults and Keychain.
 - Services are created and started.
-- The menu bar UI reflects pending screenshots, active analysis state, active summary state, force-unload actions, and the log viewer entry point.
+- The menu bar UI reflects pending screenshots, the single active run state, force-unload actions, and the log viewer entry point.
 
 ### 2. Screenshot capture flow
 
@@ -55,6 +57,7 @@ The app is centered around a small set of long-lived services created at launch 
 
 - `AnalysisService` can be started manually, by the configured scheduled time, or by realtime capture-saved notifications.
 - Manual, scheduled, and realtime analysis all scan the pending screenshot folder. Realtime analysis is triggered by the capture-saved notification, but the notification URL is only a timing signal.
+- Every analysis trigger first passes through `AppRunCoordinator`. A trigger starts immediately only when no summary run is active; if a summary is running, the trigger is coalesced into the pending analysis bucket and is scanned after the summary finishes.
 - If no pending screenshots exist, a trigger returns without creating an `analysis_runs` record.
 - If a new analysis request arrives while a run is already active, the service scans pending screenshots and appends newly discovered files to the current queue instead of cancelling, pausing, or restarting the run.
 - When the user cancels a run, the active queue stops accepting appends immediately; later triggers are coalesced into one follow-up pending scan instead of being merged into the cancelling run.
@@ -62,7 +65,7 @@ The app is centered around a small set of long-lived services created at launch 
 - It creates a compact `analysis_runs` record for run-level status/counts and processes screenshots one by one.
 - `analysis_runs.total_items` is updated when the active queue grows so the run progress stays aligned with the appended screenshots.
 - `AnalysisService` keeps run state on the main actor, but delegates each screenshot's long-running image load, OCR, model request, and response parsing to `AnalysisWorker` so UI state updates and cancellation stay responsive.
-- `MenuBarApp` subscribes to both analysis and summary runtime notifications so the Current Status submenu can show running analysis, running summaries, and manual LM Studio force-unload actions without relying on internal loaded-instance caches.
+- `MenuBarApp` subscribes to both analysis and summary runtime notifications so the Current Status submenu can show the active analysis or summary run and manual LM Studio force-unload actions without relying on internal loaded-instance caches.
 - Depending on provider and analysis mode, the worker either:
   - runs local OCR first and sends text to a model, or
   - sends the screenshot image to a remote multimodal endpoint.
@@ -72,10 +75,12 @@ The app is centered around a small set of long-lived services created at launch 
 - When the user pauses analysis while LM Studio is active, `AnalysisService` first waits for the in-flight generation request to stop and then issues the unload request for the loaded instance.
 - Successful parsed results are written to `analysis_results`; duplicate capture times are ignored and the already-processed screenshot file is removed without overwriting the existing result.
 - Failed per-screenshot attempts update run-level counts and also write actionable runtime errors to `app_logs`.
-- After a run completes, the service updates run status and may trigger daily-summary backfill. If LM Studio is involved, the analysis-to-summary handoff decides whether to reuse, unload, switch, or temporarily load a summary model based on the two model profiles and their lifecycle toggles.
+- After a run completes, the service updates run status and submits the affected summary work to the coordinator. The summary run starts only after the analysis runtime state is idle. If LM Studio is involved, the analysis-to-summary handoff still decides whether to reuse, unload, switch, or temporarily load a summary model based on the two model profiles and their lifecycle toggles.
 
 ### 4. Daily summary flow
 
+- Summary entry points also pass through `AppRunCoordinator`: backfill, missing daily reports, affected-day summaries after analysis, and manually generated daily reports all share the same summary run kind.
+- If a summary request arrives while a summary run is active, it is merged into the active summary accumulator. If it arrives during screenshot analysis, it is coalesced into the pending summary bucket and starts after analysis finishes.
 - `DailyReportSummaryService` fetches analyzed activity items that overlap the target day.
 - The fetch includes the last result before the target day only when its stored duration crosses into the day, then clips that item to start at the report day boundary.
 - Items captured during the target day are clipped at the next day boundary when their stored duration crosses midnight.

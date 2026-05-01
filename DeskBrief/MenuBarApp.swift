@@ -744,7 +744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             analyzeNowItem.isEnabled = !analysisState.isStopping
         } else {
             analyzeNowItem.title = text(.menuAnalyzeNowStart, language: language)
-            analyzeNowItem.isEnabled = pendingScreenshots.first != nil
+            analyzeNowItem.isEnabled = !summaryState.isRunning && pendingScreenshots.first != nil
         }
 
         backfillMissingSummariesItem.isEnabled = !anyWorkRunning

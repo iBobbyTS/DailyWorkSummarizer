@@ -41,7 +41,8 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - Mutating actions should use explicit menu items; state display should stay separate from commands.
 - Keep first-level commands ordered as Current Status, Reports, Clear Early Screenshots, divider, Settings, Analysis startup mode, Show Logs, divider, then Quit.
 - Nested menus are appropriate for compact first-level option groups such as analysis startup mode.
-- The Current Status submenu should switch between an idle summary, a running screenshot-analysis block, a running work-content-summary block, or both running blocks when both services are active.
+- The Current Status submenu should switch between an idle summary, a running screenshot-analysis block, or a running work-content-summary block. Screenshot analysis and work-content summary runs are mutually exclusive, so both running blocks should not appear together.
+- `Analyze Now` should be disabled while a work-content summary run is active; during a screenshot-analysis run it remains the stop action for that run. Backfill should be disabled while any run is active. The analysis startup mode submenu remains enabled during runs and only affects future triggers.
 - When either model profile uses LM Studio, the Current Status submenu should expose a force-unload command for that specific profile as a third block after the status text and the regular action section. Keep `Open Screenshots Folder` and `Analyze Now` together in the second block.
 - The Clear Early Screenshots submenu calculates counts asynchronously when opened. It should show calculating, empty, count, and failure states without blocking the menu bar UI, and destructive cleanup requires confirmation.
 

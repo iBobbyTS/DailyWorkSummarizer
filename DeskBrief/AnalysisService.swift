@@ -23,17 +23,11 @@ enum AnalysisServiceError: LocalizedError {
 
 @MainActor
 final class AnalysisService {
-    enum AnalysisTrigger {
-        case manual
-        case scheduled
-        case realtime
-    }
-
-
     private let database: AppDatabase
     private let settingsStore: SettingsStore
     private let logStore: AppLogStore
     private let dailyReportSummaryService: DailyReportSummaryService
+    private let runCoordinator: AppRunCoordinator
     private let llmService: LLMService
     private let analysisWorker: AnalysisWorker
     private let lmStudioLifecycle: LMStudioModelLifecycle
@@ -43,7 +37,6 @@ final class AnalysisService {
     private var screenshotSavedObserver: NSObjectProtocol?
     private var runningTask: Task<Void, Never>?
     private var activeAnalysisRun: ActiveAnalysisRun?
-    private var pendingRequestAfterCurrentRun: AnalysisTrigger?
     private var activeRunSettings: AppSettingsSnapshot?
     private var lastLMStudioModelInstanceID: String?
     private var runtimeState: AnalysisRuntimeState = .idle {
@@ -57,12 +50,14 @@ final class AnalysisService {
         settingsStore: SettingsStore,
         logStore: AppLogStore,
         dailyReportSummaryService: DailyReportSummaryService,
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        runCoordinator: AppRunCoordinator? = nil
     ) {
         self.database = database
         self.settingsStore = settingsStore
         self.logStore = logStore
         self.dailyReportSummaryService = dailyReportSummaryService
+        self.runCoordinator = runCoordinator ?? dailyReportSummaryService.runCoordinator
         let resolvedSession = session ?? Self.makeIsolatedSession()
         self.llmService = LLMService(session: resolvedSession)
         self.analysisWorker = AnalysisWorker(llmService: self.llmService)
@@ -73,6 +68,9 @@ final class AnalysisService {
                 let message = language == .simplifiedChinese ? chinese : english
                 logStore.add(level: .log, source: .lmStudio, message: message)
             }
+        }
+        self.runCoordinator.startAnalysisHandler = { [weak self] trigger in
+            self?.startAnalysisFromCoordinator(trigger: trigger)
         }
     }
 
@@ -282,22 +280,61 @@ final class AnalysisService {
     }
 
     private func triggerAnalysis(scheduledFor _: Date, trigger: AnalysisTrigger) {
-        if Self.shouldSkipForChargerRequirement(
-            trigger: trigger,
-            requiresCharger: settingsStore.snapshot.autoAnalysisRequiresCharger,
-            isConnectedToCharger: Self.isConnectedToCharger()
-        ) {
+        guard canRunAnalysisTrigger(trigger) else {
             if trigger == .scheduled {
                 scheduleNextRun()
             }
             return
         }
 
+        let canMergeWithActiveAnalysis = activeAnalysisRun?.isAcceptingAppends == true
+        switch runCoordinator.requestAnalysis(
+            trigger: trigger,
+            canMergeWithActiveAnalysis: canMergeWithActiveAnalysis
+        ) {
+        case .startNow:
+            beginAnalysisRun(trigger: trigger)
+        case .mergeIntoCurrentRun:
+            if let activeAnalysisRun {
+                appendPendingScreenshots(to: activeAnalysisRun)
+            }
+        case .queued:
+            break
+        }
+    }
+
+    private func startAnalysisFromCoordinator(trigger: AnalysisTrigger) {
+        guard canRunAnalysisTrigger(trigger) else {
+            if trigger == .scheduled {
+                scheduleNextRun()
+            }
+            runCoordinator.finishRun(.screenshotAnalysis)
+            return
+        }
+
+        beginAnalysisRun(trigger: trigger)
+    }
+
+    private func canRunAnalysisTrigger(_ trigger: AnalysisTrigger) -> Bool {
+        if Self.shouldSkipForChargerRequirement(
+            trigger: trigger,
+            requiresCharger: settingsStore.snapshot.autoAnalysisRequiresCharger,
+            isConnectedToCharger: Self.isConnectedToCharger()
+        ) {
+            return false
+        }
+        return true
+    }
+
+    private func beginAnalysisRun(trigger: AnalysisTrigger) {
         if let activeAnalysisRun {
             if activeAnalysisRun.isAcceptingAppends {
                 appendPendingScreenshots(to: activeAnalysisRun)
             } else {
-                rememberPendingRequestAfterCurrentRun(trigger)
+                _ = runCoordinator.requestAnalysis(
+                    trigger: trigger,
+                    canMergeWithActiveAnalysis: false
+                )
             }
             return
         }
@@ -308,6 +345,7 @@ final class AnalysisService {
             if trigger == .scheduled {
                 scheduleNextRun()
             }
+            runCoordinator.finishRun(.screenshotAnalysis)
             return
         }
 
@@ -325,6 +363,7 @@ final class AnalysisService {
             )
         } catch {
             logStore.addError(source: .analysis, context: "Failed to create analysis run", error: error)
+            runCoordinator.finishRun(.screenshotAnalysis)
             return
         }
 
@@ -346,13 +385,9 @@ final class AnalysisService {
             guard let self else { return }
             await self.runAnalysis(for: run)
             await MainActor.run {
-                let pendingRequest = self.pendingRequestAfterCurrentRun
-                self.pendingRequestAfterCurrentRun = nil
                 self.runningTask = nil
                 self.scheduleNextRun()
-                if let pendingRequest {
-                    self.triggerAnalysis(scheduledFor: Date(), trigger: pendingRequest)
-                }
+                self.runCoordinator.finishRun(.screenshotAnalysis)
             }
         }
     }
@@ -610,7 +645,7 @@ final class AnalysisService {
             from: run.screenshots,
             calendar: Calendar.reportCalendar(language: snapshot.appLanguage)
         )
-        await summarizeMissingReportsAfterAnalysis(
+        await enqueueMissingReportsAfterAnalysis(
             snapshot: snapshot,
             loadedAnalysisModel: loadedAnalysisModel,
             affectedDayStarts: affectedDayStarts
@@ -626,7 +661,7 @@ final class AnalysisService {
         return try await lmStudioLifecycle.load(settings: settings)
     }
 
-    private func summarizeMissingReportsAfterAnalysis(
+    private func enqueueMissingReportsAfterAnalysis(
         snapshot: AppSettingsSnapshot,
         loadedAnalysisModel: LMStudioLoadedModel?,
         affectedDayStarts: Set<Date>
@@ -652,7 +687,7 @@ final class AnalysisService {
             )
         }
 
-        await dailyReportSummaryService.summarizeAffectedSummaries(
+        dailyReportSummaryService.enqueueAffectedSummariesAfterAnalysis(
             for: affectedDayStarts,
             lmStudioLifecyclePolicy: (summaryLifecycleEnabled && !canReuseAnalysisModel)
                 ? .automaticUnload
@@ -689,12 +724,6 @@ final class AnalysisService {
             totalCount: run.totalCount
         )
         return appendedCount
-    }
-
-    private func rememberPendingRequestAfterCurrentRun(_ trigger: AnalysisTrigger) {
-        if pendingRequestAfterCurrentRun == nil || trigger == .manual {
-            pendingRequestAfterCurrentRun = trigger
-        }
     }
 
     private func waitForAdditionalScreenshots(to run: ActiveAnalysisRun) async -> Bool {
