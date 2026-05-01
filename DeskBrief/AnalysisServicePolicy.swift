@@ -15,7 +15,9 @@ extension AnalysisService {
 
             let category = payload.category.trimmingCharacters(in: .whitespacesAndNewlines)
             let summary = payload.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard validCategories.contains(category), !summary.isEmpty else {
+            guard !category.isEmpty,
+                  !summary.isEmpty,
+                  validCategories.contains(category) else {
                 continue
             }
 

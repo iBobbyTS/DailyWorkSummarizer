@@ -431,6 +431,12 @@ extension DeskBriefTests {
         )
         #expect(
             AnalysisService.extractAnalysisResponse(
+                from: #"{"category":"   ","summary":"开发项目"}"#,
+                validRules: rules
+            ) == nil
+        )
+        #expect(
+            AnalysisService.extractAnalysisResponse(
                 from: #"{"category":"专注工作","summary":"   "}"#,
                 validRules: rules
             ) == nil

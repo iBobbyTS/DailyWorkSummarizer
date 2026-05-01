@@ -67,6 +67,7 @@ Behavior:
 
 - Send the screenshot image plus instructions to the remote endpoint.
 - Parse a structured category-and-summary response from model output.
+- Treat category or summary fields that trim to empty strings as invalid responses, so the normal analysis retry policy can retry the screenshot before the run records a failure.
 
 Strengths:
 

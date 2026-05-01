@@ -631,6 +631,72 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func emptyTrimmedAnalysisFieldsRetryBeforeRunFailure() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "screenshot-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .manual
+
+        let screenshotURL = try database.screenshotsDirectory().appendingPathComponent("20260426-1000-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: screenshotURL)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            let content = MockURLProtocol.requestCount == 1
+                ? #"{"category":"专注工作","summary":"   "}"#
+                : #"{"category":"专注工作","summary":"重试后完成截屏分析"}"#
+            let responsePayload: [String: Any] = [
+                "choices": [
+                    [
+                        "message": ["content": content],
+                        "finish_reason": "stop",
+                    ],
+                ],
+            ]
+            let responseData = try JSONSerialization.data(withJSONObject: responsePayload)
+            let responseBody = try #require(String(data: responseData, encoding: .utf8))
+            return try makeHTTPResponse(url: try #require(request.url), body: responseBody)
+        }
+
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            dailyReportSummaryService: DailyReportSummaryService(database: database, settingsStore: store, session: session),
+            session: session
+        )
+
+        service.runNow()
+        let didFinish = await waitUntil(timeoutSeconds: 8) {
+            MockURLProtocol.requestCount == 2 && !service.currentState.isRunning
+        }
+
+        #expect(didFinish)
+        #expect(try fetchInt("SELECT success_count FROM analysis_runs LIMIT 1;", databaseURL: databaseURL) == 1)
+        #expect(try fetchInt("SELECT failure_count FROM analysis_runs LIMIT 1;", databaseURL: databaseURL) == 0)
+        #expect(try fetchOptionalString("SELECT summary_text FROM analysis_results LIMIT 1;", databaseURL: databaseURL) == "重试后完成截屏分析")
+    }
+
+    @MainActor
     @Test func lmStudioAnalysisAndSummarySameConfigurationKeepsModelLoaded() async throws {
         let paths = try await runAnalysisLifecycleScenario(
             analysisProvider: .lmStudio,
