@@ -511,7 +511,12 @@ final class ReportsViewModel: ObservableObject {
             grouped = Dictionary(grouping: items) { $0.capturedAt.yearStart(calendar: calendar) }
         }
 
-        return grouped.map { startDate, records in
+        return grouped.compactMap { startDate, records in
+            let durationRecords = records.filter { $0.categoryName != AppDefaults.absenceCategoryName }
+            guard !durationRecords.isEmpty else {
+                return nil
+            }
+
             let interval: DateInterval
             let label: String
 
@@ -535,7 +540,6 @@ final class ReportsViewModel: ObservableObject {
                 label = L10n.reportYearFormatter(language: language).string(from: startDate)
             }
 
-            let durationRecords = records.filter { $0.categoryName != AppDefaults.absenceCategoryName }
             let totalHours = Double(durationRecords.reduce(0) { $0 + $1.durationMinutes }) / 60.0
             let averageDayCount = resolvedAverageDayCount(
                 for: records,

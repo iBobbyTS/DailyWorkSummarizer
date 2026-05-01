@@ -438,4 +438,127 @@ extension DeskBriefTests {
         viewModel.toggleHeatmapCategory(AppDefaults.preservedOtherCategoryName)
         #expect(viewModel.isHeatmapCategorySelected(AppDefaults.preservedOtherCategoryName))
     }
+
+    @MainActor
+    @Test func reportsViewModelSkipsAllAwayDayRangesGeneratedBetweenActivity() async throws {
+        let fixture = try makeReportsViewModelFixture(
+            activityDates: [
+                makeScreenshotDate(year: 2026, month: 4, day: 27, hour: 9, minute: 0),
+                makeScreenshotDate(year: 2026, month: 4, day: 30, hour: 9, minute: 0),
+            ]
+        )
+        defer { fixture.cleanup() }
+
+        let calendar = Calendar.reportCalendar
+        let displayedDayStarts = Set(fixture.viewModel.allRanges.map { calendar.startOfDay(for: $0.interval.start) })
+
+        #expect(displayedDayStarts.contains(calendar.startOfDay(for: makeScreenshotDate(year: 2026, month: 4, day: 27, hour: 0, minute: 0))))
+        #expect(displayedDayStarts.contains(calendar.startOfDay(for: makeScreenshotDate(year: 2026, month: 4, day: 30, hour: 0, minute: 0))))
+        #expect(!displayedDayStarts.contains(calendar.startOfDay(for: makeScreenshotDate(year: 2026, month: 4, day: 28, hour: 0, minute: 0))))
+        #expect(!displayedDayStarts.contains(calendar.startOfDay(for: makeScreenshotDate(year: 2026, month: 4, day: 29, hour: 0, minute: 0))))
+    }
+
+    @MainActor
+    @Test func reportsViewModelSkipsAllAwayWeekRangesGeneratedBetweenActivity() async throws {
+        let fixture = try makeReportsViewModelFixture(
+            activityDates: [
+                makeScreenshotDate(year: 2026, month: 4, day: 20, hour: 9, minute: 0),
+                makeScreenshotDate(year: 2026, month: 5, day: 4, hour: 9, minute: 0),
+            ],
+            weekStart: .monday
+        )
+        defer { fixture.cleanup() }
+
+        fixture.viewModel.selectedKind = .week
+
+        let calendar = Calendar.reportCalendar(firstWeekday: ReportWeekStart.monday.calendarFirstWeekday)
+        let displayedWeekStarts = Set(fixture.viewModel.allRanges.map { $0.interval.start })
+
+        #expect(displayedWeekStarts.contains(makeScreenshotDate(year: 2026, month: 4, day: 20, hour: 9, minute: 0).startOfWeek(calendar: calendar)))
+        #expect(displayedWeekStarts.contains(makeScreenshotDate(year: 2026, month: 5, day: 4, hour: 9, minute: 0).startOfWeek(calendar: calendar)))
+        #expect(!displayedWeekStarts.contains(makeScreenshotDate(year: 2026, month: 4, day: 27, hour: 9, minute: 0).startOfWeek(calendar: calendar)))
+    }
+
+    @MainActor
+    @Test func reportsViewModelSkipsAllAwayMonthRangesGeneratedBetweenActivity() async throws {
+        let fixture = try makeReportsViewModelFixture(
+            activityDates: [
+                makeScreenshotDate(year: 2026, month: 3, day: 31, hour: 9, minute: 0),
+                makeScreenshotDate(year: 2026, month: 5, day: 1, hour: 9, minute: 0),
+            ]
+        )
+        defer { fixture.cleanup() }
+
+        fixture.viewModel.selectedKind = .month
+
+        let calendar = Calendar.reportCalendar
+        let displayedMonthStarts = Set(fixture.viewModel.allRanges.map { $0.interval.start })
+
+        #expect(displayedMonthStarts.contains(makeScreenshotDate(year: 2026, month: 3, day: 31, hour: 9, minute: 0).monthStart(calendar: calendar)))
+        #expect(displayedMonthStarts.contains(makeScreenshotDate(year: 2026, month: 5, day: 1, hour: 9, minute: 0).monthStart(calendar: calendar)))
+        #expect(!displayedMonthStarts.contains(makeScreenshotDate(year: 2026, month: 4, day: 15, hour: 9, minute: 0).monthStart(calendar: calendar)))
+    }
+
+    @MainActor
+    @Test func reportsViewModelSkipsAllAwayYearRangesGeneratedBetweenActivity() async throws {
+        let fixture = try makeReportsViewModelFixture(
+            activityDates: [
+                makeScreenshotDate(year: 2025, month: 12, day: 31, hour: 9, minute: 0),
+                makeScreenshotDate(year: 2027, month: 1, day: 1, hour: 9, minute: 0),
+            ]
+        )
+        defer { fixture.cleanup() }
+
+        fixture.viewModel.selectedKind = .year
+
+        let calendar = Calendar.reportCalendar
+        let displayedYearStarts = Set(fixture.viewModel.allRanges.map { $0.interval.start })
+
+        #expect(displayedYearStarts.contains(makeScreenshotDate(year: 2025, month: 12, day: 31, hour: 9, minute: 0).yearStart(calendar: calendar)))
+        #expect(displayedYearStarts.contains(makeScreenshotDate(year: 2027, month: 1, day: 1, hour: 9, minute: 0).yearStart(calendar: calendar)))
+        #expect(!displayedYearStarts.contains(makeScreenshotDate(year: 2026, month: 6, day: 1, hour: 9, minute: 0).yearStart(calendar: calendar)))
+    }
+}
+
+@MainActor
+private func makeReportsViewModelFixture(
+    activityDates: [Date],
+    weekStart: ReportWeekStart = .sunday
+) throws -> ReportsViewModelFixture {
+    let databaseURL = makeTemporaryDatabaseURL()
+    let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+    let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+    let keychain = KeychainStore(service: suiteName)
+    let database = try AppDatabase(databaseURL: databaseURL)
+    let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+    store.reportWeekStart = weekStart
+    let summaryService = DailyReportSummaryService(database: database, settingsStore: store)
+
+    _ = try makeAnalysisRun(database: database)
+    for date in activityDates {
+        try database.insertAnalysisResult(
+            capturedAt: date,
+            categoryName: "专注工作",
+            summaryText: "真实活动",
+            durationMinutesSnapshot: 10
+        )
+    }
+
+    let viewModel = ReportsViewModel(
+        database: database,
+        settingsStore: store,
+        dailyReportSummaryService: summaryService
+    )
+
+    return ReportsViewModelFixture(viewModel: viewModel) {
+        userDefaults.removePersistentDomain(forName: suiteName)
+        keychain.set("", for: AppDefaults.apiKeyAccount)
+        keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+        try? FileManager.default.removeItem(at: databaseURL)
+    }
+}
+
+private struct ReportsViewModelFixture {
+    let viewModel: ReportsViewModel
+    let cleanup: () -> Void
 }
