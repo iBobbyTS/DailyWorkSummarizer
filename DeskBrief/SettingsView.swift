@@ -327,9 +327,7 @@ struct SettingsView: View {
                         .padding(.vertical, 12)
                 }
 
-                TextEditor(text: $settingsStore.summaryInstruction)
-                    .scrollContentBackground(.hidden)
-                    .padding(8)
+                SummaryInstructionTextView(text: $settingsStore.summaryInstruction)
             }
             .frame(minHeight: 140)
             .overlay(
@@ -1151,6 +1149,87 @@ struct SettingsView: View {
         } catch {
             logStore?.addError(source: .settings, context: context, error: error)
         }
+    }
+}
+
+private struct SummaryInstructionTextView: NSViewRepresentable {
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+
+        let textView = NSTextView()
+        textView.delegate = context.coordinator
+        textView.string = text
+        textView.drawsBackground = false
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        SummaryInstructionTextViewTextSystem.apply(to: textView)
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else {
+            return
+        }
+
+        context.coordinator.text = $text
+        if textView.string != text {
+            let selectedRange = textView.selectedRange()
+            textView.string = text
+            let textLength = (text as NSString).length
+            let location = min(selectedRange.location, textLength)
+            let length = min(selectedRange.length, max(0, textLength - location))
+            textView.setSelectedRange(NSRange(location: location, length: length))
+        }
+        SummaryInstructionTextViewTextSystem.apply(to: textView)
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
+        weak var textView: NSTextView?
+
+        init(text: Binding<String>) {
+            self.text = text
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else {
+                return
+            }
+            text.wrappedValue = textView.string
+        }
+    }
+}
+
+enum SummaryInstructionTextViewTextSystem {
+    static let textContainerInset = NSSize(width: 12, height: 12)
+    static let lineFragmentPadding: CGFloat = 0
+
+    static func apply(to textView: NSTextView) {
+        textView.drawsBackground = false
+        textView.font = .preferredFont(forTextStyle: .body)
+        textView.textColor = .labelColor
+        textView.textContainerInset = textContainerInset
+        textView.textContainer?.lineFragmentPadding = lineFragmentPadding
     }
 }
 

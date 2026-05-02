@@ -175,6 +175,16 @@ extension DeskBriefTests {
         #expect(L10n.string(.menuBackfillMissingSummaries, language: .english) == "Fill Missing Summaries")
     }
 
+    @Test func summaryInstructionEditorKeepsTextAwayFromClippingEdge() async throws {
+        let textView = NSTextView()
+        SummaryInstructionTextViewTextSystem.apply(to: textView)
+
+        #expect(textView.textContainerInset.width == 12)
+        #expect(textView.textContainerInset.height == 12)
+        #expect(textView.textContainer?.lineFragmentPadding == 0)
+        #expect(!textView.drawsBackground)
+    }
+
     @MainActor
     @Test func statusMenuPlacesReportsBelowCurrentStatusAndUtilitiesBelowSettings() async throws {
         let delegate = AppDelegate()
