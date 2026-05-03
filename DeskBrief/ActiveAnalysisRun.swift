@@ -1,5 +1,19 @@
 import Foundation
 
+enum AnalysisRunDailyReportStrategy: Equatable {
+    case boundedRunDays
+    case realtimeBoundary
+
+    init(trigger: AnalysisTrigger) {
+        switch trigger {
+        case .manual, .scheduled:
+            self = .boundedRunDays
+        case .realtime:
+            self = .realtimeBoundary
+        }
+    }
+}
+
 @MainActor
 final class ActiveAnalysisRun {
     let id: Int64
@@ -18,13 +32,25 @@ final class ActiveAnalysisRun {
     var wasPausedAfterFailures = false
     var didLogLMStudioCancellationObservation = false
     var isAcceptingAppends = true
+    private(set) var dailyReportStrategy: AnalysisRunDailyReportStrategy
+    private(set) var previousAnalysisResultDayStarts: Set<Date>
+    private(set) var processedAnalysisDayStarts: Set<Date> = []
 
-    init(id: Int64, settings: AppSettingsSnapshot, prompt: String, screenshots: [ScreenshotFileRecord]) {
+    init(
+        id: Int64,
+        settings: AppSettingsSnapshot,
+        prompt: String,
+        screenshots: [ScreenshotFileRecord],
+        trigger: AnalysisTrigger,
+        previousAnalysisResultDayStarts: Set<Date>
+    ) {
         self.id = id
         self.settings = settings
         self.prompt = prompt
         self.screenshots = screenshots
         self.screenshotPaths = Set(screenshots.map { $0.url.path })
+        self.dailyReportStrategy = AnalysisRunDailyReportStrategy(trigger: trigger)
+        self.previousAnalysisResultDayStarts = previousAnalysisResultDayStarts
     }
 
     var startedAt: Date? {
@@ -55,5 +81,67 @@ final class ActiveAnalysisRun {
         }
         screenshots.append(contentsOf: newScreenshots)
         return newScreenshots.count
+    }
+
+    func mergeTrigger(_ trigger: AnalysisTrigger) {
+        guard trigger != .realtime else {
+            return
+        }
+        dailyReportStrategy = .boundedRunDays
+    }
+
+    func recordProcessedAnalysisResult(for screenshot: ScreenshotFileRecord, calendar: Calendar) {
+        processedAnalysisDayStarts.formUnion(
+            Self.dayStarts(from: screenshot.capturedAt, endAt: screenshot.endAt, calendar: calendar)
+        )
+    }
+
+    func dailyReportCandidateDayStarts(calendar: Calendar) -> Set<Date> {
+        switch dailyReportStrategy {
+        case .boundedRunDays:
+            return Self.continuousDayStarts(from: processedAnalysisDayStarts, calendar: calendar)
+        case .realtimeBoundary:
+            let comparedDayStarts = previousAnalysisResultDayStarts.union(processedAnalysisDayStarts)
+            guard let latestDayStart = comparedDayStarts.max() else {
+                return []
+            }
+            return Set(comparedDayStarts.filter { $0 < latestDayStart })
+        }
+    }
+
+    nonisolated static func dayStarts(from start: Date, endAt end: Date, calendar: Calendar) -> Set<Date> {
+        var dayStarts = Set<Date>()
+        let lastInstant = end > start ? end.addingTimeInterval(-0.001) : start
+        let firstDayStart = calendar.startOfDay(for: start)
+        let lastDayStart = calendar.startOfDay(for: lastInstant)
+
+        var currentDayStart = firstDayStart
+        while currentDayStart <= lastDayStart {
+            dayStarts.insert(currentDayStart)
+            guard let nextDayStart = calendar.date(byAdding: .day, value: 1, to: currentDayStart) else {
+                break
+            }
+            currentDayStart = nextDayStart
+        }
+
+        return dayStarts
+    }
+
+    private nonisolated static func continuousDayStarts(from dayStarts: Set<Date>, calendar: Calendar) -> Set<Date> {
+        guard let firstDayStart = dayStarts.min(),
+              let lastDayStart = dayStarts.max() else {
+            return []
+        }
+
+        var result = Set<Date>()
+        var currentDayStart = firstDayStart
+        while currentDayStart <= lastDayStart {
+            result.insert(currentDayStart)
+            guard let nextDayStart = calendar.date(byAdding: .day, value: 1, to: currentDayStart) else {
+                break
+            }
+            currentDayStart = nextDayStart
+        }
+        return result
     }
 }

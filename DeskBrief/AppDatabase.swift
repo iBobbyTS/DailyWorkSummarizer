@@ -445,6 +445,43 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
+    func fetchLatestReportActivityItem(before date: Date) throws -> DailyReportActivityItem? {
+        try queue.sync {
+            try ensureTableExistsLocked("analysis_results")
+            let statement = try prepareStatement("""
+                SELECT
+                    id,
+                    captured_at,
+                    category_name,
+                    duration_minutes_snapshot AS duration_minutes,
+                    summary_text AS item_summary_text
+                FROM analysis_results
+                WHERE category_name IS NOT NULL
+                  AND captured_at < ?
+                ORDER BY captured_at DESC, id DESC
+                LIMIT 1;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            sqlite3_bind_double(statement, 1, date.timeIntervalSince1970)
+
+            guard sqlite3_step(statement) == SQLITE_ROW else {
+                return nil
+            }
+
+            let itemSummaryText = sqlite3_column_type(statement, 4) == SQLITE_NULL
+                ? nil
+                : string(at: 4, from: statement)
+            return DailyReportActivityItem(
+                id: sqlite3_column_int64(statement, 0),
+                capturedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 1)),
+                categoryName: string(at: 2, from: statement),
+                durationMinutes: Int(sqlite3_column_int64(statement, 3)),
+                itemSummaryText: itemSummaryText
+            )
+        }
+    }
+
     func fetchActivityDayStarts(calendar: Calendar = .reportCalendar) throws -> [Date] {
         let sourceItems = try fetchReportSourceItems()
         return Array(Set(sourceItems.map { calendar.startOfDay(for: $0.capturedAt) }))

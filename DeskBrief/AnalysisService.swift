@@ -296,7 +296,7 @@ final class AnalysisService {
             beginAnalysisRun(trigger: trigger)
         case .mergeIntoCurrentRun:
             if let activeAnalysisRun {
-                appendPendingScreenshots(to: activeAnalysisRun)
+                appendPendingScreenshots(to: activeAnalysisRun, trigger: trigger)
             }
         case .queued:
             break
@@ -329,7 +329,7 @@ final class AnalysisService {
     private func beginAnalysisRun(trigger: AnalysisTrigger) {
         if let activeAnalysisRun {
             if activeAnalysisRun.isAcceptingAppends {
-                appendPendingScreenshots(to: activeAnalysisRun)
+                appendPendingScreenshots(to: activeAnalysisRun, trigger: trigger)
             } else {
                 _ = runCoordinator.requestAnalysis(
                     trigger: trigger,
@@ -354,6 +354,11 @@ final class AnalysisService {
             summaryInstruction: snapshot.summaryInstruction,
             language: snapshot.appLanguage
         )
+        let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
+        let previousAnalysisResultDayStarts = previousAnalysisResultDayStarts(
+            before: pendingScreenshots.map(\.capturedAt).min(),
+            calendar: calendar
+        )
 
         let runID: Int64
         do {
@@ -371,7 +376,9 @@ final class AnalysisService {
             id: runID,
             settings: snapshot,
             prompt: prompt,
-            screenshots: pendingScreenshots
+            screenshots: pendingScreenshots,
+            trigger: trigger,
+            previousAnalysisResultDayStarts: previousAnalysisResultDayStarts
         )
         activeAnalysisRun = run
         updateRuntimeState(
@@ -394,6 +401,7 @@ final class AnalysisService {
 
     private func runAnalysis(for run: ActiveAnalysisRun) async {
         let snapshot = run.settings
+        let reportCalendar = Calendar.reportCalendar(language: snapshot.appLanguage)
         lastLMStudioModelInstanceID = nil
         activeRunSettings = snapshot
         defer {
@@ -517,6 +525,7 @@ final class AnalysisService {
                         summaryText: response.summary,
                         durationMinutesSnapshot: durationMinutes
                     )
+                    run.recordProcessedAnalysisResult(for: screenshot, calendar: reportCalendar)
 
                     run.successCount += 1
                     run.consecutiveFailureCount = 0
@@ -643,12 +652,14 @@ final class AnalysisService {
         )
         let affectedDayStarts = Self.affectedDayStarts(
             from: run.screenshots,
-            calendar: Calendar.reportCalendar(language: snapshot.appLanguage)
+            calendar: reportCalendar
         )
+        let dailyReportCandidateDayStarts = run.dailyReportCandidateDayStarts(calendar: reportCalendar)
         await enqueueMissingReportsAfterAnalysis(
             snapshot: snapshot,
             loadedAnalysisModel: loadedAnalysisModel,
-            affectedDayStarts: affectedDayStarts
+            workBlockDayStarts: affectedDayStarts,
+            dailyReportCandidateDayStarts: dailyReportCandidateDayStarts
         )
     }
 
@@ -664,7 +675,8 @@ final class AnalysisService {
     private func enqueueMissingReportsAfterAnalysis(
         snapshot: AppSettingsSnapshot,
         loadedAnalysisModel: LMStudioLoadedModel?,
-        affectedDayStarts: Set<Date>
+        workBlockDayStarts: Set<Date>,
+        dailyReportCandidateDayStarts: Set<Date>
     ) async {
         let analysisSettings = snapshot.screenshotAnalysisModelProfile
         let summarySettings = snapshot.workContentSummaryModelProfile
@@ -687,8 +699,9 @@ final class AnalysisService {
             )
         }
 
-        dailyReportSummaryService.enqueueAffectedSummariesAfterAnalysis(
-            for: affectedDayStarts,
+        dailyReportSummaryService.enqueueSummariesAfterAnalysis(
+            workBlockDayStarts: workBlockDayStarts,
+            dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
             lmStudioLifecyclePolicy: (summaryLifecycleEnabled && !canReuseAnalysisModel)
                 ? .automaticUnload
                 : .alreadyLoadedKeepLoaded
@@ -705,7 +718,8 @@ final class AnalysisService {
     }
 
     @discardableResult
-    private func appendPendingScreenshots(to run: ActiveAnalysisRun) -> Int {
+    private func appendPendingScreenshots(to run: ActiveAnalysisRun, trigger: AnalysisTrigger) -> Int {
+        run.mergeTrigger(trigger)
         let screenshots = pendingScreenshotFiles(defaultDurationMinutes: run.settings.screenshotIntervalMinutes)
         let appendedCount = run.appendMissingScreenshots(screenshots)
         guard appendedCount > 0 else {
@@ -724,6 +738,26 @@ final class AnalysisService {
             totalCount: run.totalCount
         )
         return appendedCount
+    }
+
+    private func previousAnalysisResultDayStarts(before date: Date?, calendar: Calendar) -> Set<Date> {
+        guard let date else {
+            return []
+        }
+
+        do {
+            guard let previousResult = try database.fetchLatestReportActivityItem(before: date) else {
+                return []
+            }
+            return ActiveAnalysisRun.dayStarts(
+                from: previousResult.capturedAt,
+                endAt: previousResult.endAt,
+                calendar: calendar
+            )
+        } catch {
+            logStore.addError(source: .analysis, context: "Failed to fetch previous analysis result for realtime summary boundary", error: error)
+            return []
+        }
     }
 
     private func waitForAdditionalScreenshots(to run: ActiveAnalysisRun) async -> Bool {

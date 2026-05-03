@@ -171,12 +171,31 @@ final class DailyReportSummaryService {
         )
     }
 
-    func enqueueAffectedSummariesAfterAnalysis(
-        for dayStarts: Set<Date>,
+    func summarizeAfterAnalysis(
+        workBlockDayStarts: Set<Date>,
+        dailyReportCandidateDayStarts: Set<Date>,
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .automaticUnload
+    ) async {
+        let request = DailyReportSummaryRequest.afterAnalysis(
+            workBlockDayStarts: workBlockDayStarts,
+            dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
+            lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
+            waiter: nil
+        )
+        await submitSummaryRequestAndWait(
+            request,
+            context: "Failed to summarize after analysis"
+        )
+    }
+
+    func enqueueSummariesAfterAnalysis(
+        workBlockDayStarts: Set<Date>,
+        dailyReportCandidateDayStarts: Set<Date>,
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
     ) {
-        let request = DailyReportSummaryRequest.affectedSummaries(
-            dayStarts: dayStarts,
+        let request = DailyReportSummaryRequest.afterAnalysis(
+            workBlockDayStarts: workBlockDayStarts,
+            dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
             waiter: nil
         )
@@ -398,24 +417,34 @@ final class DailyReportSummaryService {
         let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
         let reportableDayStarts = try fetchReportableActivityDayStarts(calendar: calendar)
         let latestDayStart = reportableDayStarts.last
-        let targetDayStarts = request.includesBackfill ? nil : request.affectedDayStarts
 
+        let targetDayStarts = request.workBlockScope.targetDayStarts
         let candidateBlocks: [DailyWorkBlock]
-        if request.includesBackfill {
+        switch request.workBlockScope {
+        case .all:
             candidateBlocks = try candidateWorkBlocks(targetDayStarts: nil)
-        } else if !request.affectedDayStarts.isEmpty {
-            candidateBlocks = try candidateWorkBlocks(targetDayStarts: request.affectedDayStarts)
-        } else {
+        case .dayStarts(let dayStarts):
+            candidateBlocks = try candidateWorkBlocks(targetDayStarts: dayStarts)
+        case .none:
             candidateBlocks = []
         }
 
         let pendingDays: [Date]
-        if request.includesBackfill || request.includesMissingDailyReports || !request.affectedDayStarts.isEmpty {
+        switch request.dailyReportScope {
+        case .allMissing:
             pendingDays = try pendingReportableDayStarts(
                 in: reportableDayStarts,
                 before: latestDayStart ?? .distantPast
             )
-        } else {
+        case .candidateDayStarts(let candidateDayStarts):
+            let reportableDayStartSet = Set(reportableDayStarts)
+            pendingDays = try pendingReportableDayStarts(
+                in: candidateDayStarts
+                    .filter { reportableDayStartSet.contains($0) }
+                    .sorted(),
+                before: latestDayStart ?? .distantPast
+            )
+        case .none:
             pendingDays = []
         }
 

@@ -217,6 +217,36 @@ func makeModelSettings(
     )
 }
 
+func makeTestSettingsSnapshot(
+    screenshotIntervalMinutes: Int = 10,
+    analysisStartupMode: AnalysisStartupMode = .manual,
+    appLanguage: AppLanguage = .simplifiedChinese
+) -> AppSettingsSnapshot {
+    AppSettingsSnapshot(
+        screenshotIntervalMinutes: screenshotIntervalMinutes,
+        analysisTimeMinutes: 9 * 60,
+        analysisStartupMode: analysisStartupMode,
+        autoAnalysisRequiresCharger: false,
+        appLanguage: appLanguage,
+        summaryInstruction: "测试总结说明",
+        screenshotAnalysisModelProfile: makeModelSettings(
+            provider: .openAI,
+            apiBaseURL: "https://analysis.example.com",
+            modelName: "analysis-model"
+        ),
+        workContentSummaryModelProfile: makeModelSettings(
+            provider: .openAI,
+            apiBaseURL: "https://summary.example.com",
+            modelName: "summary-model"
+        ),
+        categoryRules: [
+            CategoryRule(name: "专注工作", description: "工作"),
+            CategoryRule(name: "会议沟通", description: "会议"),
+            CategoryRule(name: AppDefaults.absenceCategoryName, description: "离开")
+        ]
+    )
+}
+
 func makeMockSession(
     handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
 ) -> URLSession {

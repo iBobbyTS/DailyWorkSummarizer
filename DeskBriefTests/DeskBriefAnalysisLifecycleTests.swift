@@ -1195,6 +1195,7 @@ extension DeskBriefTests {
         let keychain = KeychainStore(service: suiteName)
         let calendar = makeTestCalendar()
         let dayOne = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
+        let dayTwo = calendar.date(byAdding: .day, value: 1, to: dayOne)!
 
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
@@ -1225,14 +1226,14 @@ extension DeskBriefTests {
 
         _ = try makeAnalysisRun(database: database)
         try database.insertAnalysisResult(
-            capturedAt: calendar.date(byAdding: .hour, value: 9, to: dayOne)!,
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: dayTwo)!,
             categoryName: "专注工作",
-            summaryText: "实现前一天功能",
+            summaryText: "让前一天日报闭合",
             durationMinutesSnapshot: 30
         )
 
         let screenshotsDirectory = try database.screenshotsDirectory()
-        let screenshotURL = screenshotsDirectory.appendingPathComponent("20260313-1000-i5.jpg")
+        let screenshotURL = screenshotsDirectory.appendingPathComponent("20260312-1000-i5.jpg")
         try writeTestScreenshotPlaceholder(to: screenshotURL)
 
         let session = makeMockSession { request in

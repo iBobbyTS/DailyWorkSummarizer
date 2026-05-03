@@ -946,6 +946,178 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func summaryAfterAnalysisOnlyGeneratesCandidateDailyReports() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let oldDay = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
+        let candidateDay = calendar.date(byAdding: .day, value: 1, to: oldDay)!
+        let latestDay = calendar.date(byAdding: .day, value: 1, to: candidateDay)!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://work-content.example.com"
+        store.workContentSummaryModelName = "daily-report-model"
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: oldDay)!,
+            categoryName: "专注工作",
+            summaryText: "历史缺口不应被本次分析补齐",
+            durationMinutesSnapshot: 30
+        )
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: candidateDay)!,
+            categoryName: "专注工作",
+            summaryText: "本次分析涉及的日期可以补齐",
+            durationMinutesSnapshot: 30
+        )
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: latestDay)!,
+            categoryName: "专注工作",
+            summaryText: "最新活动日不自动生成完整日报",
+            durationMinutesSnapshot: 30
+        )
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"dailySummary\\":\\"只补齐候选日报\\",\\"categorySummaries\\":{\\"专注工作\\":\\"只处理本次分析范围\\"}}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        await service.summarizeAfterAnalysis(
+            workBlockDayStarts: [],
+            dailyReportCandidateDayStarts: [candidateDay]
+        )
+
+        let oldReport = try database.fetchDailyReport(for: oldDay)
+        let candidateReport = try #require(try database.fetchDailyReport(for: candidateDay))
+        let latestReport = try database.fetchDailyReport(for: latestDay)
+
+        #expect(MockURLProtocol.requestCount == 1)
+        #expect(oldReport == nil)
+        #expect(!candidateReport.isTemporary)
+        #expect(candidateReport.dailySummaryText == "只补齐候选日报")
+        #expect(latestReport == nil)
+    }
+
+    @MainActor
+    @Test func summaryAfterAnalysisDoesNotGenerateLatestActivityDayWithoutLaterReportableActivity() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let latestDay = calendar.date(from: DateComponents(year: 2026, month: 3, day: 14))!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://work-content.example.com"
+        store.workContentSummaryModelName = "daily-report-model"
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: latestDay)!,
+            categoryName: "专注工作",
+            summaryText: "最新活动日需要等待后续活动闭合",
+            durationMinutesSnapshot: 30
+        )
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: #"{"choices":[{"message":{"content":"{}"},"finish_reason":"stop"}]}"#
+            )
+        }
+
+        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        await service.summarizeAfterAnalysis(
+            workBlockDayStarts: [],
+            dailyReportCandidateDayStarts: [latestDay]
+        )
+
+        #expect(MockURLProtocol.requestCount == 0)
+        #expect(try database.fetchDailyReport(for: latestDay) == nil)
+    }
+
+    @Test func databaseFetchesLatestReportActivityItemBeforeDateForRealtimeBoundary() throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let calendar = makeTestCalendar()
+        let dayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 14))!
+        let first = calendar.date(byAdding: .hour, value: 9, to: dayStart)!
+        let second = calendar.date(byAdding: .hour, value: 10, to: dayStart)!
+        let later = calendar.date(byAdding: .hour, value: 11, to: dayStart)!
+
+        defer {
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: first,
+            categoryName: "专注工作",
+            summaryText: "第一条",
+            durationMinutesSnapshot: 30
+        )
+        try database.insertAnalysisResult(
+            capturedAt: second,
+            categoryName: "会议沟通",
+            summaryText: "第二条",
+            durationMinutesSnapshot: 20
+        )
+        try database.insertAnalysisResult(
+            capturedAt: later,
+            categoryName: "专注工作",
+            summaryText: "较晚条目不应返回",
+            durationMinutesSnapshot: 10
+        )
+
+        let fetched = try #require(try database.fetchLatestReportActivityItem(before: later))
+
+        #expect(fetched.capturedAt == second)
+        #expect(fetched.categoryName == "会议沟通")
+        #expect(fetched.itemSummaryText == "第二条")
+    }
+
+    @MainActor
     @Test func dailyReportSummaryServiceMarksManualGapDayFinalWhenLaterActivityExists() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DeskBriefTests.\(UUID().uuidString)"

@@ -29,7 +29,8 @@ extension DeskBriefTests {
 
         #expect(startedAnalysisTriggers.isEmpty)
         #expect(startedSummaryRequests.count == 1)
-        #expect(startedSummaryRequests[0].affectedDayStarts == summaryRequest.affectedDayStarts)
+        #expect(startedSummaryRequests[0].workBlockScope == summaryRequest.workBlockScope)
+        #expect(startedSummaryRequests[0].dailyReportScope == summaryRequest.dailyReportScope)
         #expect(coordinator.activeRunKind == .workContentSummary)
     }
 
@@ -76,5 +77,31 @@ extension DeskBriefTests {
         coordinator.finishRun(.workContentSummary)
 
         #expect(coordinator.activeRunKind == nil)
+    }
+
+    @Test func summaryRequestsMergeWorkBlockAndDailyReportScopesSeparately() {
+        let firstWorkBlockDay = Date(timeIntervalSince1970: 100)
+        let secondWorkBlockDay = Date(timeIntervalSince1970: 200)
+        let firstDailyReportDay = Date(timeIntervalSince1970: 300)
+        let secondDailyReportDay = Date(timeIntervalSince1970: 400)
+
+        var request = DailyReportSummaryRequest.afterAnalysis(
+            workBlockDayStarts: [firstWorkBlockDay],
+            dailyReportCandidateDayStarts: [firstDailyReportDay],
+            lmStudioLifecyclePolicy: .alreadyLoadedKeepLoaded,
+            waiter: nil
+        )
+        request.merge(
+            DailyReportSummaryRequest.afterAnalysis(
+                workBlockDayStarts: [secondWorkBlockDay],
+                dailyReportCandidateDayStarts: [secondDailyReportDay],
+                lmStudioLifecyclePolicy: .automaticUnload,
+                waiter: nil
+            )
+        )
+
+        #expect(request.workBlockScope == .dayStarts([firstWorkBlockDay, secondWorkBlockDay]))
+        #expect(request.dailyReportScope == .candidateDayStarts([firstDailyReportDay, secondDailyReportDay]))
+        #expect(request.lmStudioLifecyclePolicy == .automaticUnload)
     }
 }

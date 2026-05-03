@@ -28,6 +28,51 @@ enum AppRunDecision: Equatable {
     case queued
 }
 
+enum WorkBlockSummaryScope: Equatable {
+    case none
+    case dayStarts(Set<Date>)
+    case all
+
+    var targetDayStarts: Set<Date>? {
+        switch self {
+        case .none:
+            return []
+        case .dayStarts(let dayStarts):
+            return dayStarts
+        case .all:
+            return nil
+        }
+    }
+
+    func merged(with other: WorkBlockSummaryScope) -> WorkBlockSummaryScope {
+        switch (self, other) {
+        case (.all, _), (_, .all):
+            return .all
+        case (.none, let scope), (let scope, .none):
+            return scope
+        case (.dayStarts(let lhs), .dayStarts(let rhs)):
+            return .dayStarts(lhs.union(rhs))
+        }
+    }
+}
+
+enum DailyReportGenerationScope: Equatable {
+    case none
+    case candidateDayStarts(Set<Date>)
+    case allMissing
+
+    func merged(with other: DailyReportGenerationScope) -> DailyReportGenerationScope {
+        switch (self, other) {
+        case (.allMissing, _), (_, .allMissing):
+            return .allMissing
+        case (.none, let scope), (let scope, .none):
+            return scope
+        case (.candidateDayStarts(let lhs), .candidateDayStarts(let rhs)):
+            return .candidateDayStarts(lhs.union(rhs))
+        }
+    }
+}
+
 struct DailyReportSummaryExecutionResult {
     var dailyReports: [Date: DailyReportRecord] = [:]
     var dayErrors: [Date: Error] = [:]
@@ -77,9 +122,8 @@ final class DailyReportSummaryWaiter {
 }
 
 struct DailyReportSummaryRequest {
-    var includesBackfill: Bool
-    var includesMissingDailyReports: Bool
-    var affectedDayStarts: Set<Date>
+    var workBlockScope: WorkBlockSummaryScope
+    var dailyReportScope: DailyReportGenerationScope
     var explicitDayStarts: Set<Date>
     var lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
     var waiters: [DailyReportSummaryWaiter]
@@ -89,9 +133,8 @@ struct DailyReportSummaryRequest {
         waiter: DailyReportSummaryWaiter?
     ) -> DailyReportSummaryRequest {
         DailyReportSummaryRequest(
-            includesBackfill: true,
-            includesMissingDailyReports: false,
-            affectedDayStarts: [],
+            workBlockScope: .all,
+            dailyReportScope: .allMissing,
             explicitDayStarts: [],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
             waiters: waiter.map { [$0] } ?? []
@@ -103,9 +146,8 @@ struct DailyReportSummaryRequest {
         waiter: DailyReportSummaryWaiter?
     ) -> DailyReportSummaryRequest {
         DailyReportSummaryRequest(
-            includesBackfill: false,
-            includesMissingDailyReports: true,
-            affectedDayStarts: [],
+            workBlockScope: .none,
+            dailyReportScope: .allMissing,
             explicitDayStarts: [],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
             waiters: waiter.map { [$0] } ?? []
@@ -118,9 +160,23 @@ struct DailyReportSummaryRequest {
         waiter: DailyReportSummaryWaiter?
     ) -> DailyReportSummaryRequest {
         DailyReportSummaryRequest(
-            includesBackfill: false,
-            includesMissingDailyReports: false,
-            affectedDayStarts: dayStarts,
+            workBlockScope: .dayStarts(dayStarts),
+            dailyReportScope: .none,
+            explicitDayStarts: [],
+            lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
+            waiters: waiter.map { [$0] } ?? []
+        )
+    }
+
+    static func afterAnalysis(
+        workBlockDayStarts: Set<Date>,
+        dailyReportCandidateDayStarts: Set<Date>,
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy,
+        waiter: DailyReportSummaryWaiter?
+    ) -> DailyReportSummaryRequest {
+        DailyReportSummaryRequest(
+            workBlockScope: workBlockDayStarts.isEmpty ? .none : .dayStarts(workBlockDayStarts),
+            dailyReportScope: dailyReportCandidateDayStarts.isEmpty ? .none : .candidateDayStarts(dailyReportCandidateDayStarts),
             explicitDayStarts: [],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
             waiters: waiter.map { [$0] } ?? []
@@ -133,9 +189,8 @@ struct DailyReportSummaryRequest {
         waiter: DailyReportSummaryWaiter?
     ) -> DailyReportSummaryRequest {
         DailyReportSummaryRequest(
-            includesBackfill: false,
-            includesMissingDailyReports: false,
-            affectedDayStarts: [],
+            workBlockScope: .none,
+            dailyReportScope: .none,
             explicitDayStarts: [dayStart],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
             waiters: waiter.map { [$0] } ?? []
@@ -143,9 +198,8 @@ struct DailyReportSummaryRequest {
     }
 
     mutating func merge(_ other: DailyReportSummaryRequest) {
-        includesBackfill = includesBackfill || other.includesBackfill
-        includesMissingDailyReports = includesMissingDailyReports || other.includesMissingDailyReports
-        affectedDayStarts.formUnion(other.affectedDayStarts)
+        workBlockScope = workBlockScope.merged(with: other.workBlockScope)
+        dailyReportScope = dailyReportScope.merged(with: other.dailyReportScope)
         explicitDayStarts.formUnion(other.explicitDayStarts)
         if lmStudioLifecyclePolicy != other.lmStudioLifecyclePolicy {
             lmStudioLifecyclePolicy = .automaticUnload
