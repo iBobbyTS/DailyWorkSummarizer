@@ -229,18 +229,19 @@ struct SettingsView: View {
                     .padding(.vertical, Layout.cardRowVerticalPadding)
                 }
 
-                Divider()
+                if SettingsAnalysisControlsPolicy.showsChargerRequirement(for: settingsStore.analysisStartupMode) {
+                    Divider()
 
-                HStack(spacing: 12) {
-                    Text(text(.settingsAnalysisRequireCharger))
-                    Spacer()
-                    Toggle("", isOn: $settingsStore.autoAnalysisRequiresCharger)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
+                    HStack(spacing: 12) {
+                        Text(text(.settingsAnalysisRequireCharger))
+                        Spacer()
+                        Toggle("", isOn: $settingsStore.autoAnalysisRequiresCharger)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                    }
+                    .padding(.horizontal, Layout.cardRowHorizontalPadding)
+                    .padding(.vertical, Layout.cardRowVerticalPadding)
                 }
-                .padding(.horizontal, Layout.cardRowHorizontalPadding)
-                .padding(.vertical, Layout.cardRowVerticalPadding)
-                .disabled(settingsStore.analysisStartupMode == .manual)
             }
             .background(
                 RoundedRectangle(cornerRadius: 20)
@@ -1311,6 +1312,12 @@ enum SummaryInstructionTextViewTextSystem {
         textView.textColor = .labelColor
         textView.textContainerInset = textContainerInset
         textView.textContainer?.lineFragmentPadding = lineFragmentPadding
+    }
+}
+
+nonisolated enum SettingsAnalysisControlsPolicy {
+    static func showsChargerRequirement(for startupMode: AnalysisStartupMode) -> Bool {
+        startupMode != .manual
     }
 }
 

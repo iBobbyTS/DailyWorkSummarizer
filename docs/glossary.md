@@ -35,7 +35,7 @@ This glossary keeps DeskBrief's common Simplified Chinese and English product te
 | 定时启动 | Scheduled Start | Run analysis at the configured time. |
 | 截屏后立即启动 | Start Immediately After Screenshot | Trigger analysis shortly after a screenshot is saved. |
 | 定时分析时间 | Scheduled analysis time | Time field shown for scheduled start. |
-| 仅在充电时自动分析 | Only run automatic analysis while charging | Charger requirement for automatic triggers. |
+| 仅在充电时自动启动分析 | Only auto-start analysis while charging | Charger requirement for automatic triggers. |
 | 立即分析 | Analyze Now | Manual menu action. |
 | 停止本次分析 | Stop Current Analysis | Manual stop action for the current analysis run. |
 | 正在分析 | Analyzing | Current run status. |

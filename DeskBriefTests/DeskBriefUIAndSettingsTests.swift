@@ -631,6 +631,14 @@ extension DeskBriefTests {
         #expect(AnalysisStartupMode.realtime.title(in: .english) == "Start Immediately After Screenshot")
     }
 
+    @Test func chargerRequirementLabelAndVisibilityMatchAutomaticStartupOnly() async throws {
+        #expect(L10n.string(.settingsAnalysisRequireCharger, language: .simplifiedChinese) == "仅在充电时自动启动分析")
+        #expect(L10n.string(.settingsAnalysisRequireCharger, language: .english) == "Only auto-start analysis while charging")
+        #expect(!SettingsAnalysisControlsPolicy.showsChargerRequirement(for: .manual))
+        #expect(SettingsAnalysisControlsPolicy.showsChargerRequirement(for: .scheduled))
+        #expect(SettingsAnalysisControlsPolicy.showsChargerRequirement(for: .realtime))
+    }
+
     @Test func chargerRequirementAppliesOnlyToAutomaticAnalysisTriggers() async throws {
         #expect(
             !AnalysisService.shouldSkipForChargerRequirement(
