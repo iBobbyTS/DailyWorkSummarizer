@@ -18,6 +18,7 @@
 - 这是原生 macOS Xcode 项目，不是 Node 项目，也没有以 Docker 作为主开发入口。
 - Xcode target 使用文件系统同步分组；在 `DeskBrief/` 或 `DeskBriefTests/` 下新增 Swift 文件通常不需要手动修改 `project.pbxproj`。
 - 运行 `xcodebuild` 时总是显式传 `-derivedDataPath /tmp/DeskBriefDerivedData`，避免沙箱环境下写默认 `~/Library/Developer/Xcode/DerivedData` 时报权限问题。
+- 运行 `xcodebuild test` 时直接请求提权执行。macOS test runner 需要访问 `testmanagerd` / 分布式通知，沙箱内经常在测试启动阶段失败；不要先用默认沙箱试跑再重跑。
 - 涉及 `ModelProfileSettings`、`AppSettingsSnapshot`、`SettingsStore.snapshot` 的字段变更时，先全局搜索手写初始化点，尤其是 `DeskBriefTests/`。
 - 涉及模型配置时，始终同时检查两套配置：
   - 截屏分析：`provider` / `imageAnalysisMethod` / `apiBaseURL` / `modelName`

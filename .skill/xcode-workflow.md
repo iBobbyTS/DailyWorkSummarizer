@@ -43,6 +43,7 @@ xcodebuild test \
 实践要点：
 
 - 默认 DerivedData 路径在当前沙箱里容易触发日志目录权限错误，因此统一把 `-derivedDataPath` 指到 `/tmp`。
+- `xcodebuild test` 需要直接请求提权运行。这个项目的 macOS 单元测试会在测试启动阶段访问 `testmanagerd` 和 Xcode 分布式通知；沙箱内常见失败是 `Connection init failed at lookup with error 159 - Sandbox restriction` 或 `attempt to post distributed notification ... thwarted by sandboxing`。遇到需要跑测试的任务时，不要先默认沙箱试跑，直接用 `sandbox_permissions: "require_escalated"` 并说明是为了访问 macOS test runner。
 - `CoreSimulatorService connection became invalid`、`attempt to post distributed notification ... thwarted by sandboxing` 这类输出在 macOS CLI 环境里常见；只有在最终出现真正的 `SwiftCompile` / `Test Failure` 时才按失败处理。
 - UI 测试默认不是首选排障入口。先跑 `DeskBriefTests`，只有明确要验证窗口流程或系统权限交互时再考虑 `DeskBriefUITests`。
 - `DeskBriefTests` 主 suite 可以通过多个 `extension DeskBriefTests` 文件拆分；保留 `@Suite(.serialized)` 在主类型上，公共 fixture 放 `TestSupport.swift`。
