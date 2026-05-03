@@ -17,7 +17,7 @@ extension DeskBriefTests {
 
         let summaryRequest = DailyReportSummaryRequest.affectedSummaries(
             dayStarts: [Date(timeIntervalSince1970: 100)],
-            lmStudioLifecyclePolicy: .automaticUnload,
+            lmStudioLifecyclePolicy: .loadForSummaryThenUnload,
             waiter: nil
         )
 
@@ -42,7 +42,7 @@ extension DeskBriefTests {
         }
 
         let summaryRequest = DailyReportSummaryRequest.missingDailyReports(
-            lmStudioLifecyclePolicy: .automaticUnload,
+            lmStudioLifecyclePolicy: .loadForSummaryThenUnload,
             waiter: nil
         )
 
@@ -62,12 +62,12 @@ extension DeskBriefTests {
         let secondDay = Date(timeIntervalSince1970: 200)
         let firstRequest = DailyReportSummaryRequest.affectedSummaries(
             dayStarts: [firstDay],
-            lmStudioLifecyclePolicy: .automaticUnload,
+            lmStudioLifecyclePolicy: .loadForSummaryThenUnload,
             waiter: nil
         )
         let secondRequest = DailyReportSummaryRequest.affectedSummaries(
             dayStarts: [secondDay],
-            lmStudioLifecyclePolicy: .automaticUnload,
+            lmStudioLifecyclePolicy: .loadForSummaryThenUnload,
             waiter: nil
         )
 
@@ -85,23 +85,23 @@ extension DeskBriefTests {
         let firstDailyReportDay = Date(timeIntervalSince1970: 300)
         let secondDailyReportDay = Date(timeIntervalSince1970: 400)
 
-        var request = DailyReportSummaryRequest.afterAnalysis(
+        var request = DailyReportSummaryRequest.summariesAfterAnalysisRun(
             workBlockDayStarts: [firstWorkBlockDay],
             dailyReportCandidateDayStarts: [firstDailyReportDay],
-            lmStudioLifecyclePolicy: .alreadyLoadedKeepLoaded,
+            lmStudioLifecyclePolicy: .reuseAlreadyLoadedModelAndKeepLoaded,
             waiter: nil
         )
         request.merge(
-            DailyReportSummaryRequest.afterAnalysis(
+            DailyReportSummaryRequest.summariesAfterAnalysisRun(
                 workBlockDayStarts: [secondWorkBlockDay],
                 dailyReportCandidateDayStarts: [secondDailyReportDay],
-                lmStudioLifecyclePolicy: .automaticUnload,
+                lmStudioLifecyclePolicy: .loadForSummaryThenUnload,
                 waiter: nil
             )
         )
 
         #expect(request.workBlockScope == .dayStarts([firstWorkBlockDay, secondWorkBlockDay]))
         #expect(request.dailyReportScope == .candidateDayStarts([firstDailyReportDay, secondDailyReportDay]))
-        #expect(request.lmStudioLifecyclePolicy == .automaticUnload)
+        #expect(request.lmStudioLifecyclePolicy == .loadForSummaryThenUnload)
     }
 }

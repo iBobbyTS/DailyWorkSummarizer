@@ -343,6 +343,7 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
                     imageData: nil,
                     maximumResponseTokens: 300,
                     timeoutInterval: 120,
+                    // Apple Intelligence OCR classification uses content tagging plus a schema.
                     appleUseCase: .contentTagging,
                     appleSchema: schema
                 )

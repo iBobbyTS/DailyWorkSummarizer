@@ -71,6 +71,7 @@ struct LegendHoverGeometry {
     private static func bridgeVerticalGaps(in rowRects: [CGRect]) -> [CGRect] {
         guard rowRects.count > 1 else { return rowRects }
 
+        // Treat the vertical gap between wrapped legend rows as owned by the nearest row.
         return rowRects.enumerated().map { index, rowRect in
             var minY = rowRect.minY
             var maxY = rowRect.maxY
@@ -101,6 +102,7 @@ struct LegendHoverGeometry {
 }
 
 enum ReportHoverStatePolicy {
+    // Controls which hover-derived summaries should reset after a report interaction.
     enum ResetScope {
         case all
         case heatmapOnly

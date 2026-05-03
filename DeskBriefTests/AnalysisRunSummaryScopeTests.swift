@@ -106,7 +106,7 @@ extension DeskBriefTests {
 
         run.recordProcessedAnalysisResult(for: firstScreenshot, calendar: calendar)
         run.recordProcessedAnalysisResult(for: secondScreenshot, calendar: calendar)
-        run.mergeTrigger(.manual)
+        run.updateDailyReportStrategyForMergedTrigger(.manual)
 
         #expect(run.dailyReportStrategy == .boundedRunDays)
         #expect(run.dailyReportCandidateDayStarts(calendar: calendar) == Set([dayOne, dayTwo, dayThree]))

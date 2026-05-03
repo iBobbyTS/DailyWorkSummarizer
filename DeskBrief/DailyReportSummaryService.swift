@@ -51,8 +51,10 @@ enum DailyReportSummaryServiceError: LocalizedError {
 }
 
 enum DailyReportLMStudioLifecyclePolicy: Equatable {
-    case automaticUnload
-    case alreadyLoadedKeepLoaded
+    // The summary run owns LM Studio load/unload around its work.
+    case loadForSummaryThenUnload
+    // The analysis run already loaded an equivalent model; summary should reuse it and leave it loaded.
+    case reuseAlreadyLoadedModelAndKeepLoaded
 }
 
 private actor AsyncLock {
@@ -131,7 +133,7 @@ final class DailyReportSummaryService {
     }
 
     func summarizeMissingDailyReportsIfNeeded(
-        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .automaticUnload
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .loadForSummaryThenUnload
     ) async {
         let request = DailyReportSummaryRequest.missingDailyReports(
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
@@ -144,7 +146,7 @@ final class DailyReportSummaryService {
     }
 
     func backfillMissingSummaries(
-        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .automaticUnload
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .loadForSummaryThenUnload
     ) async {
         let request = DailyReportSummaryRequest.backfill(
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
@@ -158,7 +160,7 @@ final class DailyReportSummaryService {
 
     func summarizeAffectedSummaries(
         for dayStarts: Set<Date>,
-        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .automaticUnload
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .loadForSummaryThenUnload
     ) async {
         let request = DailyReportSummaryRequest.affectedSummaries(
             dayStarts: dayStarts,
@@ -174,9 +176,9 @@ final class DailyReportSummaryService {
     func summarizeAfterAnalysis(
         workBlockDayStarts: Set<Date>,
         dailyReportCandidateDayStarts: Set<Date>,
-        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .automaticUnload
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .loadForSummaryThenUnload
     ) async {
-        let request = DailyReportSummaryRequest.afterAnalysis(
+        let request = DailyReportSummaryRequest.summariesAfterAnalysisRun(
             workBlockDayStarts: workBlockDayStarts,
             dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
@@ -193,7 +195,7 @@ final class DailyReportSummaryService {
         dailyReportCandidateDayStarts: Set<Date>,
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
     ) {
-        let request = DailyReportSummaryRequest.afterAnalysis(
+        let request = DailyReportSummaryRequest.summariesAfterAnalysisRun(
             workBlockDayStarts: workBlockDayStarts,
             dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
@@ -208,7 +210,7 @@ final class DailyReportSummaryService {
         let normalizedDayStart = calendar.startOfDay(for: dayStart)
         let request = DailyReportSummaryRequest.explicitDay(
             normalizedDayStart,
-            lmStudioLifecyclePolicy: .automaticUnload,
+            lmStudioLifecyclePolicy: .loadForSummaryThenUnload,
             waiter: nil
         )
         guard let record = try await submitSummaryRequestAndReturnDailyReport(
@@ -849,9 +851,9 @@ final class DailyReportSummaryService {
         }
 
         switch policy {
-        case .alreadyLoadedKeepLoaded:
+        case .reuseAlreadyLoadedModelAndKeepLoaded:
             return try await operation()
-        case .automaticUnload:
+        case .loadForSummaryThenUnload:
             let loadedModel = try await lmStudioLifecycle.load(settings: settings)
             do {
                 let result = try await operation()
@@ -963,6 +965,7 @@ final class DailyReportSummaryService {
                     imageData: nil,
                     maximumResponseTokens: 900,
                     timeoutInterval: 120,
+                    // Apple Intelligence text summarization uses the general model use case.
                     appleUseCase: .general,
                     appleSchema: nil
                 )

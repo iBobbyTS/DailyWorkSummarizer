@@ -1,7 +1,9 @@
 import Foundation
 
 enum AnalysisRunDailyReportStrategy: Equatable {
+    // Manual and scheduled runs can consider every report day covered by this run.
     case boundedRunDays
+    // Realtime runs only generate candidates after observed results cross a day boundary.
     case realtimeBoundary
 
     init(trigger: AnalysisTrigger) {
@@ -83,7 +85,7 @@ final class ActiveAnalysisRun {
         return newScreenshots.count
     }
 
-    func mergeTrigger(_ trigger: AnalysisTrigger) {
+    func updateDailyReportStrategyForMergedTrigger(_ trigger: AnalysisTrigger) {
         guard trigger != .realtime else {
             return
         }

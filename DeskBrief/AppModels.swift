@@ -16,6 +16,7 @@ nonisolated enum AppDefaults {
     static let workContentSummaryAPIKeyAccount = "model-api-key.work-content-summary"
     static let defaultImageAnalysisMethod: ImageAnalysisMethod = .multimodal
     nonisolated static let absenceCategoryName = "离开"
+    // Internal stable category key; UI renders it as localized "Other" text.
     static let preservedOtherCategoryName = "PRESERVED_OTHER"
     nonisolated static let absenceCategoryColorHex = "#8E8E93"
     nonisolated static let categoryColorPresets = [

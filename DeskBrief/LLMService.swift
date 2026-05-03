@@ -25,6 +25,7 @@ struct LLMServiceRequest {
     let imageData: Data?
     let maximumResponseTokens: Int
     let timeoutInterval: TimeInterval
+    // Only used by the Apple Intelligence provider; remote providers ignore this value.
     let appleUseCase: SystemLanguageModel.UseCase
     let appleSchema: GenerationSchema?
 }

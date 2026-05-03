@@ -1,5 +1,6 @@
 import Foundation
 
+// LM Studio has shipped both "text" and "message" discriminators for multimodal text input items.
 enum LMStudioMultimodalTextInputStyle: String {
     case text
     case message
@@ -338,6 +339,7 @@ enum LMStudioAPI {
         responseBody: String,
         attemptedStyle: LMStudioMultimodalTextInputStyle
     ) -> LMStudioMultimodalTextInputStyle? {
+        // Retry only the known LM Studio discriminator compatibility error.
         guard statusCode == 400 else {
             return nil
         }

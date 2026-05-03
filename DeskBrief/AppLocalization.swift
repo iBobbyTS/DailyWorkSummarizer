@@ -867,7 +867,7 @@ nonisolated enum L10n {
             summaryInstruction: summaryInstruction,
             recognizedText: recognizedText,
             language: language,
-            outputMode: .structuredSchema
+            outputMode: .appleIntelligenceStructuredOutput
         )
     }
 
@@ -882,13 +882,13 @@ nonisolated enum L10n {
             summaryInstruction: summaryInstruction,
             recognizedText: recognizedText,
             language: language,
-            outputMode: .json
+            outputMode: .remoteAPIJSONTextOutput
         )
     }
 
     private enum OCRPromptOutputMode {
-        case json
-        case structuredSchema
+        case remoteAPIJSONTextOutput
+        case appleIntelligenceStructuredOutput
     }
 
     private static func ocrAnalysisPrompt(
@@ -925,7 +925,7 @@ nonisolated enum L10n {
             1. 返回的 category 必须与候选类别完全一致
             2. summary 必须是对截屏主要工作内容的简短描述
             3. 如果信息不足，请给出最保守的判断；若候选类别中有 PRESERVED_OTHER，可优先考虑它
-            4. \(outputMode == .structuredSchema
+            4. \(outputMode == .appleIntelligenceStructuredOutput
                 ? "按提供的结构化 schema 返回，不要额外输出解释、Markdown 或思考过程"
                 : "返回格式：包含以下字段的 JSON {\"category\": 分析得出的类别, \"summary\": 对截屏简短的描述}，不要额外输出解释、Markdown 或思考过程")
 
@@ -947,7 +947,7 @@ nonisolated enum L10n {
             1. The returned category must exactly match one of the candidate names
             2. The summary must be a short description of the main work shown in the screenshot
             3. If the information is insufficient, make the most conservative choice. Prefer PRESERVED_OTHER when it is available
-            4. \(outputMode == .structuredSchema
+            4. \(outputMode == .appleIntelligenceStructuredOutput
                 ? "Return only the structured result defined by the provided schema, with no explanations, Markdown, or reasoning"
                 : "Return JSON with these fields: {\"category\": chosen category, \"summary\": short description of the screenshot}. Do not return explanations, Markdown, or reasoning")
 

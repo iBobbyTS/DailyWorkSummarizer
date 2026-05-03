@@ -30,6 +30,7 @@ enum AppRunDecision: Equatable {
 
 enum WorkBlockSummaryScope: Equatable {
     case none
+    // Matches work blocks that intersect any of these report days, including blocks that cross midnight.
     case dayStarts(Set<Date>)
     case all
 
@@ -58,6 +59,7 @@ enum WorkBlockSummaryScope: Equatable {
 
 enum DailyReportGenerationScope: Equatable {
     case none
+    // Candidate days are only the input range; execution still filters out unreportable or unclosed days.
     case candidateDayStarts(Set<Date>)
     case allMissing
 
@@ -168,7 +170,8 @@ struct DailyReportSummaryRequest {
         )
     }
 
-    static func afterAnalysis(
+    // One follow-up request after an analysis run can contain both work-block and daily-report tasks.
+    static func summariesAfterAnalysisRun(
         workBlockDayStarts: Set<Date>,
         dailyReportCandidateDayStarts: Set<Date>,
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy,
@@ -202,7 +205,7 @@ struct DailyReportSummaryRequest {
         dailyReportScope = dailyReportScope.merged(with: other.dailyReportScope)
         explicitDayStarts.formUnion(other.explicitDayStarts)
         if lmStudioLifecyclePolicy != other.lmStudioLifecyclePolicy {
-            lmStudioLifecyclePolicy = .automaticUnload
+            lmStudioLifecyclePolicy = .loadForSummaryThenUnload
         }
         waiters.append(contentsOf: other.waiters)
     }

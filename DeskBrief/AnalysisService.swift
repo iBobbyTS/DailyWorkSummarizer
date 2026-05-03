@@ -703,8 +703,8 @@ final class AnalysisService {
             workBlockDayStarts: workBlockDayStarts,
             dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
             lmStudioLifecyclePolicy: (summaryLifecycleEnabled && !canReuseAnalysisModel)
-                ? .automaticUnload
-                : .alreadyLoadedKeepLoaded
+                ? .loadForSummaryThenUnload
+                : .reuseAlreadyLoadedModelAndKeepLoaded
         )
     }
 
@@ -719,7 +719,7 @@ final class AnalysisService {
 
     @discardableResult
     private func appendPendingScreenshots(to run: ActiveAnalysisRun, trigger: AnalysisTrigger) -> Int {
-        run.mergeTrigger(trigger)
+        run.updateDailyReportStrategyForMergedTrigger(trigger)
         let screenshots = pendingScreenshotFiles(defaultDurationMinutes: run.settings.screenshotIntervalMinutes)
         let appendedCount = run.appendMissingScreenshots(screenshots)
         guard appendedCount > 0 else {
