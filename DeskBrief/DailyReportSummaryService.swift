@@ -30,6 +30,18 @@ private struct ParsedDailyWorkBlockPayload: Decodable {
     }
 }
 
+private struct DailyReportSummaryWorkResult {
+    var completedCount = 0
+    var dailyReports: [Date: DailyReportRecord] = [:]
+    var failureCount = 0
+}
+
+private struct WorkBlockSummaryWorkResult {
+    var completedCount = 0
+    var createdCount = 0
+    var failureCount = 0
+}
+
 enum DailyReportSummaryServiceError: LocalizedError {
     case invalidConfiguration(String)
     case invalidResponse(String)
@@ -96,6 +108,7 @@ final class DailyReportSummaryService {
     private weak var logStore: AppLogStore?
     private let llmService: LLMService
     private let lmStudioLifecycle: LMStudioModelLifecycle
+    private let notificationSender: AppNotificationSending
     private let lock = AsyncLock()
     let runCoordinator: AppRunCoordinator
     private var activeSummaryTask: Task<Void, Never>?
@@ -111,11 +124,13 @@ final class DailyReportSummaryService {
         settingsStore: SettingsStore,
         logStore: AppLogStore? = nil,
         session: URLSession? = nil,
-        runCoordinator: AppRunCoordinator? = nil
+        runCoordinator: AppRunCoordinator? = nil,
+        notificationSender: AppNotificationSending? = nil
     ) {
         self.database = database
         self.settingsStore = settingsStore
         self.logStore = logStore
+        self.notificationSender = notificationSender ?? NoOpAppNotificationService()
         self.runCoordinator = runCoordinator ?? AppRunCoordinator()
         let resolvedSession = session ?? Self.makeSession()
         self.llmService = LLMService(session: resolvedSession)
@@ -176,13 +191,15 @@ final class DailyReportSummaryService {
     func summarizeAfterAnalysis(
         workBlockDayStarts: Set<Date>,
         dailyReportCandidateDayStarts: Set<Date>,
-        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .loadForSummaryThenUnload
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .loadForSummaryThenUnload,
+        notificationIntent: DailyReportSummaryNotificationIntent = .none
     ) async {
         let request = DailyReportSummaryRequest.summariesAfterAnalysisRun(
             workBlockDayStarts: workBlockDayStarts,
             dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
-            waiter: nil
+            waiter: nil,
+            notificationIntent: notificationIntent
         )
         await submitSummaryRequestAndWait(
             request,
@@ -193,13 +210,15 @@ final class DailyReportSummaryService {
     func enqueueSummariesAfterAnalysis(
         workBlockDayStarts: Set<Date>,
         dailyReportCandidateDayStarts: Set<Date>,
-        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
+        lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy,
+        notificationIntent: DailyReportSummaryNotificationIntent = .none
     ) {
         let request = DailyReportSummaryRequest.summariesAfterAnalysisRun(
             workBlockDayStarts: workBlockDayStarts,
             dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
-            waiter: nil
+            waiter: nil,
+            notificationIntent: notificationIntent
         )
         submitSummaryRequest(request)
     }
@@ -352,6 +371,7 @@ final class DailyReportSummaryService {
                     try await executeSummaryRequestLocked(requestToRun)
                 }
                 resumeWaiters(in: requestToRun, result: result)
+                await sendCompletionNotificationsIfNeeded(for: requestToRun, result: result)
             } catch is CancellationError {
                 resumeWaiters(in: requestToRun, error: CancellationError())
                 didCancel = true
@@ -359,6 +379,7 @@ final class DailyReportSummaryService {
             } catch {
                 recordSummaryError(error, context: "Failed to run summary request")
                 resumeWaiters(in: requestToRun, error: error)
+                await sendFailureNotificationsIfNeeded(for: requestToRun)
             }
 
             guard let nextRequest = takePendingMergedSummaryRequest() else {
@@ -399,6 +420,71 @@ final class DailyReportSummaryService {
     ) {
         for waiter in request.waiters {
             waiter.resumeFailure(error)
+        }
+    }
+
+    private func sendCompletionNotificationsIfNeeded(
+        for request: DailyReportSummaryRequest,
+        result: DailyReportSummaryExecutionResult
+    ) async {
+        let intent = request.notificationIntent
+        guard !intent.isEmpty else {
+            return
+        }
+
+        let language = settingsStore.appLanguage
+
+        if intent.shouldNotifyBackfillCompletion {
+            await notificationSender.send(
+                AppNotificationMessageBuilder.backfillCompletion(
+                    workBlockSummariesCreatedCount: result.workBlockSummariesCreatedCount,
+                    dailyReportCount: result.dailyReports.count,
+                    hasFailures: result.hasFailures,
+                    didFailCompletely: false,
+                    language: language
+                )
+            )
+        }
+
+        if let context = intent.analysisCompletionContext,
+           let message = AppNotificationMessageBuilder.analysisCompletion(
+            context: context,
+            dailyReportDayStarts: Array(result.dailyReports.keys),
+            summaryFailed: result.hasDailyReportFailures,
+            language: language
+           ) {
+            await notificationSender.send(message)
+        }
+    }
+
+    private func sendFailureNotificationsIfNeeded(for request: DailyReportSummaryRequest) async {
+        let intent = request.notificationIntent
+        guard !intent.isEmpty else {
+            return
+        }
+
+        let language = settingsStore.appLanguage
+
+        if intent.shouldNotifyBackfillCompletion {
+            await notificationSender.send(
+                AppNotificationMessageBuilder.backfillCompletion(
+                    workBlockSummariesCreatedCount: 0,
+                    dailyReportCount: 0,
+                    hasFailures: true,
+                    didFailCompletely: true,
+                    language: language
+                )
+            )
+        }
+
+        if let context = intent.analysisCompletionContext,
+           let message = AppNotificationMessageBuilder.analysisCompletion(
+            context: context,
+            dailyReportDayStarts: [],
+            summaryFailed: true,
+            language: language
+           ) {
+            await notificationSender.send(message)
         }
     }
 
@@ -469,19 +555,26 @@ final class DailyReportSummaryService {
             var result = DailyReportSummaryExecutionResult()
             var completedCount = 0
 
-            completedCount += try await summarizeWorkBlocksWorkLocked(
+            let workBlockResult = try await summarizeWorkBlocksWorkLocked(
                 blocks: candidateBlocks,
                 snapshot: snapshot,
                 targetDayStarts: targetDayStarts,
                 completedCountOffset: completedCount,
                 totalCount: totalCount
             )
-            completedCount += try await summarizeDailyReportsWorkLocked(
+            completedCount += workBlockResult.completedCount
+            result.workBlockSummariesCreatedCount += workBlockResult.createdCount
+            result.workBlockSummaryFailureCount += workBlockResult.failureCount
+
+            let dailyReportResult = try await summarizeDailyReportsWorkLocked(
                 pendingDays: pendingDays,
                 snapshot: snapshot,
                 completedCountOffset: completedCount,
                 totalCount: totalCount
             )
+            completedCount += dailyReportResult.completedCount
+            result.dailyReportFailureCount += dailyReportResult.failureCount
+            result.dailyReports.merge(dailyReportResult.dailyReports) { _, new in new }
 
             for dayStart in explicitDayStarts {
                 if Task.isCancelled {
@@ -503,6 +596,7 @@ final class DailyReportSummaryService {
                     throw CancellationError()
                 } catch {
                     result.dayErrors[dayStart] = error
+                    result.dailyReportFailureCount += 1
                 }
 
                 completedCount += 1
@@ -522,33 +616,35 @@ final class DailyReportSummaryService {
         snapshot: AppSettingsSnapshot,
         completedCountOffset: Int,
         totalCount: Int
-    ) async throws -> Int {
+    ) async throws -> DailyReportSummaryWorkResult {
         guard !pendingDays.isEmpty else {
-            return 0
+            return DailyReportSummaryWorkResult()
         }
 
-        var completedCount = 0
+        var result = DailyReportSummaryWorkResult()
         for dayStart in pendingDays {
             do {
-                _ = try await summarizeDayContentLocked(
+                let record = try await summarizeDayContentLocked(
                     dayStart,
                     snapshot: snapshot,
                     isTemporary: false
                 )
+                result.dailyReports[dayStart] = record
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
                 recordSummaryError(error, context: "Failed to summarize daily report for \(dayStart)")
+                result.failureCount += 1
             }
-            completedCount += 1
+            result.completedCount += 1
             updateRuntimeState(
                 modelName: snapshot.workContentSummaryModelProfile.modelName,
-                completedCount: completedCountOffset + completedCount,
+                completedCount: completedCountOffset + result.completedCount,
                 totalCount: totalCount
             )
         }
 
-        return completedCount
+        return result
     }
 
     private func summarizeWorkBlocksWorkLocked(
@@ -557,9 +653,9 @@ final class DailyReportSummaryService {
         targetDayStarts: Set<Date>?,
         completedCountOffset: Int,
         totalCount: Int
-    ) async throws -> Int {
+    ) async throws -> WorkBlockSummaryWorkResult {
         guard !blocks.isEmpty else {
-            return 0
+            return WorkBlockSummaryWorkResult()
         }
 
         let language = snapshot.appLanguage
@@ -598,10 +694,10 @@ final class DailyReportSummaryService {
         })
 
         guard !relevantBlocks.isEmpty || !relevantExistingSummaries.isEmpty else {
-            return 0
+            return WorkBlockSummaryWorkResult()
         }
 
-        var completedCount = 0
+        var result = WorkBlockSummaryWorkResult()
         var retainedKeys = Set<String>()
 
         for block in relevantBlocks {
@@ -623,6 +719,7 @@ final class DailyReportSummaryService {
                                 endAt: block.endAt,
                                 summaryText: directSummary
                             )
+                            result.createdCount += 1
                         }
                         retainedKeys.insert(key)
                     } else if let existingSummary {
@@ -645,6 +742,7 @@ final class DailyReportSummaryService {
                             endAt: block.endAt,
                             summaryText: summaryText
                         )
+                        result.createdCount += 1
                     }
                     retainedKeys.insert(key)
                 } else if let existingSummary {
@@ -661,12 +759,13 @@ final class DailyReportSummaryService {
                     error,
                     context: "Failed to persist work block summary for \(block.categoryName) (\(block.startAt) - \(block.endAt))"
                 )
+                result.failureCount += 1
             }
 
-            completedCount += 1
+            result.completedCount += 1
             updateRuntimeState(
                 modelName: settings.modelName,
-                completedCount: completedCountOffset + completedCount,
+                completedCount: completedCountOffset + result.completedCount,
                 totalCount: totalCount
             )
         }
@@ -679,7 +778,7 @@ final class DailyReportSummaryService {
             try database.deleteDailyWorkBlockSummaries(ids: staleSummaryIDs)
         }
 
-        return completedCount
+        return result
     }
 
     private func summarizeWorkBlockContentLocked(

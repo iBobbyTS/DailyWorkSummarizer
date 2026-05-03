@@ -35,6 +35,7 @@ final class ActiveAnalysisRun {
     var didLogLMStudioCancellationObservation = false
     var isAcceptingAppends = true
     private(set) var dailyReportStrategy: AnalysisRunDailyReportStrategy
+    private(set) var notificationTrigger: AnalysisTrigger
     private(set) var previousAnalysisResultDayStarts: Set<Date>
     private(set) var processedAnalysisDayStarts: Set<Date> = []
 
@@ -52,6 +53,7 @@ final class ActiveAnalysisRun {
         self.screenshots = screenshots
         self.screenshotPaths = Set(screenshots.map { $0.url.path })
         self.dailyReportStrategy = AnalysisRunDailyReportStrategy(trigger: trigger)
+        self.notificationTrigger = trigger
         self.previousAnalysisResultDayStarts = previousAnalysisResultDayStarts
     }
 
@@ -86,6 +88,9 @@ final class ActiveAnalysisRun {
     }
 
     func updateDailyReportStrategyForMergedTrigger(_ trigger: AnalysisTrigger) {
+        if trigger.priority > notificationTrigger.priority {
+            notificationTrigger = trigger
+        }
         guard trigger != .realtime else {
             return
         }

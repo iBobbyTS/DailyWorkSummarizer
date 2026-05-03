@@ -98,6 +98,15 @@ func waitForSemaphore(_ semaphore: DispatchSemaphore, timeoutSeconds: TimeInterv
 }
 
 @MainActor
+final class SpyAppNotificationSender: AppNotificationSending {
+    private(set) var messages: [AppNotificationMessage] = []
+
+    func send(_ message: AppNotificationMessage) async {
+        messages.append(message)
+    }
+}
+
+@MainActor
 func waitUntil(
     timeoutSeconds: TimeInterval,
     condition: @MainActor @escaping () -> Bool

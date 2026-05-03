@@ -258,6 +258,27 @@ nonisolated enum L10n {
         case screenshotPermissionDenied
         case screenshotPreviewUnreadable
         case screenshotCommandFailed
+        case notificationAnalysisCompleteTitle
+        case notificationAnalysisFailedTitle
+        case notificationBackfillCompleteTitle
+        case notificationBackfillFailedTitle
+        case notificationAnalysisCompleteNoReports
+        case notificationAnalysisCompleteWithReports
+        case notificationAnalysisPartialNoReports
+        case notificationAnalysisPartialWithReports
+        case notificationAnalysisSummaryFailedNoReports
+        case notificationAnalysisSummaryFailedWithReports
+        case notificationAnalysisFailedBody
+        case notificationBackfillCompleteBody
+        case notificationBackfillPartialBody
+        case notificationBackfillFailedBody
+        case notificationDailyReportForDay
+        case notificationScreenshotCount
+        case notificationScreenshotCountSingular
+        case notificationDailyReportCount
+        case notificationDailyReportCountSingular
+        case notificationWorkBlockSummaryCount
+        case notificationWorkBlockSummaryCountSingular
     }
 
     private static let tables: [AppLanguage: [Key: String]] = [
@@ -472,6 +493,27 @@ nonisolated enum L10n {
             .screenshotPermissionDenied: "没有获得屏幕录制权限",
             .screenshotPreviewUnreadable: "测试截屏完成，但无法读取预览图像",
             .screenshotCommandFailed: "系统 screencapture 命令执行失败",
+            .notificationAnalysisCompleteTitle: "分析完成",
+            .notificationAnalysisFailedTitle: "分析失败",
+            .notificationBackfillCompleteTitle: "补漏完成",
+            .notificationBackfillFailedTitle: "补漏失败",
+            .notificationAnalysisCompleteNoReports: "已分析 %@。",
+            .notificationAnalysisCompleteWithReports: "已分析 %@，并生成 %@。",
+            .notificationAnalysisPartialNoReports: "已分析 %@，%@失败。请进入日志查看详情。",
+            .notificationAnalysisPartialWithReports: "已分析 %@，%@失败，并生成 %@。请进入日志查看详情。",
+            .notificationAnalysisSummaryFailedNoReports: "已分析 %@，但日报生成失败。请进入日志查看详情。",
+            .notificationAnalysisSummaryFailedWithReports: "已分析 %@，并生成 %@，但部分日报生成失败。请进入日志查看详情。",
+            .notificationAnalysisFailedBody: "本次分析运行失败，%@失败。请进入日志查看详情。",
+            .notificationBackfillCompleteBody: "已补充 %@，%@。",
+            .notificationBackfillPartialBody: "已补充 %@，%@。部分项目失败，请进入日志查看详情。",
+            .notificationBackfillFailedBody: "补漏运行失败，请进入日志查看详情。",
+            .notificationDailyReportForDay: "%@ 的日报",
+            .notificationScreenshotCount: "%d 张截屏",
+            .notificationScreenshotCountSingular: "%d 张截屏",
+            .notificationDailyReportCount: "%d 个日报",
+            .notificationDailyReportCountSingular: "%d 个日报",
+            .notificationWorkBlockSummaryCount: "%d 个工作块总结",
+            .notificationWorkBlockSummaryCountSingular: "%d 个工作块总结",
         ],
         .english: [
             .settingsTabScreenshot: "Screenshot",
@@ -684,6 +726,27 @@ nonisolated enum L10n {
             .screenshotPermissionDenied: "Screen recording permission was not granted",
             .screenshotPreviewUnreadable: "The screenshot test finished, but the preview image could not be loaded",
             .screenshotCommandFailed: "The system screencapture command failed",
+            .notificationAnalysisCompleteTitle: "Analysis Complete",
+            .notificationAnalysisFailedTitle: "Analysis Failed",
+            .notificationBackfillCompleteTitle: "Backfill Complete",
+            .notificationBackfillFailedTitle: "Backfill Failed",
+            .notificationAnalysisCompleteNoReports: "Analyzed %@.",
+            .notificationAnalysisCompleteWithReports: "Analyzed %@ and generated %@.",
+            .notificationAnalysisPartialNoReports: "Analyzed %@, %@ failed. Check the logs for details.",
+            .notificationAnalysisPartialWithReports: "Analyzed %@, %@ failed, and generated %@. Check the logs for details.",
+            .notificationAnalysisSummaryFailedNoReports: "Analyzed %@, but daily report generation failed. Check the logs for details.",
+            .notificationAnalysisSummaryFailedWithReports: "Analyzed %@ and generated %@, but some daily reports failed. Check the logs for details.",
+            .notificationAnalysisFailedBody: "This analysis run failed. %@ failed. Check the logs for details.",
+            .notificationBackfillCompleteBody: "Filled in %@ and %@.",
+            .notificationBackfillPartialBody: "Filled in %@ and %@. Some items failed; check the logs for details.",
+            .notificationBackfillFailedBody: "Backfill failed. Check the logs for details.",
+            .notificationDailyReportForDay: "the daily report for %@",
+            .notificationScreenshotCount: "%d screenshots",
+            .notificationScreenshotCountSingular: "%d screenshot",
+            .notificationDailyReportCount: "%d daily reports",
+            .notificationDailyReportCountSingular: "%d daily report",
+            .notificationWorkBlockSummaryCount: "%d work block summaries",
+            .notificationWorkBlockSummaryCountSingular: "%d work block summary",
         ],
     ]
 
@@ -767,6 +830,30 @@ nonisolated enum L10n {
 
     static func dailyHeatmapTickFormatter(language: AppLanguage = .current) -> DateFormatter {
         dateFormatter(template: "Hm", language: language, timeZone: .current)
+    }
+
+    static func notificationScreenshotCount(_ count: Int, language: AppLanguage = .current) -> String {
+        string(
+            count == 1 ? .notificationScreenshotCountSingular : .notificationScreenshotCount,
+            language: language,
+            arguments: [count]
+        )
+    }
+
+    static func notificationDailyReportCount(_ count: Int, language: AppLanguage = .current) -> String {
+        string(
+            count == 1 ? .notificationDailyReportCountSingular : .notificationDailyReportCount,
+            language: language,
+            arguments: [count]
+        )
+    }
+
+    static func notificationWorkBlockSummaryCount(_ count: Int, language: AppLanguage = .current) -> String {
+        string(
+            count == 1 ? .notificationWorkBlockSummaryCountSingular : .notificationWorkBlockSummaryCount,
+            language: language,
+            arguments: [count]
+        )
     }
 
     static func durationText(totalMinutes: Int, style: DurationDisplayStyle, language: AppLanguage = .current) -> String {

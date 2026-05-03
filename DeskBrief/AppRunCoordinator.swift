@@ -78,6 +78,17 @@ enum DailyReportGenerationScope: Equatable {
 struct DailyReportSummaryExecutionResult {
     var dailyReports: [Date: DailyReportRecord] = [:]
     var dayErrors: [Date: Error] = [:]
+    var workBlockSummariesCreatedCount = 0
+    var workBlockSummaryFailureCount = 0
+    var dailyReportFailureCount = 0
+
+    var hasFailures: Bool {
+        workBlockSummaryFailureCount > 0 || dailyReportFailureCount > 0 || !dayErrors.isEmpty
+    }
+
+    var hasDailyReportFailures: Bool {
+        dailyReportFailureCount > 0 || !dayErrors.isEmpty
+    }
 }
 
 @MainActor
@@ -129,44 +140,51 @@ struct DailyReportSummaryRequest {
     var explicitDayStarts: Set<Date>
     var lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
     var waiters: [DailyReportSummaryWaiter]
+    var notificationIntent: DailyReportSummaryNotificationIntent
 
     static func backfill(
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy,
-        waiter: DailyReportSummaryWaiter?
+        waiter: DailyReportSummaryWaiter?,
+        notificationIntent: DailyReportSummaryNotificationIntent = .backfillCompletion
     ) -> DailyReportSummaryRequest {
         DailyReportSummaryRequest(
             workBlockScope: .all,
             dailyReportScope: .allMissing,
             explicitDayStarts: [],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
-            waiters: waiter.map { [$0] } ?? []
+            waiters: waiter.map { [$0] } ?? [],
+            notificationIntent: notificationIntent
         )
     }
 
     static func missingDailyReports(
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy,
-        waiter: DailyReportSummaryWaiter?
+        waiter: DailyReportSummaryWaiter?,
+        notificationIntent: DailyReportSummaryNotificationIntent = .none
     ) -> DailyReportSummaryRequest {
         DailyReportSummaryRequest(
             workBlockScope: .none,
             dailyReportScope: .allMissing,
             explicitDayStarts: [],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
-            waiters: waiter.map { [$0] } ?? []
+            waiters: waiter.map { [$0] } ?? [],
+            notificationIntent: notificationIntent
         )
     }
 
     static func affectedSummaries(
         dayStarts: Set<Date>,
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy,
-        waiter: DailyReportSummaryWaiter?
+        waiter: DailyReportSummaryWaiter?,
+        notificationIntent: DailyReportSummaryNotificationIntent = .none
     ) -> DailyReportSummaryRequest {
         DailyReportSummaryRequest(
             workBlockScope: .dayStarts(dayStarts),
             dailyReportScope: .none,
             explicitDayStarts: [],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
-            waiters: waiter.map { [$0] } ?? []
+            waiters: waiter.map { [$0] } ?? [],
+            notificationIntent: notificationIntent
         )
     }
 
@@ -175,28 +193,32 @@ struct DailyReportSummaryRequest {
         workBlockDayStarts: Set<Date>,
         dailyReportCandidateDayStarts: Set<Date>,
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy,
-        waiter: DailyReportSummaryWaiter?
+        waiter: DailyReportSummaryWaiter?,
+        notificationIntent: DailyReportSummaryNotificationIntent = .none
     ) -> DailyReportSummaryRequest {
         DailyReportSummaryRequest(
             workBlockScope: workBlockDayStarts.isEmpty ? .none : .dayStarts(workBlockDayStarts),
             dailyReportScope: dailyReportCandidateDayStarts.isEmpty ? .none : .candidateDayStarts(dailyReportCandidateDayStarts),
             explicitDayStarts: [],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
-            waiters: waiter.map { [$0] } ?? []
+            waiters: waiter.map { [$0] } ?? [],
+            notificationIntent: notificationIntent
         )
     }
 
     static func explicitDay(
         _ dayStart: Date,
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy,
-        waiter: DailyReportSummaryWaiter?
+        waiter: DailyReportSummaryWaiter?,
+        notificationIntent: DailyReportSummaryNotificationIntent = .none
     ) -> DailyReportSummaryRequest {
         DailyReportSummaryRequest(
             workBlockScope: .none,
             dailyReportScope: .none,
             explicitDayStarts: [dayStart],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
-            waiters: waiter.map { [$0] } ?? []
+            waiters: waiter.map { [$0] } ?? [],
+            notificationIntent: notificationIntent
         )
     }
 
@@ -208,6 +230,7 @@ struct DailyReportSummaryRequest {
             lmStudioLifecyclePolicy = .loadForSummaryThenUnload
         }
         waiters.append(contentsOf: other.waiters)
+        notificationIntent.merge(other.notificationIntent)
     }
 }
 

@@ -677,4 +677,85 @@ extension DeskBriefTests {
         )
     }
 
+    @Test func notificationMessageBuilderFormatsAnalysisAndBackfillResults() async throws {
+        let day = makeScreenshotDate(year: 2026, month: 4, day: 27, hour: 0, minute: 0)
+        let nextDay = makeScreenshotDate(year: 2026, month: 4, day: 28, hour: 0, minute: 0)
+
+        let manualContext = AnalysisCompletionNotificationContext(
+            trigger: .manual,
+            successfulScreenshotCount: 3,
+            failedScreenshotCount: 0
+        )
+        let oneReport = try #require(AppNotificationMessageBuilder.analysisCompletion(
+            context: manualContext,
+            dailyReportDayStarts: [day],
+            language: .simplifiedChinese
+        ))
+        #expect(oneReport.title == "分析完成")
+        #expect(oneReport.body.contains("已分析 3 张截屏"))
+        #expect(oneReport.body.contains("日报"))
+        #expect(oneReport.body.contains("2026年4月27日"))
+
+        let multipleReports = try #require(AppNotificationMessageBuilder.analysisCompletion(
+            context: manualContext,
+            dailyReportDayStarts: [day, nextDay],
+            language: .simplifiedChinese
+        ))
+        #expect(multipleReports.body == "已分析 3 张截屏，并生成 2 个日报。")
+
+        let partial = try #require(AppNotificationMessageBuilder.analysisCompletion(
+            context: AnalysisCompletionNotificationContext(
+                trigger: .manual,
+                successfulScreenshotCount: 2,
+                failedScreenshotCount: 1
+            ),
+            dailyReportDayStarts: [],
+            language: .simplifiedChinese
+        ))
+        #expect(partial.body == "已分析 2 张截屏，1 张截屏失败。请进入日志查看详情。")
+
+        let failed = try #require(AppNotificationMessageBuilder.analysisCompletion(
+            context: AnalysisCompletionNotificationContext(
+                trigger: .scheduled,
+                successfulScreenshotCount: 0,
+                failedScreenshotCount: 4
+            ),
+            dailyReportDayStarts: [],
+            language: .simplifiedChinese
+        ))
+        #expect(failed.title == "分析失败")
+        #expect(failed.body == "本次分析运行失败，4 张截屏失败。请进入日志查看详情。")
+
+        let backfill = AppNotificationMessageBuilder.backfillCompletion(
+            workBlockSummariesCreatedCount: 5,
+            dailyReportCount: 2,
+            hasFailures: false,
+            didFailCompletely: false,
+            language: .simplifiedChinese
+        )
+        #expect(backfill.body == "已补充 5 个工作块总结，2 个日报。")
+    }
+
+    @Test func notificationMessageBuilderSkipsQuietAutomaticSuccessAndEmptyCancellation() async throws {
+        #expect(AppNotificationMessageBuilder.analysisCompletion(
+            context: AnalysisCompletionNotificationContext(
+                trigger: .scheduled,
+                successfulScreenshotCount: 3,
+                failedScreenshotCount: 0
+            ),
+            dailyReportDayStarts: [],
+            language: .simplifiedChinese
+        ) == nil)
+
+        #expect(AppNotificationMessageBuilder.analysisCompletion(
+            context: AnalysisCompletionNotificationContext(
+                trigger: .manual,
+                successfulScreenshotCount: 0,
+                failedScreenshotCount: 0
+            ),
+            dailyReportDayStarts: [],
+            language: .simplifiedChinese
+        ) == nil)
+    }
+
 }

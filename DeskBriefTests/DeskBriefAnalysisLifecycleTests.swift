@@ -103,6 +103,184 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func manualAnalysisWithoutDailyReportSendsScreenshotCountNotification() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "analysis-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .manual
+
+        _ = try makeAnalysisRun(database: database)
+        let screenshotURL = try database.screenshotsDirectory().appendingPathComponent("20260426-1000-i5.jpg")
+        try writeSolidTestScreenshot(to: screenshotURL, gray: 255)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"category\\":\\"专注工作\\",\\"summary\\":\\"完成通知测试\\"}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+            return try makeHTTPResponse(url: try #require(request.url), body: payload)
+        }
+        let notificationSender = SpyAppNotificationSender()
+        let summaryService = DailyReportSummaryService(
+            database: database,
+            settingsStore: store,
+            session: session,
+            notificationSender: notificationSender
+        )
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            dailyReportSummaryService: summaryService,
+            session: session,
+            notificationSender: notificationSender
+        )
+
+        service.runNow()
+        let didNotify = await waitUntil(timeoutSeconds: 5) {
+            notificationSender.messages.count == 1
+        }
+
+        #expect(didNotify)
+        #expect(notificationSender.messages.first?.title == "分析完成")
+        #expect(notificationSender.messages.first?.body == "已分析 1 张截屏。")
+    }
+
+    @MainActor
+    @Test func manualAnalysisWaitsForGeneratedDailyReportBeforeNotification() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let dayOne = calendar.date(from: DateComponents(year: 2026, month: 4, day: 26))!
+        let dayTwo = calendar.date(byAdding: .day, value: 1, to: dayOne)!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "analysis-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .manual
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://summary.example.com"
+        store.workContentSummaryModelName = "summary-model"
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: dayTwo)!,
+            categoryName: "会议沟通",
+            summaryText: "让前一天日报闭合",
+            durationMinutesSnapshot: 30
+        )
+
+        let screenshotURL = try database.screenshotsDirectory().appendingPathComponent("20260426-1000-i5.jpg")
+        try writeSolidTestScreenshot(to: screenshotURL, gray: 255)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            let url = try #require(request.url)
+            if url.host == "analysis.example.com" {
+                let payload = """
+                {
+                  "choices": [
+                    {
+                      "message": {
+                        "content": "{\\"category\\":\\"专注工作\\",\\"summary\\":\\"分析通知日报测试\\"}"
+                      },
+                      "finish_reason": "stop"
+                    }
+                  ]
+                }
+                """
+                return try makeHTTPResponse(url: url, body: payload)
+            }
+
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"dailySummary\\":\\"完成日报通知\\",\\"categorySummaries\\":{\\"专注工作\\":\\"整理通知逻辑\\"}}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+            return try makeHTTPResponse(url: url, body: payload)
+        }
+        let notificationSender = SpyAppNotificationSender()
+        let summaryService = DailyReportSummaryService(
+            database: database,
+            settingsStore: store,
+            session: session,
+            notificationSender: notificationSender
+        )
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            dailyReportSummaryService: summaryService,
+            session: session,
+            notificationSender: notificationSender
+        )
+
+        service.runNow()
+        let didNotify = await waitUntil(timeoutSeconds: 6) {
+            notificationSender.messages.count == 1
+        }
+
+        let storedReport = try #require(try database.fetchDailyReport(for: dayOne))
+        let message = try #require(notificationSender.messages.first)
+
+        #expect(didNotify)
+        #expect(storedReport.dailySummaryText == "完成日报通知")
+        #expect(message.body.contains("已分析 1 张截屏"))
+        #expect(message.body.contains(L10n.reportDayDisplayText(for: dayOne, language: .simplifiedChinese)))
+    }
+
+    @MainActor
     @Test func analysisRequestWaitsForActiveSummaryRun() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory

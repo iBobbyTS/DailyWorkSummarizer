@@ -74,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             let keychain = KeychainStore(service: Bundle.main.bundleIdentifier ?? "DeskBrief")
             let logStore = AppLogStore(database: database)
             let settingsStore = SettingsStore(database: database, keychain: keychain, logStore: logStore)
+            let notificationService = SystemAppNotificationService(logStore: logStore)
 
             self.database = database
             self.settingsStore = settingsStore
@@ -82,14 +83,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             let dailyReportSummaryService = DailyReportSummaryService(
                 database: database,
                 settingsStore: settingsStore,
-                logStore: logStore
+                logStore: logStore,
+                notificationSender: notificationService
             )
             self.dailyReportSummaryService = dailyReportSummaryService
             self.analysisService = AnalysisService(
                 database: database,
                 settingsStore: settingsStore,
                 logStore: logStore,
-                dailyReportSummaryService: dailyReportSummaryService
+                dailyReportSummaryService: dailyReportSummaryService,
+                notificationSender: notificationService
             )
             self.reportsViewModel = ReportsViewModel(
                 database: database,

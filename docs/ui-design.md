@@ -48,6 +48,14 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - When either model profile uses LM Studio, the Current Status submenu should expose a force-unload command for that specific profile as a third block after the status text and the regular action section. Keep `Open Screenshots Folder` and `Analyze Now` together in the second block.
 - The Clear Early Screenshots submenu calculates counts asynchronously when opened. It should show calculating, empty, count, and failure states without blocking the menu bar UI, and destructive cleanup requires confirmation.
 
+## System Notifications
+
+- Background task notifications should be concise and outcome-focused.
+- Manual Analyze Now completion reports analyzed screenshot counts. If daily reports were generated, include either the specific daily-report day or the number of generated daily reports.
+- Manual backfill completion reports newly filled work-block summaries and daily reports.
+- Scheduled and realtime automatic analysis should notify only when it generated at least one daily report or when the run failed or partially failed. Successful screenshot-only automatic runs stay silent.
+- Partial failures and failed runs should direct the user to the log window instead of embedding detailed diagnostics in the notification body.
+
 ## Reports And Logs
 
 - Reports should prioritize timeline and aggregate comprehension over decorative layout.

@@ -330,7 +330,13 @@ extension DeskBriefTests {
             )
         }
 
-        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        let notificationSender = SpyAppNotificationSender()
+        let service = DailyReportSummaryService(
+            database: database,
+            settingsStore: store,
+            session: session,
+            notificationSender: notificationSender
+        )
         await service.backfillMissingSummaries()
 
         let dayOneReport = try #require(try database.fetchDailyReport(for: dayOne))
@@ -347,6 +353,8 @@ extension DeskBriefTests {
         #expect(workSummary?.summaryText == "合并后的工作块补漏总结")
         #expect(meetingSummary?.summaryText == "同步补漏入口")
         #expect(latestDaySummary == nil)
+        #expect(notificationSender.messages.count == 1)
+        #expect(notificationSender.messages.first?.body == "已补充 2 个工作块总结，1 个日报。")
     }
 
     @Test func weeklyHeatmapOpacityNormalizesNonAbsenceTogetherAndAbsenceSeparately() async throws {

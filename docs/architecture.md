@@ -22,6 +22,8 @@ The app is centered around a small set of long-lived services created at launch 
   Non-main async worker in `AnalysisWorker.swift` used by `AnalysisService` for image loading, OCR, model invocation, structured parsing, and retry behavior.
 - `DailyReportSummaryService`
   Daily-summary generation, contiguous daily work-block summary generation, runtime state, cancellation, and backfill for missing work summaries.
+- `SystemAppNotificationService`
+  Lazy-authorized macOS local notifications for background run completion and failure messages.
 - `LLMService`
   Shared provider adapter for OpenAI, Anthropic, LM Studio, and Apple Intelligence.
 - `LMStudioModelLifecycle`
@@ -77,11 +79,13 @@ The app is centered around a small set of long-lived services created at launch 
 - Successful parsed results are written to `analysis_results`; duplicate capture times are ignored and the already-processed screenshot file is removed without overwriting the existing result.
 - Failed per-screenshot attempts update run-level counts and also write actionable runtime errors to `app_logs`.
 - After a run completes, the service updates run status and submits one unified summary request to the coordinator. That request has separate scopes for daily work-block summaries and daily report generation, but both pieces run inside the same work-content summary run. The summary run starts only after the analysis runtime state is idle. If LM Studio is involved, the analysis-to-summary handoff still decides whether to reuse, unload, switch, or temporarily load a summary model based on the two model profiles and their lifecycle toggles.
+- Manual analysis sends a completion notification after the run result is known. If daily reports are candidates, the notification is deferred until the unified summary run finishes so the message can include generated daily reports or summary failures. Scheduled and realtime runs stay quiet when they only succeed at screenshot analysis, but they notify when daily reports are generated or when the run fails.
 
 ### 4. Daily summary flow
 
 - Summary entry points also pass through `AppRunCoordinator`: backfill, missing daily reports, analysis-triggered work-block plus daily-report work, affected-day work-block summaries, and manually generated daily reports all share the same summary run kind.
 - If a summary request arrives while a summary run is active, it is merged into the active summary accumulator. If it arrives during screenshot analysis, it is coalesced into the pending summary bucket and starts after analysis finishes.
+- Summary requests carry an optional notification intent. Backfill intents merge into one completion notification, while analysis-completion intents carry screenshot success and failure counts from the originating analysis run.
 - A summary request explicitly separates its work-block scope from its daily-report scope. Work-block scopes target affected days or all missing blocks. Daily-report scopes target explicit candidate days or all missing final-ready reports. Affected work-block days do not imply a global daily-report scan.
 - Analysis-triggered daily-report scopes depend on the run trigger. Manual and scheduled analysis use the continuous day range covered by successfully processed screenshots in that run. Pure realtime analysis compares successfully processed result days with the last persisted analysis result before the run; it only candidates earlier days when a day boundary was crossed. If a manual or scheduled trigger merges into an active realtime run, that run upgrades to the bounded day-range behavior.
 - `DailyReportSummaryService` fetches analyzed activity items that overlap the target day.
@@ -99,7 +103,7 @@ The app is centered around a small set of long-lived services created at launch 
 - Contiguous same-category work blocks are also summarized into `daily_work_block_summaries` for daily heatmap hover text. Cross-day blocks stay whole for model summarization and storage, and rendering clips them to the visible report range.
 - Work-block summary prompts include only category and source summary text. They intentionally do not include explicit start times, end times, durations, or dates so the model does not evaluate the schedule itself.
 - A single source item with a non-empty summary is stored directly. A multi-item block calls the model only when at least two source items have non-empty summaries, and each model request summarizes exactly one block.
-- Background summary failures are recorded in `app_logs`; cancellation and no-activity outcomes are diagnostic `log` entries, while provider, database, and lifecycle failures are `error` entries.
+- Background summary failures are recorded in `app_logs`; cancellation and no-activity outcomes are diagnostic `log` entries, while provider, database, and lifecycle failures are `error` entries. Backfill completion notifications report newly created work-block summaries and daily reports; analysis-triggered notifications report screenshot and daily-report counts only.
 
 ### 5. Reporting flow
 
@@ -139,6 +143,7 @@ Each profile also carries its own LM Studio lifecycle toggle so the app can skip
 - Services consume immutable snapshots when starting work to avoid mid-run drift.
 - `AppLogStore` is the authoritative source for runtime log entries shown in the UI; it reloads from SQLite after each mutation and emits `appLogsDidChange`.
 - Services should not silently swallow filesystem, database, screenshot, model-lifecycle, or report-loading failures. Expected parse probes and cancellation sleeps can stay local, but ignored operational failures should be classified as user-ignorable `log` entries or actionable `error` entries in `AppLogStore`.
+- `SystemAppNotificationService` requests notification authorization only when a message is first sent. Denied permission or notification delivery failures are logged through `AppLogStore` and must not change analysis or summary run outcomes.
 
 ## Architectural constraints
 

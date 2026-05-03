@@ -31,6 +31,7 @@ final class AnalysisService {
     private let llmService: LLMService
     private let analysisWorker: AnalysisWorker
     private let lmStudioLifecycle: LMStudioModelLifecycle
+    private let notificationSender: AppNotificationSending
     private var timer: Timer?
     private var realtimeAnalysisTimer: Timer?
     private var wakeObserver: NSObjectProtocol?
@@ -51,13 +52,15 @@ final class AnalysisService {
         logStore: AppLogStore,
         dailyReportSummaryService: DailyReportSummaryService,
         session: URLSession? = nil,
-        runCoordinator: AppRunCoordinator? = nil
+        runCoordinator: AppRunCoordinator? = nil,
+        notificationSender: AppNotificationSending? = nil
     ) {
         self.database = database
         self.settingsStore = settingsStore
         self.logStore = logStore
         self.dailyReportSummaryService = dailyReportSummaryService
         self.runCoordinator = runCoordinator ?? dailyReportSummaryService.runCoordinator
+        self.notificationSender = notificationSender ?? NoOpAppNotificationService()
         let resolvedSession = session ?? Self.makeIsolatedSession()
         self.llmService = LLMService(session: resolvedSession)
         self.analysisWorker = AnalysisWorker(llmService: self.llmService)
@@ -368,6 +371,18 @@ final class AnalysisService {
             )
         } catch {
             logStore.addError(source: .analysis, context: "Failed to create analysis run", error: error)
+            let notificationContext = AnalysisCompletionNotificationContext(
+                trigger: trigger,
+                successfulScreenshotCount: 0,
+                failedScreenshotCount: pendingScreenshots.count
+            )
+            Task { @MainActor [weak self] in
+                await self?.sendAnalysisCompletionNotificationIfNeeded(
+                    context: notificationContext,
+                    dailyReportDayStarts: [],
+                    language: snapshot.appLanguage
+                )
+            }
             runCoordinator.finishRun(.screenshotAnalysis)
             return
         }
@@ -418,6 +433,8 @@ final class AnalysisService {
                 failureCount: run.totalCount,
                 errorMessage: localized(.analysisNeedsCategoryRule, language: snapshot.appLanguage)
             )
+            run.failureCount = run.totalCount
+            await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
             return
         }
 
@@ -430,6 +447,8 @@ final class AnalysisService {
                     failureCount: run.totalCount,
                     errorMessage: localized(.analysisNeedsBaseURL, language: snapshot.appLanguage)
                 )
+                run.failureCount = run.totalCount
+                await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
                 return
             }
 
@@ -441,6 +460,8 @@ final class AnalysisService {
                     failureCount: run.totalCount,
                     errorMessage: localized(.analysisNeedsModelName, language: snapshot.appLanguage)
                 )
+                run.failureCount = run.totalCount
+                await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
                 return
             }
         }
@@ -459,6 +480,8 @@ final class AnalysisService {
                 failureCount: run.totalCount,
                 errorMessage: error.localizedDescription
             )
+            run.failureCount = run.totalCount
+            await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
             return
         }
 
@@ -611,6 +634,7 @@ final class AnalysisService {
                 loadedInstanceID: loadedAnalysisModel?.instanceID,
                 cancelActiveRequest: true
             )
+            await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
             return
         }
 
@@ -630,6 +654,7 @@ final class AnalysisService {
                 loadedInstanceID: loadedAnalysisModel?.instanceID,
                 cancelActiveRequest: true
             )
+            await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
             return
         }
 
@@ -655,11 +680,24 @@ final class AnalysisService {
             calendar: reportCalendar
         )
         let dailyReportCandidateDayStarts = run.dailyReportCandidateDayStarts(calendar: reportCalendar)
+        let notificationContext = analysisNotificationContext(for: run)
+        let notificationIntent: DailyReportSummaryNotificationIntent
+        if dailyReportCandidateDayStarts.isEmpty {
+            notificationIntent = .none
+            await sendAnalysisCompletionNotificationIfNeeded(
+                context: notificationContext,
+                dailyReportDayStarts: [],
+                language: snapshot.appLanguage
+            )
+        } else {
+            notificationIntent = .analysisCompletion(notificationContext)
+        }
         await enqueueMissingReportsAfterAnalysis(
             snapshot: snapshot,
             loadedAnalysisModel: loadedAnalysisModel,
             workBlockDayStarts: affectedDayStarts,
-            dailyReportCandidateDayStarts: dailyReportCandidateDayStarts
+            dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
+            notificationIntent: notificationIntent
         )
     }
 
@@ -676,7 +714,8 @@ final class AnalysisService {
         snapshot: AppSettingsSnapshot,
         loadedAnalysisModel: LMStudioLoadedModel?,
         workBlockDayStarts: Set<Date>,
-        dailyReportCandidateDayStarts: Set<Date>
+        dailyReportCandidateDayStarts: Set<Date>,
+        notificationIntent: DailyReportSummaryNotificationIntent
     ) async {
         let analysisSettings = snapshot.screenshotAnalysisModelProfile
         let summarySettings = snapshot.workContentSummaryModelProfile
@@ -704,8 +743,47 @@ final class AnalysisService {
             dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
             lmStudioLifecyclePolicy: (summaryLifecycleEnabled && !canReuseAnalysisModel)
                 ? .loadForSummaryThenUnload
-                : .reuseAlreadyLoadedModelAndKeepLoaded
+                : .reuseAlreadyLoadedModelAndKeepLoaded,
+            notificationIntent: notificationIntent
         )
+    }
+
+    private func analysisNotificationContext(for run: ActiveAnalysisRun) -> AnalysisCompletionNotificationContext {
+        AnalysisCompletionNotificationContext(
+            trigger: run.notificationTrigger,
+            successfulScreenshotCount: run.successCount,
+            failedScreenshotCount: run.failureCount
+        )
+    }
+
+    private func sendAnalysisCompletionNotificationIfNeeded(
+        for run: ActiveAnalysisRun,
+        dailyReportDayStarts: [Date],
+        summaryFailed: Bool = false
+    ) async {
+        await sendAnalysisCompletionNotificationIfNeeded(
+            context: analysisNotificationContext(for: run),
+            dailyReportDayStarts: dailyReportDayStarts,
+            summaryFailed: summaryFailed,
+            language: run.settings.appLanguage
+        )
+    }
+
+    private func sendAnalysisCompletionNotificationIfNeeded(
+        context: AnalysisCompletionNotificationContext,
+        dailyReportDayStarts: [Date],
+        summaryFailed: Bool = false,
+        language: AppLanguage
+    ) async {
+        guard let message = AppNotificationMessageBuilder.analysisCompletion(
+            context: context,
+            dailyReportDayStarts: dailyReportDayStarts,
+            summaryFailed: summaryFailed,
+            language: language
+        ) else {
+            return
+        }
+        await notificationSender.send(message)
     }
 
     private func pendingScreenshotFiles(defaultDurationMinutes: Int) -> [ScreenshotFileRecord] {
