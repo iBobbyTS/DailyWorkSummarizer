@@ -49,6 +49,109 @@ struct HeatmapTimelineView: View {
     }
 }
 
+struct HeatmapLayoutMetrics: Equatable {
+    let categoryCount: Int
+    let rowHeight: CGFloat
+    let rowSpacing: CGFloat
+    let axisHeight: CGFloat
+    let axisRowsSpacing: CGFloat
+    let verticalPadding: CGFloat
+    let availableHeight: CGFloat
+
+    var rowStride: CGFloat {
+        rowHeight + rowSpacing
+    }
+
+    var rowsHeight: CGFloat {
+        max(CGFloat(max(categoryCount, 1)) * rowStride - rowSpacing, rowHeight)
+    }
+
+    var neededHeight: CGFloat {
+        verticalPadding * 2 + axisHeight + axisRowsSpacing + rowsHeight
+    }
+
+    var containerHeight: CGFloat {
+        let boundedAvailableHeight = availableHeight.isFinite ? max(availableHeight, 0) : neededHeight
+        return min(neededHeight, boundedAvailableHeight)
+    }
+
+    var rowsViewportHeight: CGFloat {
+        max(containerHeight - verticalPadding * 2 - axisHeight - axisRowsSpacing, 0)
+    }
+}
+
+private struct HeatmapTimelineContainer<AxisContent: View, RowContent: View>: View {
+    let categoryCount: Int
+    let labelWidth: CGFloat
+    let rowHeight: CGFloat
+    let rowSpacing: CGFloat
+    let horizontalPadding: CGFloat
+    let axisHeight: CGFloat
+    let axisRowsSpacing: CGFloat
+    let verticalPadding: CGFloat
+    private let axisContent: (CGFloat) -> AxisContent
+    private let rowContent: (CGFloat, HeatmapLayoutMetrics) -> RowContent
+
+    init(
+        categoryCount: Int,
+        labelWidth: CGFloat,
+        rowHeight: CGFloat,
+        rowSpacing: CGFloat,
+        horizontalPadding: CGFloat,
+        axisHeight: CGFloat = 30,
+        axisRowsSpacing: CGFloat = 12,
+        verticalPadding: CGFloat = 12,
+        @ViewBuilder axisContent: @escaping (CGFloat) -> AxisContent,
+        @ViewBuilder rowContent: @escaping (CGFloat, HeatmapLayoutMetrics) -> RowContent
+    ) {
+        self.categoryCount = categoryCount
+        self.labelWidth = labelWidth
+        self.rowHeight = rowHeight
+        self.rowSpacing = rowSpacing
+        self.horizontalPadding = horizontalPadding
+        self.axisHeight = axisHeight
+        self.axisRowsSpacing = axisRowsSpacing
+        self.verticalPadding = verticalPadding
+        self.axisContent = axisContent
+        self.rowContent = rowContent
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let canvasWidth = max(geometry.size.width - labelWidth - horizontalPadding * 2, 320)
+            let metrics = HeatmapLayoutMetrics(
+                categoryCount: categoryCount,
+                rowHeight: rowHeight,
+                rowSpacing: rowSpacing,
+                axisHeight: axisHeight,
+                axisRowsSpacing: axisRowsSpacing,
+                verticalPadding: verticalPadding,
+                availableHeight: geometry.size.height
+            )
+
+            VStack(alignment: .leading, spacing: axisRowsSpacing) {
+                axisContent(canvasWidth)
+
+                ScrollView(.vertical, showsIndicators: metrics.rowsHeight > metrics.rowsViewportHeight) {
+                    rowContent(canvasWidth, metrics)
+                        .frame(height: metrics.rowsHeight, alignment: .topLeading)
+                }
+                .frame(height: metrics.rowsViewportHeight, alignment: .topLeading)
+            }
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(height: metrics.containerHeight, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.gray.opacity(0.06))
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+}
+
 private struct ContinuousHeatmapView: View {
     let range: ReportRange
     let categories: [String]
@@ -62,87 +165,84 @@ private struct ContinuousHeatmapView: View {
     private let horizontalPadding: CGFloat = 16
 
     var body: some View {
-        GeometryReader { geometry in
-            let canvasWidth = max(geometry.size.width - labelWidth - horizontalPadding * 2, 320)
-            let rowStride = rowHeight + rowSpacing
-            let canvasHeight = max(CGFloat(categories.count) * rowStride - rowSpacing, rowHeight)
-            let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
+        HeatmapTimelineContainer(
+            categoryCount: categories.count,
+            labelWidth: labelWidth,
+            rowHeight: rowHeight,
+            rowSpacing: rowSpacing,
+            horizontalPadding: horizontalPadding
+        ) { canvasWidth in
             let tickDates = timelineTicks(canvasWidth: canvasWidth)
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .bottom, spacing: 0) {
-                    Color.clear
-                        .frame(width: labelWidth, height: 1)
+            HStack(alignment: .bottom, spacing: 0) {
+                Color.clear
+                    .frame(width: labelWidth, height: 1)
 
-                    ZStack(alignment: .topLeading) {
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.18))
-                            .frame(height: 1)
-                            .offset(y: 20)
+                ZStack(alignment: .topLeading) {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.18))
+                        .frame(height: 1)
+                        .offset(y: 20)
 
-                        ForEach(Array(tickDates.enumerated()), id: \.offset) { index, tick in
-                            let xPosition = position(for: tick, in: canvasWidth)
-                            VStack(spacing: 4) {
-                                Text(tickLabel(for: tick, isLast: index == tickDates.count - 1))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: axisLabelWidth, alignment: .center)
-                                    .multilineTextAlignment(.center)
-                                Rectangle()
-                                    .fill(Color.secondary.opacity(0.25))
-                                    .frame(width: 1, height: 8)
-                            }
-                            .frame(width: axisLabelWidth)
-                            .offset(x: xPosition - axisLabelWidth / 2)
-                        }
-                    }
-                    .frame(width: canvasWidth, height: 30)
-                }
-
-                HStack(alignment: .top, spacing: 0) {
-                    VStack(alignment: .leading, spacing: rowSpacing) {
-                        ForEach(categories, id: \.self) { category in
-                            Text(L10n.displayCategoryName(category))
-                                .font(.caption)
+                    ForEach(Array(tickDates.enumerated()), id: \.offset) { index, tick in
+                        let xPosition = position(for: tick, in: canvasWidth)
+                        VStack(spacing: 4) {
+                            Text(tickLabel(for: tick, isLast: index == tickDates.count - 1))
+                                .font(.caption2)
                                 .foregroundStyle(.secondary)
-                                .frame(width: labelWidth, height: rowHeight, alignment: .leading)
+                                .frame(width: axisLabelWidth, alignment: .center)
+                                .multilineTextAlignment(.center)
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.25))
+                                .frame(width: 1, height: 8)
                         }
+                        .frame(width: axisLabelWidth)
+                        .offset(x: xPosition - axisLabelWidth / 2)
                     }
-
-                    ZStack(alignment: .topLeading) {
-                        ForEach(Array(categories.enumerated()), id: \.element) { index, _ in
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(index.isMultiple(of: 2) ? Color.gray.opacity(0.08) : Color.clear)
-                                .frame(width: canvasWidth, height: rowHeight)
-                                .offset(y: CGFloat(index) * rowStride)
-                        }
-
-                        ForEach(items) { item in
-                            if let rowIndex = rowIndexMap[item.category] {
-                                RoundedRectangle(cornerRadius: 7)
-                                    .fill((categoryColors[item.category] ?? .accentColor).opacity(0.78))
-                                    .frame(
-                                        width: max(eventWidth(for: item, in: canvasWidth), 1),
-                                        height: rowHeight - 4
-                                    )
-                                    .offset(
-                                        x: position(for: item.start, in: canvasWidth),
-                                        y: CGFloat(rowIndex) * rowStride + 2
-                                    )
-                            }
-                        }
-                    }
-                    .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
                 }
+                .frame(width: canvasWidth, height: 30)
             }
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } rowContent: { canvasWidth, metrics in
+            let rowStride = metrics.rowStride
+            let canvasHeight = metrics.rowsHeight
+            let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
+
+            HStack(alignment: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: rowSpacing) {
+                    ForEach(categories, id: \.self) { category in
+                        Text(L10n.displayCategoryName(category))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(width: labelWidth, height: rowHeight, alignment: .leading)
+                    }
+                }
+
+                ZStack(alignment: .topLeading) {
+                    ForEach(Array(categories.enumerated()), id: \.element) { index, _ in
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(index.isMultiple(of: 2) ? Color.gray.opacity(0.08) : Color.clear)
+                            .frame(width: canvasWidth, height: rowHeight)
+                            .offset(y: CGFloat(index) * rowStride)
+                    }
+
+                    ForEach(items) { item in
+                        if let rowIndex = rowIndexMap[item.category] {
+                            RoundedRectangle(cornerRadius: 7)
+                                .fill((categoryColors[item.category] ?? .accentColor).opacity(0.78))
+                                .frame(
+                                    width: max(eventWidth(for: item, in: canvasWidth), 1),
+                                    height: rowHeight - 4
+                                )
+                                .offset(
+                                    x: position(for: item.start, in: canvasWidth),
+                                    y: CGFloat(rowIndex) * rowStride + 2
+                                )
+                        }
+                    }
+                }
+                .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
+            }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.gray.opacity(0.06))
-        )
     }
 
     fileprivate func timelineTicks(canvasWidth: CGFloat) -> [Date] {
@@ -199,97 +299,94 @@ private struct DailyHeatmapView: View {
     private let horizontalPadding: CGFloat = 16
 
     var body: some View {
-        GeometryReader { geometry in
-            let canvasWidth = max(geometry.size.width - labelWidth - horizontalPadding * 2, 320)
-            let rowStride = rowHeight + rowSpacing
-            let canvasHeight = max(CGFloat(categories.count) * rowStride - rowSpacing, rowHeight)
-            let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
+        HeatmapTimelineContainer(
+            categoryCount: categories.count,
+            labelWidth: labelWidth,
+            rowHeight: rowHeight,
+            rowSpacing: rowSpacing,
+            horizontalPadding: horizontalPadding
+        ) { canvasWidth in
             let tickDates = timelineTicks(canvasWidth: canvasWidth)
+
+            HStack(alignment: .bottom, spacing: 0) {
+                Color.clear
+                    .frame(width: labelWidth, height: 1)
+
+                ZStack(alignment: .topLeading) {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.18))
+                        .frame(height: 1)
+                        .offset(y: 20)
+
+                    ForEach(Array(tickDates.enumerated()), id: \.offset) { _, tick in
+                        let xPosition = position(for: tick, in: canvasWidth)
+                        VStack(spacing: 4) {
+                            Text(tickLabel(for: tick))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .frame(width: axisLabelWidth, alignment: .center)
+                                .multilineTextAlignment(.center)
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.25))
+                                .frame(width: 1, height: 8)
+                        }
+                        .frame(width: axisLabelWidth)
+                        .offset(x: xPosition - axisLabelWidth / 2)
+                    }
+                }
+                .frame(width: canvasWidth, height: 30)
+            }
+        } rowContent: { canvasWidth, metrics in
+            let rowStride = metrics.rowStride
+            let canvasHeight = metrics.rowsHeight
+            let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
             let hoverFrames = hoverFrames(rowIndexMap: rowIndexMap, rowStride: rowStride, canvasWidth: canvasWidth)
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .bottom, spacing: 0) {
-                    Color.clear
-                        .frame(width: labelWidth, height: 1)
-
-                    ZStack(alignment: .topLeading) {
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.18))
-                            .frame(height: 1)
-                            .offset(y: 20)
-
-                        ForEach(Array(tickDates.enumerated()), id: \.offset) { index, tick in
-                            let xPosition = position(for: tick, in: canvasWidth)
-                            VStack(spacing: 4) {
-                                Text(tickLabel(for: tick))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: axisLabelWidth, alignment: .center)
-                                    .multilineTextAlignment(.center)
-                                Rectangle()
-                                    .fill(Color.secondary.opacity(0.25))
-                                    .frame(width: 1, height: 8)
-                            }
-                            .frame(width: axisLabelWidth)
-                            .offset(x: xPosition - axisLabelWidth / 2)
-                        }
+            HStack(alignment: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: rowSpacing) {
+                    ForEach(categories, id: \.self) { category in
+                        Text(L10n.displayCategoryName(category))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(width: labelWidth, height: rowHeight, alignment: .leading)
                     }
-                    .frame(width: canvasWidth, height: 30)
                 }
 
-                HStack(alignment: .top, spacing: 0) {
-                    VStack(alignment: .leading, spacing: rowSpacing) {
-                        ForEach(categories, id: \.self) { category in
-                            Text(L10n.displayCategoryName(category))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(width: labelWidth, height: rowHeight, alignment: .leading)
-                        }
+                ZStack(alignment: .topLeading) {
+                    ForEach(Array(categories.enumerated()), id: \.element) { index, _ in
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(index.isMultiple(of: 2) ? Color.gray.opacity(0.08) : Color.clear)
+                            .frame(width: canvasWidth, height: rowHeight)
+                            .offset(y: CGFloat(index) * rowStride)
                     }
 
-                    ZStack(alignment: .topLeading) {
-                        ForEach(Array(categories.enumerated()), id: \.element) { index, _ in
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(index.isMultiple(of: 2) ? Color.gray.opacity(0.08) : Color.clear)
-                                .frame(width: canvasWidth, height: rowHeight)
-                                .offset(y: CGFloat(index) * rowStride)
-                        }
-
-                        ForEach(items) { item in
-                            if let rowIndex = rowIndexMap[item.category] {
-                                RoundedRectangle(cornerRadius: 7)
-                                    .fill((categoryColors[item.category] ?? .accentColor).opacity(0.78))
-                                    .frame(
-                                        width: max(eventWidth(for: item, in: canvasWidth), 1),
-                                        height: rowHeight - 4
-                                    )
-                                    .offset(
-                                        x: position(for: item.start, in: canvasWidth),
-                                        y: CGFloat(rowIndex) * rowStride + 2
+                    ForEach(items) { item in
+                        if let rowIndex = rowIndexMap[item.category] {
+                            RoundedRectangle(cornerRadius: 7)
+                                .fill((categoryColors[item.category] ?? .accentColor).opacity(0.78))
+                                .frame(
+                                    width: max(eventWidth(for: item, in: canvasWidth), 1),
+                                    height: rowHeight - 4
                                 )
-                            }
+                                .offset(
+                                    x: position(for: item.start, in: canvasWidth),
+                                    y: CGFloat(rowIndex) * rowStride + 2
+                            )
                         }
                     }
-                    .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
-                    .contentShape(Rectangle())
-                    .onContinuousHover { phase in
-                        switch phase {
-                        case .active(let location):
-                            hoveredEvent = hoverFrames.last(where: { $0.rect.contains(location) })?.event
-                        case .ended:
-                            hoveredEvent = nil
-                        }
+                }
+                .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
+                .contentShape(Rectangle())
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active(let location):
+                        hoveredEvent = hoverFrames.last(where: { $0.rect.contains(location) })?.event
+                    case .ended:
+                        hoveredEvent = nil
                     }
                 }
             }
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.gray.opacity(0.06))
-        )
     }
 
     private func position(for date: Date, in width: CGFloat) -> CGFloat {
@@ -372,88 +469,85 @@ private struct WeeklyHeatmapView: View {
     private let horizontalPadding: CGFloat = 16
 
     var body: some View {
-        GeometryReader { geometry in
-            let canvasWidth = max(geometry.size.width - labelWidth - horizontalPadding * 2, 320)
-            let rowStride = rowHeight + rowSpacing
-            let canvasHeight = max(CGFloat(categories.count) * rowStride - rowSpacing, rowHeight)
-            let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
+        HeatmapTimelineContainer(
+            categoryCount: categories.count,
+            labelWidth: labelWidth,
+            rowHeight: rowHeight,
+            rowSpacing: rowSpacing,
+            horizontalPadding: horizontalPadding
+        ) { canvasWidth in
             let tickDates = timelineTicks(canvasWidth: canvasWidth)
+
+            HStack(alignment: .bottom, spacing: 0) {
+                Color.clear
+                    .frame(width: labelWidth, height: 1)
+
+                ZStack(alignment: .topLeading) {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.18))
+                        .frame(height: 1)
+                        .offset(y: 20)
+
+                    ForEach(Array(tickDates.enumerated()), id: \.offset) { _, tick in
+                        let xPosition = position(for: tick, in: canvasWidth)
+                        VStack(spacing: 4) {
+                            Text(tickLabel(for: tick))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .frame(width: axisLabelWidth, alignment: .center)
+                                .multilineTextAlignment(.center)
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.25))
+                                .frame(width: 1, height: 8)
+                        }
+                        .frame(width: axisLabelWidth)
+                        .offset(x: xPosition - axisLabelWidth / 2)
+                    }
+                }
+                .frame(width: canvasWidth, height: 30)
+            }
+        } rowContent: { canvasWidth, metrics in
+            let rowStride = metrics.rowStride
+            let canvasHeight = metrics.rowsHeight
+            let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
             let fragments = weeklyFragments()
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .bottom, spacing: 0) {
-                    Color.clear
-                        .frame(width: labelWidth, height: 1)
-
-                    ZStack(alignment: .topLeading) {
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.18))
-                            .frame(height: 1)
-                            .offset(y: 20)
-
-                        ForEach(Array(tickDates.enumerated()), id: \.offset) { index, tick in
-                            let xPosition = position(for: tick, in: canvasWidth)
-                            VStack(spacing: 4) {
-                                Text(tickLabel(for: tick))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: axisLabelWidth, alignment: .center)
-                                    .multilineTextAlignment(.center)
-                                Rectangle()
-                                    .fill(Color.secondary.opacity(0.25))
-                                    .frame(width: 1, height: 8)
-                            }
-                            .frame(width: axisLabelWidth)
-                            .offset(x: xPosition - axisLabelWidth / 2)
-                        }
+            HStack(alignment: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: rowSpacing) {
+                    ForEach(categories, id: \.self) { category in
+                        Text(L10n.displayCategoryName(category))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(width: labelWidth, height: rowHeight, alignment: .leading)
                     }
-                    .frame(width: canvasWidth, height: 30)
                 }
 
-                HStack(alignment: .top, spacing: 0) {
-                    VStack(alignment: .leading, spacing: rowSpacing) {
-                        ForEach(categories, id: \.self) { category in
-                            Text(L10n.displayCategoryName(category))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(width: labelWidth, height: rowHeight, alignment: .leading)
-                        }
+                ZStack(alignment: .topLeading) {
+                    ForEach(Array(categories.enumerated()), id: \.element) { index, _ in
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(index.isMultiple(of: 2) ? Color.gray.opacity(0.08) : Color.clear)
+                            .frame(width: canvasWidth, height: rowHeight)
+                            .offset(y: CGFloat(index) * rowStride)
                     }
 
-                    ZStack(alignment: .topLeading) {
-                        ForEach(Array(categories.enumerated()), id: \.element) { index, _ in
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(index.isMultiple(of: 2) ? Color.gray.opacity(0.08) : Color.clear)
-                                .frame(width: canvasWidth, height: rowHeight)
-                                .offset(y: CGFloat(index) * rowStride)
-                        }
-
-                        ForEach(fragments) { fragment in
-                            if let rowIndex = rowIndexMap[fragment.category] {
-                                RoundedRectangle(cornerRadius: 7)
-                                    .fill((categoryColors[fragment.category] ?? .accentColor).opacity(fragmentOpacity(for: fragment, among: fragments)))
-                                    .frame(
-                                        width: max(position(for: fragment.endSeconds, in: canvasWidth) - position(for: fragment.startSeconds, in: canvasWidth), 1),
-                                        height: rowHeight - 4
-                                    )
-                                    .offset(
-                                        x: position(for: fragment.startSeconds, in: canvasWidth),
-                                        y: CGFloat(rowIndex) * rowStride + 2
-                                    )
-                            }
+                    ForEach(fragments) { fragment in
+                        if let rowIndex = rowIndexMap[fragment.category] {
+                            RoundedRectangle(cornerRadius: 7)
+                                .fill((categoryColors[fragment.category] ?? .accentColor).opacity(fragmentOpacity(for: fragment, among: fragments)))
+                                .frame(
+                                    width: max(position(for: fragment.endSeconds, in: canvasWidth) - position(for: fragment.startSeconds, in: canvasWidth), 1),
+                                    height: rowHeight - 4
+                                )
+                                .offset(
+                                    x: position(for: fragment.startSeconds, in: canvasWidth),
+                                    y: CGFloat(rowIndex) * rowStride + 2
+                                )
                         }
                     }
-                    .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
                 }
+                .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
             }
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.gray.opacity(0.06))
-        )
     }
 
     private func fragmentOpacity(for fragment: WeeklyHeatmapFragment, among fragments: [WeeklyHeatmapFragment]) -> Double {
@@ -599,89 +693,86 @@ private struct OverlayDailyHeatmapView: View {
     private let horizontalPadding: CGFloat = 16
 
     var body: some View {
-        GeometryReader { geometry in
-            let canvasWidth = max(geometry.size.width - labelWidth - horizontalPadding * 2, 320)
-            let rowStride = rowHeight + rowSpacing
-            let canvasHeight = max(CGFloat(categories.count) * rowStride - rowSpacing, rowHeight)
-            let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
+        HeatmapTimelineContainer(
+            categoryCount: categories.count,
+            labelWidth: labelWidth,
+            rowHeight: rowHeight,
+            rowSpacing: rowSpacing,
+            horizontalPadding: horizontalPadding
+        ) { canvasWidth in
             let tickDates = timelineTicks(canvasWidth: canvasWidth)
+
+            HStack(alignment: .bottom, spacing: 0) {
+                Color.clear
+                    .frame(width: labelWidth, height: 1)
+
+                ZStack(alignment: .topLeading) {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.18))
+                        .frame(height: 1)
+                        .offset(y: 20)
+
+                    ForEach(Array(tickDates.enumerated()), id: \.offset) { _, tick in
+                        let xPosition = position(for: tick, in: canvasWidth)
+                        VStack(spacing: 4) {
+                            Text(tickLabel(for: tick))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .frame(width: axisLabelWidth, alignment: .center)
+                                .multilineTextAlignment(.center)
+                            Rectangle()
+                                .fill(Color.secondary.opacity(0.25))
+                                .frame(width: 1, height: 8)
+                        }
+                        .frame(width: axisLabelWidth)
+                        .offset(x: xPosition - axisLabelWidth / 2)
+                    }
+                }
+                .frame(width: canvasWidth, height: 30)
+            }
+        } rowContent: { canvasWidth, metrics in
+            let rowStride = metrics.rowStride
+            let canvasHeight = metrics.rowsHeight
+            let rowIndexMap = Dictionary(uniqueKeysWithValues: categories.enumerated().map { ($0.element, $0.offset) })
             let fragments = overlayFragments()
             let opacity = fragmentOpacity(for: fragments)
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .bottom, spacing: 0) {
-                    Color.clear
-                        .frame(width: labelWidth, height: 1)
-
-                    ZStack(alignment: .topLeading) {
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.18))
-                            .frame(height: 1)
-                            .offset(y: 20)
-
-                        ForEach(Array(tickDates.enumerated()), id: \.offset) { index, tick in
-                            let xPosition = position(for: tick, in: canvasWidth)
-                            VStack(spacing: 4) {
-                                Text(tickLabel(for: tick))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: axisLabelWidth, alignment: .center)
-                                    .multilineTextAlignment(.center)
-                                Rectangle()
-                                    .fill(Color.secondary.opacity(0.25))
-                                    .frame(width: 1, height: 8)
-                            }
-                            .frame(width: axisLabelWidth)
-                            .offset(x: xPosition - axisLabelWidth / 2)
-                        }
+            HStack(alignment: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: rowSpacing) {
+                    ForEach(categories, id: \.self) { category in
+                        Text(L10n.displayCategoryName(category))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(width: labelWidth, height: rowHeight, alignment: .leading)
                     }
-                    .frame(width: canvasWidth, height: 30)
                 }
 
-                HStack(alignment: .top, spacing: 0) {
-                    VStack(alignment: .leading, spacing: rowSpacing) {
-                        ForEach(categories, id: \.self) { category in
-                            Text(L10n.displayCategoryName(category))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(width: labelWidth, height: rowHeight, alignment: .leading)
-                        }
+                ZStack(alignment: .topLeading) {
+                    ForEach(Array(categories.enumerated()), id: \.element) { index, _ in
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(index.isMultiple(of: 2) ? Color.gray.opacity(0.08) : Color.clear)
+                            .frame(width: canvasWidth, height: rowHeight)
+                            .offset(y: CGFloat(index) * rowStride)
                     }
 
-                    ZStack(alignment: .topLeading) {
-                        ForEach(Array(categories.enumerated()), id: \.element) { index, _ in
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(index.isMultiple(of: 2) ? Color.gray.opacity(0.08) : Color.clear)
-                                .frame(width: canvasWidth, height: rowHeight)
-                                .offset(y: CGFloat(index) * rowStride)
-                        }
-
-                        ForEach(fragments) { fragment in
-                            if let rowIndex = rowIndexMap[fragment.category] {
-                                RoundedRectangle(cornerRadius: 7)
-                                    .fill((categoryColors[fragment.category] ?? .accentColor).opacity(opacity))
-                                    .frame(
-                                        width: max(position(for: fragment.endSeconds, in: canvasWidth) - position(for: fragment.startSeconds, in: canvasWidth), 1),
-                                        height: rowHeight - 4
-                                    )
-                                    .offset(
-                                        x: position(for: fragment.startSeconds, in: canvasWidth),
-                                        y: CGFloat(rowIndex) * rowStride + 2
-                                    )
-                            }
+                    ForEach(fragments) { fragment in
+                        if let rowIndex = rowIndexMap[fragment.category] {
+                            RoundedRectangle(cornerRadius: 7)
+                                .fill((categoryColors[fragment.category] ?? .accentColor).opacity(opacity))
+                                .frame(
+                                    width: max(position(for: fragment.endSeconds, in: canvasWidth) - position(for: fragment.startSeconds, in: canvasWidth), 1),
+                                    height: rowHeight - 4
+                                )
+                                .offset(
+                                    x: position(for: fragment.startSeconds, in: canvasWidth),
+                                    y: CGFloat(rowIndex) * rowStride + 2
+                                )
                         }
                     }
-                    .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
                 }
+                .frame(width: canvasWidth, height: canvasHeight, alignment: .topLeading)
             }
-            .padding(.horizontal, horizontalPadding)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.gray.opacity(0.06))
-        )
     }
 
     private func overlayFragments() -> [WeeklyHeatmapFragment] {

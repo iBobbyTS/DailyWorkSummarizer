@@ -372,6 +372,67 @@ extension DeskBriefTests {
         #expect(abs(WeeklyHeatmapOpacity.opacity(for: dayTwoAbsence, among: samples) - 0.88) < 0.001)
     }
 
+    @Test func heatmapLayoutSizesContainerToContentOrAvailableHeight() async throws {
+        let fitting = HeatmapLayoutMetrics(
+            categoryCount: 3,
+            rowHeight: 26,
+            rowSpacing: 10,
+            axisHeight: 30,
+            axisRowsSpacing: 12,
+            verticalPadding: 12,
+            availableHeight: 400
+        )
+
+        #expect(fitting.rowsHeight == 98)
+        #expect(fitting.neededHeight == 164)
+        #expect(fitting.containerHeight == fitting.neededHeight)
+        #expect(fitting.rowsViewportHeight == fitting.rowsHeight)
+
+        let overflowing = HeatmapLayoutMetrics(
+            categoryCount: 10,
+            rowHeight: 26,
+            rowSpacing: 10,
+            axisHeight: 30,
+            axisRowsSpacing: 12,
+            verticalPadding: 12,
+            availableHeight: 220
+        )
+
+        #expect(overflowing.rowsHeight == 350)
+        #expect(overflowing.neededHeight == 416)
+        #expect(overflowing.containerHeight == 220)
+        #expect(overflowing.rowsViewportHeight == 154)
+        #expect(overflowing.rowsViewportHeight < overflowing.rowsHeight)
+    }
+
+    @Test func heatmapLayoutKeepsMinimumRowHeightAndNonNegativeViewport() async throws {
+        let empty = HeatmapLayoutMetrics(
+            categoryCount: 0,
+            rowHeight: 26,
+            rowSpacing: 10,
+            axisHeight: 30,
+            axisRowsSpacing: 12,
+            verticalPadding: 12,
+            availableHeight: 400
+        )
+
+        #expect(empty.rowsHeight == 26)
+        #expect(empty.containerHeight == empty.neededHeight)
+
+        let squeezed = HeatmapLayoutMetrics(
+            categoryCount: 4,
+            rowHeight: 26,
+            rowSpacing: 10,
+            axisHeight: 30,
+            axisRowsSpacing: 12,
+            verticalPadding: 12,
+            availableHeight: 40
+        )
+
+        #expect(squeezed.containerHeight == 40)
+        #expect(squeezed.rowsViewportHeight == 0)
+    }
+
     @Test func heatmapSummaryTitleUsesFullCrossDayTimeSpanWithHyphen() async throws {
         let calendar = makeTestCalendar()
         let dayStart = calendar.date(from: DateComponents(year: 2026, month: 4, day: 20))!
