@@ -528,6 +528,40 @@ extension DeskBriefTests {
         ])
     }
 
+    @Test func nextCategoryColorSkipsColorsUsedByPreservedOther() async throws {
+        let defaultRules = AppDefaults.defaultCategoryRules(language: .simplifiedChinese)
+
+        let nextColor = AppDefaults.nextCategoryColorHex(for: defaultRules)
+
+        #expect(nextColor == AppDefaults.categoryColorPreset(at: 3))
+        #expect(nextColor != AppDefaults.categoryColorPreset(at: 15))
+    }
+
+    @Test func nextCategoryColorNormalizesExistingColorsBeforeMatchingPresets() async throws {
+        let rules = [
+            CategoryRule(name: "Mixed case", colorHex: "2f7dd1"),
+            AppDefaults.preservedOtherCategoryRule(language: .english),
+        ]
+
+        #expect(AppDefaults.nextCategoryColorHex(for: rules) == AppDefaults.categoryColorPreset(at: 1))
+    }
+
+    @Test func nextCategoryColorAvoidsPreviousEditableColorWhenPresetsAreExhausted() async throws {
+        let rules = AppDefaults.categoryColorPresets
+            .dropLast()
+            .enumerated()
+            .map { index, colorHex in
+                CategoryRule(name: "Category \(index)", colorHex: colorHex)
+            } + [
+                AppDefaults.preservedOtherCategoryRule(language: .simplifiedChinese),
+            ]
+
+        let nextColor = AppDefaults.nextCategoryColorHex(for: rules)
+
+        #expect(AppDefaults.categoryColorPresets.contains(nextColor))
+        #expect(nextColor != AppDefaults.categoryColorPreset(at: 14))
+    }
+
     @MainActor
     @Test func settingsStorePersistsSummaryInstruction() async throws {
         let databaseURL = makeTemporaryDatabaseURL()

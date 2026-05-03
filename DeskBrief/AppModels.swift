@@ -59,6 +59,25 @@ nonisolated enum AppDefaults {
         return "#\(rawHex.uppercased())"
     }
 
+    nonisolated static func nextCategoryColorHex(for existingRules: [CategoryRule]) -> String {
+        let presetColors = categoryColorPresets.compactMap(normalizedCategoryColorHex)
+        let usedPresetColors = Set(
+            existingRules
+                .compactMap { normalizedCategoryColorHex($0.colorHex) }
+                .filter { presetColors.contains($0) }
+        )
+
+        if let firstUnusedPreset = presetColors.first(where: { !usedPresetColors.contains($0) }) {
+            return firstUnusedPreset
+        }
+
+        let previousEditableColor = existingRules
+            .last(where: { !$0.isPreservedOther })
+            .flatMap { normalizedCategoryColorHex($0.colorHex) }
+        let fallbackColors = presetColors.filter { $0 != previousEditableColor }
+        return fallbackColors.randomElement() ?? presetColors.first ?? defaultCategoryColorHex
+    }
+
     static func defaultSummaryInstruction(language: AppLanguage) -> String {
         switch language {
         case .simplifiedChinese:

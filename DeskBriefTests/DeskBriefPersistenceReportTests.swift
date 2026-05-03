@@ -61,6 +61,31 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func settingsStoreAddCategoryRuleAvoidsPreservedOtherColor() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        userDefaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.userDefaultsKey)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        store.addCategoryRule()
+
+        let addedRule = try #require(store.categoryRules.dropLast().last)
+        #expect(addedRule.colorHex == AppDefaults.categoryColorPreset(at: 3))
+        #expect(addedRule.colorHex != store.categoryRules.last?.colorHex)
+    }
+
+    @MainActor
     @Test func settingsStoreCanCopyModelConfigurationBetweenTabs() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DeskBriefTests.\(UUID().uuidString)"

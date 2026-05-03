@@ -300,7 +300,7 @@ final class SettingsStore: ObservableObject {
         clearCategoryRulesValidationMessage()
         let insertIndex = max(categoryRules.count - 1, 0)
         categoryRules.insert(
-            CategoryRule(colorHex: AppDefaults.categoryColorPreset(at: insertIndex)),
+            CategoryRule(colorHex: AppDefaults.nextCategoryColorHex(for: categoryRules)),
             at: insertIndex
         )
         saveCategoryRules()
