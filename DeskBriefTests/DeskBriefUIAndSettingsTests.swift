@@ -67,6 +67,22 @@ extension DeskBriefTests {
         #expect(LegendHoverGeometry.hoverRects(for: []).isEmpty)
     }
 
+    @Test func reportHoverPolicyKeepsCategorySummaryDuringHeatmapSelectionChanges() async throws {
+        #expect(ReportHoverStatePolicy.resetScopeForHeatmapSelectionChange() == .heatmapOnly)
+        #expect(ReportHoverStatePolicy.resetScopeForReportContextChange() == .all)
+    }
+
+    @Test func reportHoverPolicyDoesNotClearLegendHoverWhileRectsAreRebuilding() async throws {
+        let rects = [
+            CGRect(x: 0, y: 0, width: 80, height: 30),
+            CGRect(x: 90, y: 0, width: 70, height: 30)
+        ]
+
+        #expect(!ReportHoverStatePolicy.shouldClearLegendHover(at: CGPoint(x: 20, y: 15), in: rects))
+        #expect(ReportHoverStatePolicy.shouldClearLegendHover(at: CGPoint(x: 180, y: 15), in: rects))
+        #expect(!ReportHoverStatePolicy.shouldClearLegendHover(at: CGPoint(x: 180, y: 15), in: []))
+    }
+
     @Test func captureSkipsWhenMouseLocationAndFrontmostAppAreUnchanged() async throws {
         let shouldSkip = ScreenshotService.shouldSkipCapture(
             currentMouseLocation: CGPoint(x: 120, y: 240),

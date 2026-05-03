@@ -61,16 +61,16 @@ struct ReportsView: View {
         }
         .frame(minWidth: 960, minHeight: 640)
         .onChange(of: viewModel.selectedKind) { _, _ in
-            clearHoveredState()
+            clearHoveredState(ReportHoverStatePolicy.resetScopeForReportContextChange())
         }
         .onChange(of: viewModel.selectedVisualization) { _, _ in
-            clearHoveredState()
+            clearHoveredState(ReportHoverStatePolicy.resetScopeForReportContextChange())
         }
         .onChange(of: viewModel.selectedRangeID) { _, _ in
-            clearHoveredState()
+            clearHoveredState(ReportHoverStatePolicy.resetScopeForReportContextChange())
         }
         .onChange(of: viewModel.selectedHeatmapCategories) { _, _ in
-            clearHoveredState()
+            clearHoveredState(ReportHoverStatePolicy.resetScopeForHeatmapSelectionChange())
         }
     }
 
@@ -391,7 +391,7 @@ struct ReportsView: View {
 
             switch phase {
             case .active(let location):
-                if !LegendHoverGeometry.contains(location, in: legendHoverRects) {
+                if ReportHoverStatePolicy.shouldClearLegendHover(at: location, in: legendHoverRects) {
                     hoveredLegendCategory = nil
                 }
             case .ended:
@@ -549,9 +549,11 @@ struct ReportsView: View {
         return items.first { displayCategory($0.category) == displayName }?.category
     }
 
-    private func clearHoveredState() {
-        hoveredLegendCategory = nil
-        hoveredBarCategory = nil
+    private func clearHoveredState(_ scope: ReportHoverStatePolicy.ResetScope) {
+        if scope == .all {
+            hoveredLegendCategory = nil
+            hoveredBarCategory = nil
+        }
         hoveredHeatmapEvent = nil
     }
 

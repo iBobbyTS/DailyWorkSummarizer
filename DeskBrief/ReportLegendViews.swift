@@ -100,6 +100,28 @@ struct LegendHoverGeometry {
     }
 }
 
+enum ReportHoverStatePolicy {
+    enum ResetScope {
+        case all
+        case heatmapOnly
+    }
+
+    static func resetScopeForReportContextChange() -> ResetScope {
+        .all
+    }
+
+    static func resetScopeForHeatmapSelectionChange() -> ResetScope {
+        .heatmapOnly
+    }
+
+    static func shouldClearLegendHover(at point: CGPoint, in rects: [CGRect]) -> Bool {
+        guard !rects.isEmpty else {
+            return false
+        }
+        return !LegendHoverGeometry.contains(point, in: rects)
+    }
+}
+
 struct WrappingFlowLayout: Layout {
     let horizontalSpacing: CGFloat
     let verticalSpacing: CGFloat
