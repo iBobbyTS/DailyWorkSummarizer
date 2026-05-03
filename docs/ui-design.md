@@ -54,6 +54,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - The report range selector should hide day, week, month, or year options whose visible records are all derived Away time. Empty natural periods between real activity records should not appear in the left report list.
 - Report charts and heatmaps should use the fixed colors saved on category rules instead of assigning colors from the current chart order.
 - Report durations use one shared format across day, week, month, and year views: under 60 minutes uses minutes, 60 to 5,999 minutes uses hours and minutes, and 6,000 minutes or more uses whole hours.
+- The report chart type row should use a separate leading title and a fixed-width segmented control so it aligns with the summary card above and the legend below.
 - Heatmap legends are clickable category filter buttons rather than explicit checkboxes. Selected and unselected states are conveyed through opacity, with every category selected by default.
 - Clicking a heatmap legend filters rows without clearing the category hover summary; category summaries should follow pointer hover state, not selection state, to avoid vertical layout jitter.
 - Heatmap containers size to `min(content height, available height)`. When category rows overflow the available report area, keep the time/date axis pinned at the top of the rounded container and scroll only the row list.

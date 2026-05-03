@@ -3,6 +3,10 @@ import Charts
 import SwiftUI
 
 struct ReportsView: View {
+    private enum Layout {
+        static let chartTypePickerWidth: CGFloat = 260
+    }
+
     @ObservedObject var viewModel: ReportsViewModel
     @State private var hoveredLegendCategory: String?
     @State private var hoveredBarCategory: String?
@@ -196,14 +200,17 @@ struct ReportsView: View {
                     .foregroundStyle(.red)
             }
 
-            HStack(alignment: .center, spacing: 16) {
+            HStack(alignment: .center, spacing: 12) {
+                Text(text(.reportChartType))
+
                 Picker(text(.reportChartType), selection: $viewModel.selectedVisualization) {
                     ForEach(ReportVisualization.allCases) { visualization in
                         Text(visualization.title(in: language)).tag(visualization)
                     }
                 }
+                .labelsHidden()
                 .pickerStyle(.segmented)
-                .frame(maxWidth: 260)
+                .frame(width: Layout.chartTypePickerWidth, alignment: .leading)
 
                 if viewModel.selectedKind != .day {
                     Spacer(minLength: 0)
@@ -215,6 +222,7 @@ struct ReportsView: View {
                         .toggleStyle(.checkbox)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if viewModel.selectedVisualization == .heatmap,
                viewModel.selectedKind == .month || viewModel.selectedKind == .year {
