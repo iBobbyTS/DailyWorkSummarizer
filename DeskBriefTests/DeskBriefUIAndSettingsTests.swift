@@ -243,11 +243,15 @@ extension DeskBriefTests {
         let statusSubmenu = try #require(topLevelItems[0].submenu)
 
         #expect(topLevelItems.count == 9)
+        #expect(menu.autoenablesItems == false)
         #expect(topLevelItems[0].submenu != nil)
+        #expect(topLevelItems[0].submenu?.autoenablesItems == false)
         #expect(selectorName(for: topLevelItems[1]) == "openReports")
+        #expect(topLevelItems[2].submenu?.autoenablesItems == false)
         #expect(cleanupValues == EarlyScreenshotCleanupScope.allCases.map(\.rawValue))
         #expect(topLevelItems[3].isSeparatorItem)
         #expect(selectorName(for: topLevelItems[4]) == "openSettings")
+        #expect(topLevelItems[5].submenu?.autoenablesItems == false)
         #expect(startupModeValues == AnalysisStartupMode.allCases.map(\.rawValue))
         #expect(selectorName(for: topLevelItems[6]) == "openLogs")
         #expect(topLevelItems[7].isSeparatorItem)
@@ -264,6 +268,53 @@ extension DeskBriefTests {
         #expect(statusSubmenu.items[14].action != nil)
         #expect(selectorName(for: statusSubmenu.items[13]) == "forceUnloadModel:")
         #expect(selectorName(for: statusSubmenu.items[14]) == "forceUnloadModel:")
+    }
+
+    @Test func statusMenuWorkRunningStateIncludesCoordinatorGate() async throws {
+        let runningAnalysisState = AnalysisRuntimeState(
+            isRunning: true,
+            stoppingStage: nil,
+            startedAt: Date(),
+            modelName: "analysis-model",
+            completedCount: 0,
+            totalCount: 1
+        )
+        let runningSummaryState = DailyReportSummaryRuntimeState(
+            isRunning: true,
+            isStopping: false,
+            modelName: "summary-model",
+            completedCount: 0,
+            totalCount: 1
+        )
+
+        #expect(
+            MenuBarStatusPresentation.isAnyWorkRunning(
+                analysisState: .idle,
+                summaryState: .idle,
+                coordinatorHasActiveRun: false
+            ) == false
+        )
+        #expect(
+            MenuBarStatusPresentation.isAnyWorkRunning(
+                analysisState: runningAnalysisState,
+                summaryState: .idle,
+                coordinatorHasActiveRun: false
+            )
+        )
+        #expect(
+            MenuBarStatusPresentation.isAnyWorkRunning(
+                analysisState: .idle,
+                summaryState: runningSummaryState,
+                coordinatorHasActiveRun: false
+            )
+        )
+        #expect(
+            MenuBarStatusPresentation.isAnyWorkRunning(
+                analysisState: .idle,
+                summaryState: .idle,
+                coordinatorHasActiveRun: true
+            )
+        )
     }
 
     @Test func statusMenuTextBuildersFormatRunningAnalysisAndSummaryState() async throws {

@@ -1,6 +1,14 @@
 import Foundation
 
 enum MenuBarStatusPresentation {
+    static func isAnyWorkRunning(
+        analysisState: AnalysisRuntimeState,
+        summaryState: DailyReportSummaryRuntimeState,
+        coordinatorHasActiveRun: Bool
+    ) -> Bool {
+        coordinatorHasActiveRun || analysisState.isRunning || summaryState.isRunning
+    }
+
     static func currentModelLine(profile: ModelProfileSettings, language: AppLanguage) -> String {
         L10n.string(
             .menuCurrentStatusCurrentModel,

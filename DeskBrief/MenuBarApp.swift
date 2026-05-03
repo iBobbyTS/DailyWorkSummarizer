@@ -223,6 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private lazy var menu: NSMenu = {
         let menu = NSMenu()
         menu.delegate = self
+        menu.autoenablesItems = false
 
         statusSummaryItem.isEnabled = false
         statusAverageDurationItem.isEnabled = false
@@ -250,11 +251,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusActionDividerItem.isHidden = false
 
         clearEarlyScreenshotsSubmenu.delegate = self
+        clearEarlyScreenshotsSubmenu.autoenablesItems = false
         clearEarlyScreenshotsSubmenu.addItem(clearOneDayScreenshotsItem)
         clearEarlyScreenshotsSubmenu.addItem(clearOneWeekScreenshotsItem)
         applyEarlyScreenshotCleanupStatus(.calculating)
 
         let analysisStartupModeSubmenu = NSMenu()
+        analysisStartupModeSubmenu.autoenablesItems = false
         for mode in AnalysisStartupMode.allCases {
             let item = NSMenuItem(title: "", action: #selector(selectAnalysisStartupMode(_:)), keyEquivalent: "")
             item.target = self
@@ -264,6 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
 
         let statusSubmenu = NSMenu()
+        statusSubmenu.autoenablesItems = false
         statusSubmenu.addItem(statusSummaryItem)
         statusSubmenu.addItem(statusAverageDurationItem)
         statusSubmenu.addItem(statusAnalysisTitleItem)
@@ -301,13 +305,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     nonisolated func menuWillOpen(_ menu: NSMenu) {
-        let openedMenuID = ObjectIdentifier(menu)
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            if openedMenuID == ObjectIdentifier(self.clearEarlyScreenshotsSubmenu) {
-                self.openEarlyScreenshotCleanupSubmenu()
+        MainActor.assumeIsolated {
+            if menu === clearEarlyScreenshotsSubmenu {
+                openEarlyScreenshotCleanupSubmenu()
             } else {
-                self.refreshStatusMenu()
+                refreshStatusMenu()
             }
         }
     }
@@ -677,7 +679,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             item.state = mode == analysisStartupMode ? .on : .off
         }
 
-        let anyWorkRunning = analysisState.isRunning || summaryState.isRunning
+        let anyWorkRunning = MenuBarStatusPresentation.isAnyWorkRunning(
+            analysisState: analysisState,
+            summaryState: summaryState,
+            coordinatorHasActiveRun: dailyReportSummaryService?.runCoordinator.isAnyRunActive ?? false
+        )
         statusSummaryItem.isHidden = anyWorkRunning
         statusAnalysisTitleItem.isHidden = !analysisState.isRunning
         statusAnalysisModelItem.isHidden = !analysisState.isRunning
