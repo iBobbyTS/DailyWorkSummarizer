@@ -105,6 +105,20 @@ nonisolated enum AppDefaults {
     }
 }
 
+nonisolated enum SettingsInputLimits {
+    static let categoryNameCharacters = 32
+    static let categoryDescriptionCharacters = 200
+    static let summaryInstructionCharacters = 500
+
+    static func counterText(for value: String, limit: Int) -> String {
+        "\(value.count)/\(limit)"
+    }
+
+    static func isOverLimit(_ value: String, limit: Int) -> Bool {
+        value.count > limit
+    }
+}
+
 nonisolated enum AnalysisStartupMode: String, CaseIterable, Codable, Hashable, Identifiable {
     case manual
     case scheduled

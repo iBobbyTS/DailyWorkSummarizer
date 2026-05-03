@@ -201,6 +201,31 @@ extension DeskBriefTests {
         #expect(!textView.drawsBackground)
     }
 
+    @Test func settingsInputLimitPresentationUsesSharedCharacterCounts() async throws {
+        #expect(SettingsInputLimits.categoryNameCharacters == 32)
+        #expect(SettingsInputLimits.categoryDescriptionCharacters == 200)
+        #expect(SettingsInputLimits.summaryInstructionCharacters == 500)
+        #expect(SettingsInputLimits.counterText(for: "DeskBrief", limit: 32) == "9/32")
+        #expect(!SettingsInputLimits.isOverLimit(String(repeating: "a", count: 32), limit: 32))
+        #expect(SettingsInputLimits.isOverLimit(String(repeating: "a", count: 33), limit: 32))
+        #expect(!SettingsInputLimits.isOverLimit(String(repeating: "类", count: 200), limit: 200))
+        #expect(SettingsInputLimits.isOverLimit(String(repeating: "类", count: 201), limit: 200))
+        #expect(
+            L10n.string(
+                .settingsCharacterLimitSuffix,
+                language: .simplifiedChinese,
+                arguments: [SettingsInputLimits.categoryNameCharacters]
+            ) == "（最多 32 字符）"
+        )
+        #expect(
+            L10n.string(
+                .settingsCharacterLimitSuffix,
+                language: .english,
+                arguments: [SettingsInputLimits.categoryNameCharacters]
+            ) == " (32 chars max)"
+        )
+    }
+
     @MainActor
     @Test func statusMenuPlacesReportsBelowCurrentStatusAndUtilitiesBelowSettings() async throws {
         let delegate = AppDelegate()

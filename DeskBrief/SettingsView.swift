@@ -24,6 +24,10 @@ struct SettingsView: View {
         static let reportPickerWidth: CGFloat = 160
         static let categoryColorWidth: CGFloat = 72
         static let analysisStartupModePickerWidth: CGFloat = 260
+        static let characterCounterBottomPadding: CGFloat = 6
+        static let characterCounterTrailingPadding: CGFloat = 10
+        static let characterCounterReservedHeight: CGFloat = 18
+        static let inputWarningCornerRadius: CGFloat = 6
         static let plainIntegerFormatter: NumberFormatter = {
             let formatter = NumberFormatter()
             formatter.numberStyle = .decimal
@@ -311,28 +315,43 @@ struct SettingsView: View {
     }
 
     private var summarySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let isOverLimit = SettingsInputLimits.isOverLimit(
+            settingsStore.summaryInstruction,
+            limit: SettingsInputLimits.summaryInstructionCharacters
+        )
+
+        return VStack(alignment: .leading, spacing: 12) {
             Text(text(.settingsSummaryHint))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            ZStack(alignment: .topLeading) {
+            ZStack(alignment: .bottomTrailing) {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.gray.opacity(0.08))
 
-                if settingsStore.summaryInstruction.isEmpty {
-                    Text(text(.settingsSummaryPlaceholder))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 12)
-                }
+                ZStack(alignment: .topLeading) {
+                    if settingsStore.summaryInstruction.isEmpty {
+                        Text(text(.settingsSummaryPlaceholder))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 12)
+                    }
 
-                SummaryInstructionTextView(text: $settingsStore.summaryInstruction)
+                    SummaryInstructionTextView(text: $settingsStore.summaryInstruction)
+                }
+                .padding(.bottom, Layout.characterCounterReservedHeight)
+
+                characterLimitCounter(
+                    for: settingsStore.summaryInstruction,
+                    limit: SettingsInputLimits.summaryInstructionCharacters
+                )
+                .padding(.trailing, Layout.characterCounterTrailingPadding)
+                .padding(.bottom, Layout.characterCounterBottomPadding)
             }
             .frame(minHeight: 140)
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.gray.opacity(0.14), lineWidth: 1)
+                    .stroke(isOverLimit ? Color.red : Color.gray.opacity(0.14), lineWidth: 1)
             )
         }
     }
@@ -493,38 +512,11 @@ struct SettingsView: View {
                     )
                     .frame(width: Layout.categoryColorWidth, alignment: .leading)
 
-                    if rule.isPreservedOther {
-                        TextField("", text: .constant(rule.displayName(in: language)))
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 180)
-                            .disabled(true)
-                    } else {
-                        TextField(
-                            text(.settingsModelCategoryNameExample),
-                            text: Binding(
-                                get: {
-                                    settingsStore.categoryRules.first(where: { $0.id == rule.id })?.name ?? ""
-                                },
-                                set: { settingsStore.updateCategoryRuleName(id: rule.id, name: $0) }
-                            )
-                        )
-                        .textFieldStyle(.roundedBorder)
+                    categoryRuleNameField(rule)
                         .frame(width: 180)
-                    }
 
-                    TextField(
-                        text(.settingsModelCategoryDescriptionExample),
-                        text: Binding(
-                            get: {
-                                settingsStore.categoryRules.first(where: { $0.id == rule.id })?.description ?? ""
-                            },
-                            set: { settingsStore.updateCategoryRuleDescription(id: rule.id, description: $0) }
-                        ),
-                        axis: .vertical
-                    )
-                    .lineLimit(2...4)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: .infinity, minHeight: 36)
+                    categoryRuleDescriptionField(rule)
+                        .frame(maxWidth: .infinity, minHeight: 56)
 
                     HStack(spacing: 6) {
                         Button {
@@ -567,6 +559,73 @@ struct SettingsView: View {
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func categoryRuleNameField(_ rule: CategoryRule) -> some View {
+        if rule.isPreservedOther {
+            TextField("", text: .constant(rule.displayName(in: language)))
+                .textFieldStyle(.roundedBorder)
+                .disabled(true)
+        } else {
+            let name = settingsStore.categoryRules.first(where: { $0.id == rule.id })?.name ?? ""
+
+            TextField(
+                categoryNamePlaceholder,
+                text: Binding(
+                    get: {
+                        settingsStore.categoryRules.first(where: { $0.id == rule.id })?.name ?? ""
+                    },
+                    set: { settingsStore.updateCategoryRuleName(id: rule.id, name: $0) }
+                )
+            )
+            .textFieldStyle(.roundedBorder)
+            .overlay(
+                inputLimitStroke(
+                    isOverLimit: SettingsInputLimits.isOverLimit(
+                        name,
+                        limit: SettingsInputLimits.categoryNameCharacters
+                    )
+                )
+            )
+        }
+    }
+
+    private func categoryRuleDescriptionField(_ rule: CategoryRule) -> some View {
+        let description = settingsStore.categoryRules.first(where: { $0.id == rule.id })?.description ?? ""
+        let isOverLimit = SettingsInputLimits.isOverLimit(
+            description,
+            limit: SettingsInputLimits.categoryDescriptionCharacters
+        )
+
+        return ZStack(alignment: .bottomTrailing) {
+            RoundedRectangle(cornerRadius: Layout.inputWarningCornerRadius)
+                .fill(Color(nsColor: .textBackgroundColor))
+                .overlay(inputLimitStroke(isOverLimit: isOverLimit))
+
+            TextField(
+                text(.settingsModelCategoryDescriptionExample),
+                text: Binding(
+                    get: {
+                        settingsStore.categoryRules.first(where: { $0.id == rule.id })?.description ?? ""
+                    },
+                    set: { settingsStore.updateCategoryRuleDescription(id: rule.id, description: $0) }
+                ),
+                axis: .vertical
+            )
+            .lineLimit(2...4)
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 8)
+            .padding(.top, 7)
+            .padding(.bottom, 22)
+
+            characterLimitCounter(
+                for: description,
+                limit: SettingsInputLimits.categoryDescriptionCharacters
+            )
+            .padding(.trailing, Layout.characterCounterTrailingPadding)
+            .padding(.bottom, Layout.characterCounterBottomPadding)
         }
     }
 
@@ -842,6 +901,28 @@ struct SettingsView: View {
 
     private func text(_ key: L10n.Key, arguments: [CVarArg]) -> String {
         L10n.string(key, language: language, arguments: arguments)
+    }
+
+    private var categoryNamePlaceholder: String {
+        text(.settingsModelCategoryNameExample)
+            + text(.settingsCharacterLimitSuffix, arguments: [SettingsInputLimits.categoryNameCharacters])
+    }
+
+    private func characterLimitCounter(for value: String, limit: Int) -> some View {
+        let isOverLimit = SettingsInputLimits.isOverLimit(value, limit: limit)
+
+        return Text(SettingsInputLimits.counterText(for: value, limit: limit))
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(isOverLimit ? Color.red : Color.secondary)
+            .allowsHitTesting(false)
+    }
+
+    private func inputLimitStroke(
+        isOverLimit: Bool,
+        cornerRadius: CGFloat = Layout.inputWarningCornerRadius
+    ) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .stroke(isOverLimit ? Color.red : Color.clear, lineWidth: 1)
     }
 
     private func countdownText(_ remainingSeconds: Int) -> String {

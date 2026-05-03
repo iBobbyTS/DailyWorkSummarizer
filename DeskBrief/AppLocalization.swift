@@ -95,6 +95,7 @@ nonisolated enum L10n {
         case settingsModelCategoryDescription
         case settingsModelCategoryNameExample
         case settingsModelCategoryDescriptionExample
+        case settingsCharacterLimitSuffix
         case settingsModelAddCategory
         case settingsModelTesting
         case settingsModelTest
@@ -308,6 +309,7 @@ nonisolated enum L10n {
             .settingsModelCategoryDescription: "描述",
             .settingsModelCategoryNameExample: "例如：专注工作",
             .settingsModelCategoryDescriptionExample: "例如：正在编码、查资料或写文档",
+            .settingsCharacterLimitSuffix: "（最多 %d 字符）",
             .settingsModelAddCategory: "添加分类",
             .settingsModelTesting: "正在测试模型…",
             .settingsModelTest: "测试模型",
@@ -519,6 +521,7 @@ nonisolated enum L10n {
             .settingsModelCategoryDescription: "Description",
             .settingsModelCategoryNameExample: "Example: Focused Work",
             .settingsModelCategoryDescriptionExample: "Example: Coding, researching, or writing docs",
+            .settingsCharacterLimitSuffix: " (%d chars max)",
             .settingsModelAddCategory: "Add Category",
             .settingsModelTesting: "Testing model…",
             .settingsModelTest: "Test Model",

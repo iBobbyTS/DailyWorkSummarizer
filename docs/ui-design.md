@@ -31,6 +31,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - Utility actions such as test screenshot and opening folders live below the settings surface, not inside it.
 - The divider below the capture section should maintain the same vertical spacing above and below.
 - Category rows expose a compact color control before the name field. The control should offer the built-in 16-color preset palette and use the native macOS color picker for custom colors.
+- Category names, category descriptions, and summary instructions use soft character limits of 32, 200, and 500 characters. The app warns with red borders only after a value exceeds its limit; it does not truncate or block input. Description and summary editors show compact `current/limit` counters in the lower-right corner.
 - The image-analysis method picker belongs only to screenshot analysis. Work content summary uses a text-only model profile and should not expose screenshot-specific analysis controls.
 - The LM Studio-only lifecycle toggle sits directly below context length in both model tabs. Hovering that row should explain that the app can proactively load and unload the model before and after analysis, and the row should stay hidden for non-LM Studio providers.
 
