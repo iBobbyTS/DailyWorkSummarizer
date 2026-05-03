@@ -110,6 +110,15 @@ Daily work-block summary prompts are intentionally narrower than full daily-repo
 
 The service stores a single source item's existing summary directly. For multi-item blocks, it calls the model only when at least two source items have non-empty summaries; blocks that only have classification labels or too little summary text are skipped and logged as ignorable summary events.
 
+## Daily report summary prompts
+
+Daily report prompts are built from the day's category list and activity records.
+
+- The prompt omits an explicit calendar date.
+- The prompt includes the deduplicated category names for that day.
+- The prompt includes activity lines in display order, with each line carrying time, duration, category name, and summary text.
+- The service still filters out non-reportable categories and requires non-empty analysis summaries before building the prompt.
+
 ## Provider-specific request behavior
 
 ### OpenAI-compatible

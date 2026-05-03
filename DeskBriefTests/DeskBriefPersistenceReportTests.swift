@@ -242,6 +242,8 @@ extension DeskBriefTests {
         #expect(prompt.contains("\"categorySummaries\""))
         #expect(prompt.contains("专注工作"))
         #expect(prompt.contains("10:00 | 5分钟 | 会议沟通 | 同步日报边界规则"))
+        #expect(!prompt.contains("日期："))
+        #expect(!prompt.contains("Date:"))
     }
 
     @Test func dailyReportResponseParsingHandlesThinkAndCodeFenceJSON() async throws {
@@ -639,6 +641,8 @@ extension DeskBriefTests {
             #expect(prompt.contains("同步日报边界规则"))
             #expect(!prompt.contains(absenceCategoryName))
             #expect(!prompt.contains("该时间段没有截屏"))
+            #expect(!prompt.contains("日期："))
+            #expect(!prompt.contains("Date:"))
 
             let payload = """
             {

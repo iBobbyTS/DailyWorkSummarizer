@@ -958,13 +958,12 @@ nonisolated enum L10n {
     }
 
     static func dailyReportSummaryPrompt(
-        for dayStart: Date,
+        for _: Date,
         categories: [String],
         activityLines: [String],
         summaryInstruction: String,
         language: AppLanguage = .current
     ) -> String {
-        let dayText = reportDayFormatter(language: language).string(from: dayStart)
         let categoryList = categories.map { "- \($0)" }.joined(separator: "\n")
         let activityList = activityLines.map { "- \($0)" }.joined(separator: "\n")
         let trimmedInstruction = summaryInstruction.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -977,9 +976,6 @@ nonisolated enum L10n {
             return """
             你是一个日报总结助手。请根据下面这一天的活动记录，生成一段话日报和每个分类的单独总结。
             只总结这一天的主要工作内容，不要编造没有出现的信息。
-
-            日期：
-            \(dayText)
 
             当天分类：
             \(categoryList)
@@ -1001,9 +997,6 @@ nonisolated enum L10n {
             return """
             You are a daily report summarizer. Based on the activity records for this day, generate a one-paragraph daily report and one short summary for each category.
             Only summarize the work that appears in these records. Do not invent details.
-
-            Date:
-            \(dayText)
 
             Categories for this day:
             \(categoryList)
