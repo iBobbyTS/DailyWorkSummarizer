@@ -135,6 +135,9 @@ nonisolated enum L10n {
         case menuAnalyzeNowPause
         case menuAnalyzeNowPausingStoppingGeneration
         case menuAnalyzeNowPausingUnloadingModel
+        case menuStopCurrentSummary
+        case menuStopCurrentSummaryStoppingGeneration
+        case menuStopCurrentSummaryUnloadingModel
         case menuBackfillMissingSummaries
         case menuCurrentStatus
         case menuSettings
@@ -370,6 +373,9 @@ nonisolated enum L10n {
             .menuAnalyzeNowPause: "停止本次分析",
             .menuAnalyzeNowPausingStoppingGeneration: "正在停止本次分析（正在停止生成）",
             .menuAnalyzeNowPausingUnloadingModel: "正在停止本次分析（正在卸载模型）",
+            .menuStopCurrentSummary: "停止本次总结",
+            .menuStopCurrentSummaryStoppingGeneration: "正在停止本次总结（正在停止生成）",
+            .menuStopCurrentSummaryUnloadingModel: "正在停止本次总结（正在卸载模型）",
             .menuBackfillMissingSummaries: "检查并补充过去遗漏的总结",
             .menuCurrentStatus: "当前状态",
             .menuSettings: "设置",
@@ -603,6 +609,9 @@ nonisolated enum L10n {
             .menuAnalyzeNowPause: "Stop Current Analysis",
             .menuAnalyzeNowPausingStoppingGeneration: "Stopping (Stopping Generation)",
             .menuAnalyzeNowPausingUnloadingModel: "Stopping (Unloading Model)",
+            .menuStopCurrentSummary: "Stop Current Summary",
+            .menuStopCurrentSummaryStoppingGeneration: "Stopping Summary (Stopping Generation)",
+            .menuStopCurrentSummaryUnloadingModel: "Stopping Summary (Unloading Model)",
             .menuBackfillMissingSummaries: "Fill Missing Summaries",
             .menuCurrentStatus: "Current Status",
             .menuSettings: "Settings",

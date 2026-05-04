@@ -581,6 +581,20 @@ enum AnalysisStoppingStage {
     }
 }
 
+enum DailyReportSummaryStoppingStage {
+    case stoppingGeneration
+    case unloadingModel
+
+    var menuButtonLocalizationKey: L10n.Key {
+        switch self {
+        case .stoppingGeneration:
+            return .menuStopCurrentSummaryStoppingGeneration
+        case .unloadingModel:
+            return .menuStopCurrentSummaryUnloadingModel
+        }
+    }
+}
+
 struct AnalysisRuntimeState {
     let isRunning: Bool
     let stoppingStage: AnalysisStoppingStage?
@@ -628,10 +642,42 @@ enum ForceUnloadTarget: String, CaseIterable, Codable, Hashable, Identifiable {
 
 struct DailyReportSummaryRuntimeState {
     let isRunning: Bool
-    let isStopping: Bool
+    let stoppingStage: DailyReportSummaryStoppingStage?
     let modelName: String?
     let completedCount: Int
     let totalCount: Int
+
+    var isStopping: Bool { stoppingStage != nil }
+
+    init(
+        isRunning: Bool,
+        isStopping: Bool,
+        modelName: String?,
+        completedCount: Int,
+        totalCount: Int
+    ) {
+        self.init(
+            isRunning: isRunning,
+            stoppingStage: isStopping ? .stoppingGeneration : nil,
+            modelName: modelName,
+            completedCount: completedCount,
+            totalCount: totalCount
+        )
+    }
+
+    init(
+        isRunning: Bool,
+        stoppingStage: DailyReportSummaryStoppingStage?,
+        modelName: String?,
+        completedCount: Int,
+        totalCount: Int
+    ) {
+        self.isRunning = isRunning
+        self.stoppingStage = stoppingStage
+        self.modelName = modelName
+        self.completedCount = completedCount
+        self.totalCount = totalCount
+    }
 
     var progressPercentage: Int {
         guard totalCount > 0 else {

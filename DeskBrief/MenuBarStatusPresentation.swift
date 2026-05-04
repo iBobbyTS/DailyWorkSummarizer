@@ -62,6 +62,13 @@ enum MenuBarStatusPresentation {
         )
     }
 
+    static func summaryStopButtonTitle(state: DailyReportSummaryRuntimeState, language: AppLanguage) -> String {
+        guard let stoppingStage = state.stoppingStage else {
+            return L10n.string(.menuStopCurrentSummary, language: language)
+        }
+        return L10n.string(stoppingStage.menuButtonLocalizationKey, language: language)
+    }
+
     static func forceUnloadButtonTitle(for target: ForceUnloadTarget, language: AppLanguage) -> String {
         L10n.string(target.menuTitleKey, language: language)
     }

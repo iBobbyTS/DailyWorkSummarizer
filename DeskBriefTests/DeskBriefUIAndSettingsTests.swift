@@ -157,12 +157,36 @@ extension DeskBriefTests {
                 == "正在停止本次分析（正在卸载模型）"
         )
         #expect(
+            L10n.string(.menuStopCurrentSummary, language: .simplifiedChinese)
+                == "停止本次总结"
+        )
+        #expect(
+            L10n.string(.menuStopCurrentSummaryStoppingGeneration, language: .simplifiedChinese)
+                == "正在停止本次总结（正在停止生成）"
+        )
+        #expect(
+            L10n.string(.menuStopCurrentSummaryUnloadingModel, language: .simplifiedChinese)
+                == "正在停止本次总结（正在卸载模型）"
+        )
+        #expect(
             L10n.string(.menuAnalyzeNowPausingStoppingGeneration, language: .english)
                 == "Stopping (Stopping Generation)"
         )
         #expect(
             L10n.string(.menuAnalyzeNowPausingUnloadingModel, language: .english)
                 == "Stopping (Unloading Model)"
+        )
+        #expect(
+            L10n.string(.menuStopCurrentSummary, language: .english)
+                == "Stop Current Summary"
+        )
+        #expect(
+            L10n.string(.menuStopCurrentSummaryStoppingGeneration, language: .english)
+                == "Stopping Summary (Stopping Generation)"
+        )
+        #expect(
+            L10n.string(.menuStopCurrentSummaryUnloadingModel, language: .english)
+                == "Stopping Summary (Unloading Model)"
         )
     }
 
@@ -351,6 +375,13 @@ extension DeskBriefTests {
             completedCount: 1,
             totalCount: 4
         )
+        let stoppingSummaryState = DailyReportSummaryRuntimeState(
+            isRunning: true,
+            stoppingStage: .unloadingModel,
+            modelName: "summary-model",
+            completedCount: 1,
+            totalCount: 4
+        )
 
         #expect(
             MenuBarStatusPresentation.currentModelLine(profile: analysisProfile, language: .simplifiedChinese)
@@ -375,6 +406,14 @@ extension DeskBriefTests {
         #expect(
             MenuBarStatusPresentation.summaryProgressLine(state: summaryState, language: .english)
                 == "Progress: 25%"
+        )
+        #expect(
+            MenuBarStatusPresentation.summaryStopButtonTitle(state: summaryState, language: .simplifiedChinese)
+                == "停止本次总结"
+        )
+        #expect(
+            MenuBarStatusPresentation.summaryStopButtonTitle(state: stoppingSummaryState, language: .simplifiedChinese)
+                == "正在停止本次总结（正在卸载模型）"
         )
         #expect(
             MenuBarStatusPresentation.analysisProgressLine(

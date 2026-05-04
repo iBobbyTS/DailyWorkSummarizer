@@ -1297,6 +1297,20 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func lmStudioSummaryCancelUnloadsWhenLifecycleEnabled() async throws {
+        let paths = try await runSummaryCancellationLifecycleScenario(lifecycleEnabled: true)
+
+        #expect(paths == ["/api/v1/models/load", "/api/v1/chat", "/api/v1/models/unload"])
+    }
+
+    @MainActor
+    @Test func lmStudioSummaryCancelSkipsUnloadWhenLifecycleDisabled() async throws {
+        let paths = try await runSummaryCancellationLifecycleScenario(lifecycleEnabled: false)
+
+        #expect(paths == ["/api/v1/chat"])
+    }
+
+    @MainActor
     @Test func lmStudioAnalysisWorkerPropagatesModelInstanceIDToCleanupLog() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory
@@ -1356,6 +1370,87 @@ extension DeskBriefTests {
         #expect(didFinish)
         #expect(MockURLProtocol.requestPaths == ["/api/v1/models/load", "/api/v1/chat", "/api/v1/models/unload"])
         #expect(logs.contains { $0.message.contains("analysis-model-instance") })
+    }
+
+    private func runSummaryCancellationLifecycleScenario(lifecycleEnabled: Bool) async throws -> [String] {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let dayOne = calendar.date(from: DateComponents(year: 2026, month: 4, day: 26))!
+        let dayTwo = calendar.date(byAdding: .day, value: 1, to: dayOne)!
+        let summaryRequestStarted = DispatchSemaphore(value: 0)
+        let releaseSummaryRequest = DispatchSemaphore(value: 0)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentSummaryProvider = .lmStudio
+        store.workContentSummaryAPIBaseURL = "http://127.0.0.1:1234"
+        store.workContentSummaryModelName = "summary-model"
+        store.workContentSummaryLMStudioContextLength = 12_000
+        store.workContentSummaryLMStudioAutoLoadUnloadModel = lifecycleEnabled
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: dayOne)!,
+            categoryName: "专注工作",
+            summaryText: "准备日报总结",
+            durationMinutesSnapshot: 30
+        )
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: dayTwo)!,
+            categoryName: "专注工作",
+            summaryText: "闭合前一天",
+            durationMinutesSnapshot: 30
+        )
+
+        let session = makeMockSession { request in
+            if request.url?.path == "/api/v1/chat" {
+                summaryRequestStarted.signal()
+                _ = releaseSummaryRequest.wait(timeout: .now() + 5)
+            }
+            return try lmStudioLifecycleTestResponse(for: request)
+        }
+        let service = DailyReportSummaryService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            session: session
+        )
+
+        let task = Task { @MainActor in
+            await service.summarizeAfterAnalysis(
+                workBlockDayStarts: [],
+                dailyReportCandidateDayStarts: [dayOne],
+                lmStudioLifecyclePolicy: .loadForSummaryThenUnload
+            )
+        }
+        #expect(await waitForSemaphore(summaryRequestStarted, timeoutSeconds: 5))
+        #expect(service.currentState.isRunning)
+
+        service.cancelCurrentSummary()
+        #expect(service.currentState.stoppingStage == .stoppingGeneration)
+        releaseSummaryRequest.signal()
+
+        let didStop = await waitUntil(timeoutSeconds: 8) {
+            !service.currentState.isRunning
+        }
+        await task.value
+
+        #expect(didStop)
+        return MockURLProtocol.requestPaths
     }
 
     private func runAnalysisLifecycleScenario(

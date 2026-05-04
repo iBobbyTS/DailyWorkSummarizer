@@ -397,6 +397,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let analysisService else { return }
         if analysisService.currentState.isRunning {
             analysisService.cancelCurrentRun()
+        } else if dailyReportSummaryService?.currentState.isRunning == true {
+            dailyReportSummaryService?.cancelCurrentSummary()
         } else {
             analysisService.runNow()
         }
@@ -751,9 +753,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 ? text(analysisState.stoppingStage?.analyzeNowLocalizationKey ?? .menuAnalyzeNowPause, language: language)
                 : text(.menuAnalyzeNowPause, language: language)
             analyzeNowItem.isEnabled = !analysisState.isStopping
+        } else if summaryState.isRunning {
+            analyzeNowItem.title = MenuBarStatusPresentation.summaryStopButtonTitle(
+                state: summaryState,
+                language: language
+            )
+            analyzeNowItem.isEnabled = !summaryState.isStopping
         } else {
             analyzeNowItem.title = text(.menuAnalyzeNowStart, language: language)
-            analyzeNowItem.isEnabled = !summaryState.isRunning && pendingScreenshots.first != nil
+            analyzeNowItem.isEnabled = pendingScreenshots.first != nil
         }
 
         backfillMissingSummariesItem.isEnabled = !anyWorkRunning
