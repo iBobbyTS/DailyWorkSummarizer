@@ -229,7 +229,10 @@ struct SettingsView: View {
                     .padding(.vertical, Layout.cardRowVerticalPadding)
                 }
 
-                if SettingsAnalysisControlsPolicy.showsChargerRequirement(for: settingsStore.analysisStartupMode) {
+                if SettingsAnalysisControlsPolicy.showsChargerRequirement(
+                    for: settingsStore.analysisStartupMode,
+                    hasInternalBattery: DevicePowerState.current().hasInternalBattery
+                ) {
                     Divider()
 
                     HStack(spacing: 12) {
@@ -1316,8 +1319,8 @@ enum SummaryInstructionTextViewTextSystem {
 }
 
 nonisolated enum SettingsAnalysisControlsPolicy {
-    static func showsChargerRequirement(for startupMode: AnalysisStartupMode) -> Bool {
-        startupMode != .manual
+    static func showsChargerRequirement(for startupMode: AnalysisStartupMode, hasInternalBattery: Bool = true) -> Bool {
+        startupMode != .manual && hasInternalBattery
     }
 }
 

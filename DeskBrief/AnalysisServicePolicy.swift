@@ -1,6 +1,5 @@
 import Foundation
 import FoundationModels
-import IOKit.ps
 
 extension AnalysisService {
     nonisolated static func extractAnalysisResponse(from rawText: String, validRules: [CategoryRule]) -> AnalysisResponse? {
@@ -120,17 +119,26 @@ extension AnalysisService {
     }
 
     nonisolated static func isConnectedToCharger() -> Bool {
-        guard let powerInfo = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let powerSourceType = IOPSGetProvidingPowerSourceType(powerInfo)?.takeUnretainedValue() as String? else {
-            return false
-        }
-
-        return powerSourceType == kIOPMACPowerKey
+        DevicePowerState.current().isConnectedToCharger
     }
 
     nonisolated static func shouldSkipForChargerRequirement(
         trigger: AnalysisTrigger,
         requiresCharger: Bool,
+        devicePowerState: DevicePowerState
+    ) -> Bool {
+        shouldSkipForChargerRequirement(
+            trigger: trigger,
+            requiresCharger: requiresCharger,
+            hasInternalBattery: devicePowerState.hasInternalBattery,
+            isConnectedToCharger: devicePowerState.isConnectedToCharger
+        )
+    }
+
+    nonisolated static func shouldSkipForChargerRequirement(
+        trigger: AnalysisTrigger,
+        requiresCharger: Bool,
+        hasInternalBattery: Bool = true,
         isConnectedToCharger: Bool
     ) -> Bool {
         let usesChargerRequirement: Bool
@@ -140,7 +148,7 @@ extension AnalysisService {
         case .scheduled, .realtime:
             usesChargerRequirement = true
         }
-        return usesChargerRequirement && requiresCharger && !isConnectedToCharger
+        return usesChargerRequirement && requiresCharger && hasInternalBattery && !isConnectedToCharger
     }
 
     nonisolated static func shouldRetryAnalysis(after error: Error, attempt: Int, maxAttempts: Int = 3) -> Bool {

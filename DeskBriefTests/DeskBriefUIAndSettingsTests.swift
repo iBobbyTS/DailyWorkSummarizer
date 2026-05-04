@@ -738,9 +738,11 @@ extension DeskBriefTests {
     @Test func chargerRequirementLabelAndVisibilityMatchAutomaticStartupOnly() async throws {
         #expect(L10n.string(.settingsAnalysisRequireCharger, language: .simplifiedChinese) == "仅在充电时自动启动分析")
         #expect(L10n.string(.settingsAnalysisRequireCharger, language: .english) == "Only auto-start analysis while charging")
-        #expect(!SettingsAnalysisControlsPolicy.showsChargerRequirement(for: .manual))
-        #expect(SettingsAnalysisControlsPolicy.showsChargerRequirement(for: .scheduled))
-        #expect(SettingsAnalysisControlsPolicy.showsChargerRequirement(for: .realtime))
+        #expect(!SettingsAnalysisControlsPolicy.showsChargerRequirement(for: .manual, hasInternalBattery: true))
+        #expect(SettingsAnalysisControlsPolicy.showsChargerRequirement(for: .scheduled, hasInternalBattery: true))
+        #expect(SettingsAnalysisControlsPolicy.showsChargerRequirement(for: .realtime, hasInternalBattery: true))
+        #expect(!SettingsAnalysisControlsPolicy.showsChargerRequirement(for: .scheduled, hasInternalBattery: false))
+        #expect(!SettingsAnalysisControlsPolicy.showsChargerRequirement(for: .realtime, hasInternalBattery: false))
     }
 
     @Test func chargerRequirementAppliesOnlyToAutomaticAnalysisTriggers() async throws {
@@ -777,6 +779,36 @@ extension DeskBriefTests {
                 trigger: .scheduled,
                 requiresCharger: true,
                 isConnectedToCharger: true
+            )
+        )
+        #expect(
+            !AnalysisService.shouldSkipForChargerRequirement(
+                trigger: .scheduled,
+                requiresCharger: true,
+                hasInternalBattery: false,
+                isConnectedToCharger: false
+            )
+        )
+        #expect(
+            !AnalysisService.shouldSkipForChargerRequirement(
+                trigger: .realtime,
+                requiresCharger: true,
+                hasInternalBattery: false,
+                isConnectedToCharger: false
+            )
+        )
+        #expect(
+            AnalysisService.shouldSkipForChargerRequirement(
+                trigger: .scheduled,
+                requiresCharger: true,
+                devicePowerState: DevicePowerState(hasInternalBattery: true, isConnectedToCharger: false)
+            )
+        )
+        #expect(
+            !AnalysisService.shouldSkipForChargerRequirement(
+                trigger: .scheduled,
+                requiresCharger: true,
+                devicePowerState: DevicePowerState(hasInternalBattery: false, isConnectedToCharger: false)
             )
         )
     }

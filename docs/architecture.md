@@ -63,7 +63,7 @@ The app is centered around a small set of long-lived services created at launch 
 - If no pending screenshots exist, a trigger returns without creating an `analysis_runs` record.
 - If a new analysis request arrives while a run is already active, the service scans pending screenshots and appends newly discovered files to the current queue instead of cancelling, pausing, or restarting the run.
 - When the user cancels a run, the active queue stops accepting appends immediately; later triggers are coalesced into one follow-up pending scan instead of being merged into the cancelling run.
-- The charger requirement applies to automatic triggers: scheduled and realtime analysis honor it, while manual "Analyze Now" always starts when selected.
+- The charger requirement applies to automatic triggers on devices with an internal battery: scheduled and realtime analysis honor it on MacBooks, while manual "Analyze Now" always starts when selected. Desktop Macs have no internal battery, so automatic triggers are treated as allowed even if an old stored preference still requires a charger.
 - It creates a compact `analysis_runs` record for run-level status/counts and processes screenshots one by one.
 - `analysis_runs.total_items` is updated when the active queue grows so the run progress stays aligned with the appended screenshots.
 - `AnalysisService` keeps run state on the main actor, but delegates each screenshot's long-running image load, OCR, model request, and response parsing to `AnalysisWorker` so UI state updates and cancellation stay responsive.

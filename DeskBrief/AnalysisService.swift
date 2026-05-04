@@ -395,7 +395,7 @@ final class AnalysisService {
         if Self.shouldSkipForChargerRequirement(
             trigger: trigger,
             requiresCharger: settingsStore.snapshot.autoAnalysisRequiresCharger,
-            isConnectedToCharger: Self.isConnectedToCharger()
+            devicePowerState: DevicePowerState.current()
         ) {
             return false
         }

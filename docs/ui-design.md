@@ -27,7 +27,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - The capture section keeps the screenshot interval and automatic-analysis controls in one settings surface.
 - Analysis startup mode is the primary control for automatic startup behavior and should leave enough picker width for the longest localized option.
 - Scheduled analysis time is only visible when the startup mode is scheduled analysis.
-- The charger requirement is visible only when analysis can auto-start, and it does not apply to the manual Analyze Now action.
+- The charger requirement is visible only when analysis can auto-start on hardware with an internal battery, and it does not apply to the manual Analyze Now action. Desktop Macs hide the row.
 - Utility actions such as test screenshot and opening folders live below the settings surface, not inside it.
 - The divider below the capture section should maintain the same vertical spacing above and below.
 - Category rows expose a compact color control before the name field. The control should offer the built-in 16-color preset palette and use the native macOS color picker for custom colors.
