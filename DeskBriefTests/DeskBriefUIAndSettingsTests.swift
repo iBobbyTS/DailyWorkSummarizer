@@ -388,8 +388,22 @@ extension DeskBriefTests {
                 == "当前加载模型：analysis-model"
         )
         #expect(
+            MenuBarStatusPresentation.currentModelLine(
+                profile: analysisProfile,
+                isLoadingModel: true,
+                language: .simplifiedChinese
+            ) == "正在加载模型：analysis-model"
+        )
+        #expect(
             MenuBarStatusPresentation.currentModelLine(profile: summaryProfile, language: .english)
                 == "Current model: summary-model"
+        )
+        #expect(
+            MenuBarStatusPresentation.currentModelLine(
+                profile: summaryProfile,
+                isLoadingModel: true,
+                language: .english
+            ) == "Loading model: summary-model"
         )
         #expect(
             MenuBarStatusPresentation.analysisRunningTitle(language: .simplifiedChinese)

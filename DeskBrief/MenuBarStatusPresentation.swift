@@ -9,9 +9,13 @@ enum MenuBarStatusPresentation {
         coordinatorHasActiveRun || analysisState.isRunning || summaryState.isRunning
     }
 
-    static func currentModelLine(profile: ModelProfileSettings, language: AppLanguage) -> String {
+    static func currentModelLine(
+        profile: ModelProfileSettings,
+        isLoadingModel: Bool = false,
+        language: AppLanguage
+    ) -> String {
         L10n.string(
-            .menuCurrentStatusCurrentModel,
+            isLoadingModel ? .menuCurrentStatusLoadingModel : .menuCurrentStatusCurrentModel,
             language: language,
             arguments: [displayModelName(for: profile, language: language)]
         )

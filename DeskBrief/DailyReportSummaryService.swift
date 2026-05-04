@@ -255,6 +255,7 @@ final class DailyReportSummaryService {
         runtimeState = DailyReportSummaryRuntimeState(
             isRunning: true,
             stoppingStage: .stoppingGeneration,
+            isLoadingModel: false,
             modelName: runtimeState.modelName,
             completedCount: runtimeState.completedCount,
             totalCount: runtimeState.totalCount
@@ -968,7 +969,28 @@ final class DailyReportSummaryService {
                 throw error
             }
         case .loadForSummaryThenUnload:
-            let loadedModel = try await lmStudioLifecycle.load(settings: settings)
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+
+            if !runtimeState.isStopping {
+                updateRuntimeState(
+                    modelName: settings.modelName,
+                    completedCount: runtimeState.completedCount,
+                    totalCount: runtimeState.totalCount,
+                    isLoadingModel: true
+                )
+            }
+
+            let loadedModel: LMStudioLoadedModel
+            do {
+                loadedModel = try await lmStudioLifecycle.load(settings: settings)
+                clearLoadingModelStateIfNeeded(modelName: settings.modelName)
+            } catch {
+                clearLoadingModelStateIfNeeded(modelName: settings.modelName)
+                throw error
+            }
+
             do {
                 let result = try await operation()
                 await unloadLMStudioSummaryModel(
@@ -1241,14 +1263,31 @@ final class DailyReportSummaryService {
         modelName: String?,
         completedCount: Int,
         totalCount: Int,
-        stoppingStage: DailyReportSummaryStoppingStage? = nil
+        stoppingStage: DailyReportSummaryStoppingStage? = nil,
+        isLoadingModel: Bool? = nil
     ) {
         runtimeState = DailyReportSummaryRuntimeState(
             isRunning: true,
             stoppingStage: stoppingStage ?? runtimeState.stoppingStage,
+            isLoadingModel: isLoadingModel ?? runtimeState.isLoadingModel,
             modelName: modelName ?? runtimeState.modelName,
             completedCount: completedCount,
             totalCount: totalCount
+        )
+    }
+
+    private func clearLoadingModelStateIfNeeded(modelName: String?) {
+        guard runtimeState.isRunning,
+              runtimeState.isLoadingModel,
+              !runtimeState.isStopping else {
+            return
+        }
+
+        updateRuntimeState(
+            modelName: modelName,
+            completedCount: runtimeState.completedCount,
+            totalCount: runtimeState.totalCount,
+            isLoadingModel: false
         )
     }
 

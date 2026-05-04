@@ -165,6 +165,7 @@ nonisolated enum L10n {
         case menuCurrentStatusRunningScreenshotAnalysis
         case menuCurrentStatusRunningWorkContentSummary
         case menuCurrentStatusCurrentModel
+        case menuCurrentStatusLoadingModel
         case menuCurrentStatusProgress
         case menuSummaryPending
         case menuNextScreenshotAt
@@ -383,6 +384,7 @@ nonisolated enum L10n {
             .menuCurrentStatusRunningScreenshotAnalysis: "正在进行：截屏分析",
             .menuCurrentStatusRunningWorkContentSummary: "正在进行：工作内容总结",
             .menuCurrentStatusCurrentModel: "当前加载模型：%@",
+            .menuCurrentStatusLoadingModel: "正在加载模型：%@",
             .menuCurrentStatusProgress: "进度：%d%%",
             .menuClearEarlyScreenshots: "清除早期截屏",
             .menuClearEarlyScreenshotsOneDay: "一天以前",
@@ -619,6 +621,7 @@ nonisolated enum L10n {
             .menuCurrentStatusRunningScreenshotAnalysis: "Running: Screenshot Analysis",
             .menuCurrentStatusRunningWorkContentSummary: "Running: Work Content Summary",
             .menuCurrentStatusCurrentModel: "Current model: %@",
+            .menuCurrentStatusLoadingModel: "Loading model: %@",
             .menuCurrentStatusProgress: "Progress: %d%%",
             .menuClearEarlyScreenshots: "Clear Early Screenshots",
             .menuClearEarlyScreenshotsOneDay: "Older Than 1 Day",

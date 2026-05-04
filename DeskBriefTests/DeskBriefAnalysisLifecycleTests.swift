@@ -1311,6 +1311,155 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func lmStudioAnalysisShowsLoadingModelWhileLoadRequestIsActive() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let loadStarted = DispatchSemaphore(value: 0)
+        let releaseLoad = DispatchSemaphore(value: 0)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .lmStudio
+        store.apiBaseURL = "http://127.0.0.1:1234"
+        store.modelName = "analysis-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .manual
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://summary.example.com"
+        store.workContentSummaryModelName = "summary-model"
+
+        let screenshotURL = try database.screenshotsDirectory().appendingPathComponent("20260426-1000-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: screenshotURL)
+
+        let session = makeMockSession { request in
+            if request.url?.path == "/api/v1/models/load" {
+                loadStarted.signal()
+                _ = releaseLoad.wait(timeout: .now() + 5)
+            }
+            return try lmStudioLifecycleTestResponse(for: request)
+        }
+        let logStore = AppLogStore(database: database)
+        let summaryService = DailyReportSummaryService(
+            database: database,
+            settingsStore: store,
+            logStore: logStore,
+            session: session
+        )
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: logStore,
+            dailyReportSummaryService: summaryService,
+            session: session
+        )
+
+        service.runNow()
+        #expect(await waitForSemaphore(loadStarted, timeoutSeconds: 5))
+        #expect(service.currentState.isRunning)
+        #expect(service.currentState.isLoadingModel)
+        #expect(service.currentState.modelName == "analysis-model")
+
+        releaseLoad.signal()
+        let didFinish = await waitUntil(timeoutSeconds: 8) {
+            !service.currentState.isRunning
+        }
+
+        #expect(didFinish)
+    }
+
+    @MainActor
+    @Test func lmStudioSummaryShowsLoadingModelWhileLoadRequestIsActive() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let dayOne = calendar.date(from: DateComponents(year: 2026, month: 4, day: 26))!
+        let dayTwo = calendar.date(byAdding: .day, value: 1, to: dayOne)!
+        let loadStarted = DispatchSemaphore(value: 0)
+        let releaseLoad = DispatchSemaphore(value: 0)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentSummaryProvider = .lmStudio
+        store.workContentSummaryAPIBaseURL = "http://127.0.0.1:1234"
+        store.workContentSummaryModelName = "summary-model"
+        store.workContentSummaryLMStudioContextLength = 12_000
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: dayOne)!,
+            categoryName: "专注工作",
+            summaryText: "准备日报总结",
+            durationMinutesSnapshot: 30
+        )
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: dayTwo)!,
+            categoryName: "专注工作",
+            summaryText: "闭合前一天",
+            durationMinutesSnapshot: 30
+        )
+
+        let session = makeMockSession { request in
+            if request.url?.path == "/api/v1/models/load" {
+                loadStarted.signal()
+                _ = releaseLoad.wait(timeout: .now() + 5)
+            }
+            return try lmStudioLifecycleTestResponse(for: request)
+        }
+        let service = DailyReportSummaryService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            session: session
+        )
+
+        let task = Task { @MainActor in
+            await service.summarizeAfterAnalysis(
+                workBlockDayStarts: [],
+                dailyReportCandidateDayStarts: [dayOne],
+                lmStudioLifecyclePolicy: .loadForSummaryThenUnload
+            )
+        }
+        #expect(await waitForSemaphore(loadStarted, timeoutSeconds: 5))
+        #expect(service.currentState.isRunning)
+        #expect(service.currentState.isLoadingModel)
+        #expect(service.currentState.modelName == "summary-model")
+
+        releaseLoad.signal()
+        let didFinish = await waitUntil(timeoutSeconds: 8) {
+            !service.currentState.isRunning
+        }
+        await task.value
+
+        #expect(didFinish)
+    }
+
+    @MainActor
     @Test func lmStudioAnalysisWorkerPropagatesModelInstanceIDToCleanupLog() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory

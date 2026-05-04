@@ -68,6 +68,7 @@ The app is centered around a small set of long-lived services created at launch 
 - `analysis_runs.total_items` is updated when the active queue grows so the run progress stays aligned with the appended screenshots.
 - `AnalysisService` keeps run state on the main actor, but delegates each screenshot's long-running image load, OCR, model request, and response parsing to `AnalysisWorker` so UI state updates and cancellation stay responsive.
 - `MenuBarApp` subscribes to both analysis and summary runtime notifications so the Current Status submenu can show the active analysis or summary run and manual LM Studio force-unload actions without relying on internal loaded-instance caches.
+- Runtime state marks explicit LM Studio load phases separately, so the Current Status submenu can distinguish "Loading model" from a model that has already been loaded for active work.
 - Before OCR or a model request, `AnalysisWorker` decodes the screenshot into an 8-bit RGB buffer and averages all RGB pixel values. Screenshots with an average value of 2 or less are treated as inactive, recorded as `离开`, and removed through the same processed-file cleanup path.
 - Depending on provider and analysis mode, the worker either:
   - runs local OCR first and sends text to a model, or
@@ -97,7 +98,7 @@ The app is centered around a small set of long-lived services created at launch 
 - The summary is generated through the configured work-content model profile via `LLMService`.
 - If the work-content summary profile enables LM Studio lifecycle management, `DailyReportSummaryService` explicitly loads the summary model before generation and unloads it after generation. If the user stops an active summary run, the service cancels the in-flight model request and still issues the LM Studio unload request before returning to idle.
 - When called by `AnalysisService` immediately after a completed analysis run, `DailyReportSummaryService` can instead reuse an already loaded LM Studio model or load a different summary model according to the handoff policy and the two lifecycle toggles.
-- `DailyReportSummaryService` also exposes observable runtime state so the menu bar can render "Running: Work Content Summary", a progress percentage, and the stop/unload phase while cancellation is in progress.
+- `DailyReportSummaryService` also exposes observable runtime state so the menu bar can render "Running: Work Content Summary", a progress percentage, explicit model loading, and the stop/unload phase while cancellation is in progress.
 - Results are stored in `daily_reports`; temporary summaries are marked with `is_temporary` instead of encoded into summary text.
 - Automatic daily-summary backfill writes only final reports for reportable days before the latest reportable activity day, so automatic output is never marked temporary. Manual immediate summarization uses the same completion rule: the latest reportable activity day is temporary, and any earlier reportable day is final even when there are empty calendar days in between.
 - Contiguous same-category work blocks are also summarized into `daily_work_block_summaries` for daily heatmap hover text. Cross-day blocks stay whole for model summarization and storage, and rendering clips them to the visible report range.

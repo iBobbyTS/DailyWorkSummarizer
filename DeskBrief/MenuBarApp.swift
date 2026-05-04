@@ -700,7 +700,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
             if analysisState.isRunning, let analysisProfile = snapshot?.screenshotAnalysisModelProfile {
                 statusAnalysisTitleItem.title = MenuBarStatusPresentation.analysisRunningTitle(language: language)
-                statusAnalysisModelItem.title = MenuBarStatusPresentation.currentModelLine(profile: analysisProfile, language: language)
+                statusAnalysisModelItem.title = MenuBarStatusPresentation.currentModelLine(
+                    profile: analysisProfile,
+                    isLoadingModel: analysisState.isLoadingModel,
+                    language: language
+                )
                 let startedAt = analysisState.startedAt ?? pendingScreenshots.first?.capturedAt ?? Date()
                 statusAnalysisProgressItem.title = MenuBarStatusPresentation.analysisProgressLine(
                     state: analysisState,
@@ -711,7 +715,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
             if summaryState.isRunning, let summaryProfile = snapshot?.workContentSummaryModelProfile {
                 statusSummaryRunningTitleItem.title = MenuBarStatusPresentation.summaryRunningTitle(language: language)
-                statusSummaryRunningModelItem.title = MenuBarStatusPresentation.currentModelLine(profile: summaryProfile, language: language)
+                statusSummaryRunningModelItem.title = MenuBarStatusPresentation.currentModelLine(
+                    profile: summaryProfile,
+                    isLoadingModel: summaryState.isLoadingModel,
+                    language: language
+                )
                 statusSummaryRunningProgressItem.title = MenuBarStatusPresentation.summaryProgressLine(
                     state: summaryState,
                     language: language

@@ -598,6 +598,7 @@ enum DailyReportSummaryStoppingStage {
 struct AnalysisRuntimeState {
     let isRunning: Bool
     let stoppingStage: AnalysisStoppingStage?
+    let isLoadingModel: Bool
     let startedAt: Date?
     let modelName: String?
     let completedCount: Int
@@ -605,9 +606,28 @@ struct AnalysisRuntimeState {
 
     var isStopping: Bool { stoppingStage != nil }
 
+    init(
+        isRunning: Bool,
+        stoppingStage: AnalysisStoppingStage?,
+        isLoadingModel: Bool = false,
+        startedAt: Date?,
+        modelName: String?,
+        completedCount: Int,
+        totalCount: Int
+    ) {
+        self.isRunning = isRunning
+        self.stoppingStage = stoppingStage
+        self.isLoadingModel = isLoadingModel
+        self.startedAt = startedAt
+        self.modelName = modelName
+        self.completedCount = completedCount
+        self.totalCount = totalCount
+    }
+
     static let idle = AnalysisRuntimeState(
         isRunning: false,
         stoppingStage: nil,
+        isLoadingModel: false,
         startedAt: nil,
         modelName: nil,
         completedCount: 0,
@@ -643,6 +663,7 @@ enum ForceUnloadTarget: String, CaseIterable, Codable, Hashable, Identifiable {
 struct DailyReportSummaryRuntimeState {
     let isRunning: Bool
     let stoppingStage: DailyReportSummaryStoppingStage?
+    let isLoadingModel: Bool
     let modelName: String?
     let completedCount: Int
     let totalCount: Int
@@ -652,6 +673,7 @@ struct DailyReportSummaryRuntimeState {
     init(
         isRunning: Bool,
         isStopping: Bool,
+        isLoadingModel: Bool = false,
         modelName: String?,
         completedCount: Int,
         totalCount: Int
@@ -659,6 +681,7 @@ struct DailyReportSummaryRuntimeState {
         self.init(
             isRunning: isRunning,
             stoppingStage: isStopping ? .stoppingGeneration : nil,
+            isLoadingModel: isLoadingModel,
             modelName: modelName,
             completedCount: completedCount,
             totalCount: totalCount
@@ -668,12 +691,14 @@ struct DailyReportSummaryRuntimeState {
     init(
         isRunning: Bool,
         stoppingStage: DailyReportSummaryStoppingStage?,
+        isLoadingModel: Bool = false,
         modelName: String?,
         completedCount: Int,
         totalCount: Int
     ) {
         self.isRunning = isRunning
         self.stoppingStage = stoppingStage
+        self.isLoadingModel = isLoadingModel
         self.modelName = modelName
         self.completedCount = completedCount
         self.totalCount = totalCount
@@ -690,6 +715,7 @@ struct DailyReportSummaryRuntimeState {
     static let idle = DailyReportSummaryRuntimeState(
         isRunning: false,
         isStopping: false,
+        isLoadingModel: false,
         modelName: nil,
         completedCount: 0,
         totalCount: 0

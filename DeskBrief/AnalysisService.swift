@@ -140,7 +140,8 @@ final class AnalysisService {
             modelName: runtimeState.modelName,
             completedCount: runtimeState.completedCount,
             totalCount: runtimeState.totalCount,
-            stoppingStage: .stoppingGeneration
+            stoppingStage: .stoppingGeneration,
+            isLoadingModel: false
         )
         runningTask?.cancel()
         llmService.cancelActiveRemoteRequest()
@@ -707,7 +708,28 @@ final class AnalysisService {
             return nil
         }
 
-        return try await lmStudioLifecycle.load(settings: settings)
+        if Task.isCancelled {
+            throw CancellationError()
+        }
+
+        if runtimeState.isRunning, !runtimeState.isStopping {
+            updateRuntimeState(
+                startedAt: runtimeState.startedAt,
+                modelName: settings.modelName,
+                completedCount: runtimeState.completedCount,
+                totalCount: runtimeState.totalCount,
+                isLoadingModel: true
+            )
+        }
+
+        do {
+            let loadedModel = try await lmStudioLifecycle.load(settings: settings)
+            clearLoadingModelStateIfNeeded(modelName: settings.modelName)
+            return loadedModel
+        } catch {
+            clearLoadingModelStateIfNeeded(modelName: settings.modelName)
+            throw error
+        }
     }
 
     private func enqueueMissingReportsAfterAnalysis(
@@ -872,15 +894,33 @@ final class AnalysisService {
         modelName: String?,
         completedCount: Int,
         totalCount: Int,
-        stoppingStage: AnalysisStoppingStage? = nil
+        stoppingStage: AnalysisStoppingStage? = nil,
+        isLoadingModel: Bool? = nil
     ) {
         runtimeState = AnalysisRuntimeState(
             isRunning: true,
             stoppingStage: stoppingStage ?? runtimeState.stoppingStage,
+            isLoadingModel: isLoadingModel ?? runtimeState.isLoadingModel,
             startedAt: startedAt,
             modelName: modelName ?? runtimeState.modelName,
             completedCount: completedCount,
             totalCount: totalCount
+        )
+    }
+
+    private func clearLoadingModelStateIfNeeded(modelName: String?) {
+        guard runtimeState.isRunning,
+              runtimeState.isLoadingModel,
+              !runtimeState.isStopping else {
+            return
+        }
+
+        updateRuntimeState(
+            startedAt: runtimeState.startedAt,
+            modelName: modelName,
+            completedCount: runtimeState.completedCount,
+            totalCount: runtimeState.totalCount,
+            isLoadingModel: false
         )
     }
 
