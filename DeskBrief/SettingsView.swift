@@ -92,6 +92,7 @@ struct SettingsView: View {
             reportTab
                 .tabItem { Text(text(.settingsTabReport)) }
         }
+        .accessibilityIdentifier("settings.root")
         .padding(20)
         .frame(minWidth: 700, minHeight: 560)
         .alert(item: $pendingModelCopyDestination) { destination in
@@ -102,6 +103,13 @@ struct SettingsView: View {
                     copyModelConfiguration(to: destination)
                 },
                 secondaryButton: .cancel(Text(text(.commonCancel)))
+            )
+        }
+        .alert(item: $settingsStore.persistenceAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text(text(.commonConfirm)))
             )
         }
         .onDisappear {
@@ -149,6 +157,7 @@ struct SettingsView: View {
             .padding(.horizontal, Layout.tabHorizontalPadding)
             .padding(.vertical, Layout.tabVerticalPadding)
         }
+        .accessibilityIdentifier("settings.tab.screenshotAnalysis")
     }
 
     private var workContentSummaryTab: some View {
@@ -186,6 +195,7 @@ struct SettingsView: View {
             .padding(.horizontal, Layout.tabHorizontalPadding)
             .padding(.vertical, Layout.tabVerticalPadding)
         }
+        .accessibilityIdentifier("settings.tab.workContentSummary")
     }
 
     private var screenshotSection: some View {
@@ -812,6 +822,7 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, Layout.tabHorizontalPadding)
         .padding(.vertical, Layout.tabVerticalPadding)
+        .accessibilityIdentifier("settings.tab.general")
     }
 
     private var reportTab: some View {
@@ -846,6 +857,7 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, Layout.tabHorizontalPadding)
         .padding(.vertical, Layout.tabVerticalPadding)
+        .accessibilityIdentifier("settings.tab.report")
     }
 
     private func proportionalFieldRow<Content: View>(

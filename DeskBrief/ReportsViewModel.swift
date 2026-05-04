@@ -511,18 +511,16 @@ final class ReportsViewModel: ObservableObject {
             language: language,
             firstWeekday: settingsStore.reportWeekStart.calendarFirstWeekday
         )
-        let grouped: [Date: [ReportSourceItem]]
-
-        switch kind {
-        case .day:
-            grouped = Dictionary(grouping: items) { calendar.startOfDay(for: $0.capturedAt) }
-        case .week:
-            grouped = Dictionary(grouping: items) { $0.capturedAt.startOfWeek(calendar: calendar) }
-        case .month:
-            grouped = Dictionary(grouping: items) { $0.capturedAt.monthStart(calendar: calendar) }
-        case .year:
-            grouped = Dictionary(grouping: items) { $0.capturedAt.yearStart(calendar: calendar) }
+        let keyedRecords = items.flatMap { item in
+            dailySegments(for: item, calendar: calendar).compactMap { segment -> (Date, ReportSourceItem)? in
+                guard let startDate = rangeStart(for: segment.capturedAt, kind: kind, calendar: calendar) else {
+                    return nil
+                }
+                return (startDate, segment)
+            }
         }
+        let grouped = Dictionary(grouping: keyedRecords, by: { $0.0 })
+            .mapValues { $0.map(\.1) }
 
         return grouped.compactMap { startDate, records in
             let durationRecords = records.filter { $0.categoryName != AppDefaults.absenceCategoryName }
@@ -571,6 +569,41 @@ final class ReportsViewModel: ObservableObject {
             )
         }
         .sorted { $0.interval.start > $1.interval.start }
+    }
+
+    private func dailySegments(for item: ReportSourceItem, calendar: Calendar) -> [ReportSourceItem] {
+        var segments: [ReportSourceItem] = []
+        var segmentStart = item.capturedAt
+        let itemEnd = item.endAt
+
+        while segmentStart < itemEnd {
+            let dayStart = calendar.startOfDay(for: segmentStart)
+            guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart),
+                  dayEnd > segmentStart else {
+                break
+            }
+
+            let segmentEnd = min(itemEnd, dayEnd)
+            if let normalized = normalizedItem(item, start: segmentStart, end: segmentEnd) {
+                segments.append(normalized)
+            }
+            segmentStart = segmentEnd
+        }
+
+        return segments
+    }
+
+    private func rangeStart(for date: Date, kind: ReportKind, calendar: Calendar) -> Date? {
+        switch kind {
+        case .day:
+            return calendar.startOfDay(for: date)
+        case .week:
+            return date.startOfWeek(calendar: calendar)
+        case .month:
+            return date.monthStart(calendar: calendar)
+        case .year:
+            return date.yearStart(calendar: calendar)
+        }
     }
 
     private func resolvedAverageDayCount(

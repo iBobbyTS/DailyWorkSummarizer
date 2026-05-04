@@ -7,6 +7,41 @@ import Testing
 import UniformTypeIdentifiers
 @testable import DeskBrief
 
+final class FakeKeychainStore: KeychainStoring {
+    private var values: [String: String]
+    var queuedResults: [KeychainWriteResult] = []
+
+    init(values: [String: String] = [:]) {
+        self.values = values
+    }
+
+    func string(for account: String) -> String {
+        values[account] ?? ""
+    }
+
+    @discardableResult
+    func set(_ value: String, for account: String) -> KeychainWriteResult {
+        if !queuedResults.isEmpty {
+            let result = queuedResults.removeFirst()
+            if result.isSuccess {
+                apply(value, for: account)
+            }
+            return result
+        }
+
+        apply(value, for: account)
+        return .success(account: account, operation: value.isEmpty ? .delete : .update)
+    }
+
+    private func apply(_ value: String, for account: String) {
+        if value.isEmpty {
+            values.removeValue(forKey: account)
+        } else {
+            values[account] = value
+        }
+    }
+}
+
 func makeTemporaryDatabaseURL() -> URL {
     FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString)
@@ -14,7 +49,7 @@ func makeTemporaryDatabaseURL() -> URL {
 }
 
 func writeTestScreenshotPlaceholder(to url: URL) throws {
-    try Data([0xFF, 0xD8, 0xFF, 0xD9]).write(to: url)
+    try writeSolidTestScreenshot(to: url, gray: 3)
 }
 
 func writeSolidTestScreenshot(

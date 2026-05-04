@@ -38,6 +38,8 @@ Manual force-unload actions use the same lifecycle helper with a nil `instanceID
 
 ## Screenshot analysis modes
 
+Before either mode starts provider work, `AnalysisWorker` validates that the screenshot bytes decode into a valid image. Damaged JPEG/PNG data fails locally as an analysis runtime error, is logged and removed from the pending screenshot directory, and does not fall through to OCR empty text or a remote multimodal request.
+
 ### OCR-first mode
 
 Used when `imageAnalysisMethod == .ocr`.
@@ -246,6 +248,7 @@ Behavior rules:
 
 - Screenshot analysis retries selected transient failures up to a bounded attempt count.
 - Invalid structured output is treated as a model-response failure, not a silent success.
+- Invalid screenshot image data is treated as a local per-screenshot failure before OCR or model dispatch. It is recorded in `app_logs`, counted in the analysis run's failure total, and removed from the pending queue to avoid infinite retries.
 - Runtime provider errors are surfaced in the error store for UI review.
 - Daily summary generation skips days that still have no activity items.
 

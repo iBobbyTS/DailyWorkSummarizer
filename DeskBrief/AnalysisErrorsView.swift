@@ -22,6 +22,7 @@ struct AppLogsView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .accessibilityIdentifier("logs.filterPicker")
 
             if filteredEntries.isEmpty {
                 ContentUnavailableView(
@@ -80,6 +81,7 @@ struct AppLogsView: View {
                 .disabled(logStore.entries.isEmpty)
             }
         }
+        .accessibilityIdentifier("logs.root")
         .padding(20)
         .frame(minWidth: 720, minHeight: 420)
     }

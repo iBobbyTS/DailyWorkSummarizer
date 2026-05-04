@@ -96,6 +96,7 @@ struct ReportsView: View {
             rightPanel
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .accessibilityIdentifier("reports.root")
         .frame(minWidth: 960, minHeight: 640)
         .onChange(of: viewModel.selectedKind) { _, _ in
             clearHoveredState(ReportHoverStatePolicy.resetScopeForReportContextChange())
@@ -120,6 +121,7 @@ struct ReportsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .accessibilityIdentifier("reports.kindPicker")
 
                 HStack {
                     Button(text(.reportPreviousPage)) {
@@ -243,6 +245,7 @@ struct ReportsView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
+                .accessibilityIdentifier("reports.chartTypePicker")
                 .frame(width: Layout.chartTypePickerWidth, alignment: .leading)
 
                 if viewModel.selectedKind != .day {

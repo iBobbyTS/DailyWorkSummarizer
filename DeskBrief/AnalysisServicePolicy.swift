@@ -110,12 +110,20 @@ extension AnalysisService {
         case AnalysisServiceError.invalidResponse,
              AnalysisServiceError.httpError,
              AnalysisServiceError.lengthTruncated,
+             AnalysisServiceError.invalidImageData,
              is LMStudioModelLifecycleError,
              is URLError:
             return true
         default:
             return false
         }
+    }
+
+    nonisolated static func shouldRemoveFailedScreenshot(after error: Error) -> Bool {
+        if case AnalysisServiceError.invalidImageData = error {
+            return true
+        }
+        return false
     }
 
     nonisolated static func isConnectedToCharger() -> Bool {

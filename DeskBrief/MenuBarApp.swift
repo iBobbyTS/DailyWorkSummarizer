@@ -12,6 +12,37 @@ struct MenuBarApp: App {
     }
 }
 
+private struct AppLaunchConfiguration {
+    let isUITesting: Bool
+    let disableBackgroundServices: Bool
+    let openSettingsWindow: Bool
+    let openReportsWindow: Bool
+    let openLogsWindow: Bool
+    let supportDirectory: URL?
+    let userDefaultsSuiteName: String?
+    let keychainService: String?
+
+    static func current(processInfo: ProcessInfo = .processInfo) -> AppLaunchConfiguration {
+        let arguments = Set(processInfo.arguments)
+        let environment = processInfo.environment
+        let isUITesting = arguments.contains("--deskbrief-ui-testing")
+        let supportDirectory = environment["DESKBRIEF_UI_TEST_SUPPORT_DIR"].map {
+            URL(fileURLWithPath: $0, isDirectory: true)
+        }
+
+        return AppLaunchConfiguration(
+            isUITesting: isUITesting,
+            disableBackgroundServices: isUITesting || arguments.contains("--deskbrief-disable-background-services"),
+            openSettingsWindow: arguments.contains("--deskbrief-open-settings"),
+            openReportsWindow: arguments.contains("--deskbrief-open-reports"),
+            openLogsWindow: arguments.contains("--deskbrief-open-logs"),
+            supportDirectory: supportDirectory,
+            userDefaultsSuiteName: environment["DESKBRIEF_UI_TEST_DEFAULTS_SUITE"],
+            keychainService: environment["DESKBRIEF_UI_TEST_KEYCHAIN_SERVICE"]
+        )
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
@@ -66,14 +97,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private let quitMenuItem = NSMenuItem(title: "", action: #selector(quit), keyEquivalent: "q")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
-        terminateOtherRunningInstances()
+        let launchConfiguration = AppLaunchConfiguration.current()
+        NSApp.setActivationPolicy(launchConfiguration.isUITesting ? .regular : .accessory)
+        if !launchConfiguration.isUITesting {
+            terminateOtherRunningInstances()
+        }
 
         do {
-            let database = try AppDatabase()
-            let keychain = KeychainStore(service: Bundle.main.bundleIdentifier ?? "DeskBrief")
+            let database = try makeDatabase(for: launchConfiguration)
+            let keychain = KeychainStore(service: launchConfiguration.keychainService ?? Bundle.main.bundleIdentifier ?? "DeskBrief")
             let logStore = AppLogStore(database: database)
-            let settingsStore = SettingsStore(database: database, keychain: keychain, logStore: logStore)
+            let userDefaults = launchConfiguration.userDefaultsSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+            let settingsStore = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain, logStore: logStore)
             let notificationService = SystemAppNotificationService(logStore: logStore)
 
             self.database = database
@@ -108,8 +143,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         setupStatusItem()
         registerObservers()
-        screenshotService?.start()
-        analysisService?.start()
+        if !launchConfiguration.disableBackgroundServices {
+            screenshotService?.start()
+            analysisService?.start()
+        }
+        applyLaunchHooks(launchConfiguration)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -141,6 +179,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             reportsWindow = nil
         } else if window == logsWindow {
             logsWindow = nil
+        }
+    }
+
+    private func makeDatabase(for launchConfiguration: AppLaunchConfiguration) throws -> AppDatabase {
+        guard let supportDirectory = launchConfiguration.supportDirectory else {
+            return try AppDatabase()
+        }
+
+        try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
+        return try AppDatabase(
+            databaseURL: supportDirectory.appendingPathComponent("desk-brief.sqlite", isDirectory: false),
+            applicationSupportDirectory: supportDirectory
+        )
+    }
+
+    private func applyLaunchHooks(_ launchConfiguration: AppLaunchConfiguration) {
+        guard launchConfiguration.isUITesting else {
+            return
+        }
+
+        if launchConfiguration.openSettingsWindow {
+            openSettings()
+        }
+        if launchConfiguration.openReportsWindow {
+            openReports()
+        }
+        if launchConfiguration.openLogsWindow {
+            openLogs()
         }
     }
 

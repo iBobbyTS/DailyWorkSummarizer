@@ -1083,6 +1083,65 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func invalidScreenshotImageIsLoggedAsFailureAndDeletedWithoutResult() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "screenshot-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .manual
+
+        let screenshotURL = try database.screenshotsDirectory().appendingPathComponent("20260426-1000-i5.jpg")
+        try Data([0x01, 0x02, 0x03, 0x04]).write(to: screenshotURL)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            return try makeHTTPResponse(url: try #require(request.url), body: "{}")
+        }
+        let logStore = AppLogStore(database: database)
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: logStore,
+            dailyReportSummaryService: DailyReportSummaryService(database: database, settingsStore: store, session: session),
+            session: session
+        )
+
+        service.runNow()
+        let didFinish = await waitUntil(timeoutSeconds: 8) {
+            (try? fetchInt("SELECT COUNT(*) FROM analysis_runs;", databaseURL: databaseURL)) == 1
+                && !service.currentState.isRunning
+        }
+        let logMessage = try #require(try fetchOptionalString("SELECT message FROM app_logs WHERE source = 'analysis' LIMIT 1;", databaseURL: databaseURL))
+
+        #expect(didFinish)
+        #expect(MockURLProtocol.requestCount == 0)
+        #expect(!FileManager.default.fileExists(atPath: screenshotURL.path))
+        #expect(try fetchInt("SELECT COUNT(*) FROM analysis_results;", databaseURL: databaseURL) == 0)
+        #expect(try fetchInt("SELECT success_count FROM analysis_runs LIMIT 1;", databaseURL: databaseURL) == 0)
+        #expect(try fetchInt("SELECT failure_count FROM analysis_runs LIMIT 1;", databaseURL: databaseURL) == 1)
+        #expect(logMessage.contains("Failed to analyze screenshot"))
+        #expect(logMessage.contains(L10n.string(.analysisInvalidImageData, language: store.appLanguage)))
+    }
+
+    @MainActor
     @Test func brightScreenshotContinuesToModelAnalysis() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory

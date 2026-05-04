@@ -1,42 +1,97 @@
-//
-//  DeskBriefUITests.swift
-//  DeskBriefUITests
-//
-//  Created by iBobby on 2025-12-01.
-//
-
 import XCTest
 
 final class DeskBriefUITests: XCTestCase {
+    private var launchedApps: [XCUIApplication] = []
+    private var cleanupURLs: [URL] = []
 
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
     }
 
     override func tearDownWithError() throws {
-        XCUIApplication().terminate()
+        for app in launchedApps {
+            app.terminate()
+        }
+        launchedApps.removeAll()
+
+        for url in cleanupURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
+        cleanupURLs.removeAll()
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launch()
+    func testSettingsWindowSmoke() throws {
+        let app = launchIsolatedApp(opening: "--deskbrief-open-settings")
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        XCTAssertTrue(app.windows.element(boundBy: 0).waitForExistence(timeout: 5))
+        XCTAssertTrue(accessibilityElement("settings.root", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(hasAnyElement(["Screenshot Analysis", "截屏分析"], in: app))
+        XCTAssertTrue(hasAnyElement(["Work Content Summary", "工作内容总结"], in: app))
+        XCTAssertTrue(hasAnyElement(["General", "通用"], in: app))
+        XCTAssertTrue(hasAnyElement(["Report", "报告"], in: app))
+        XCTAssertTrue(hasAnyElement(["Model Settings", "模型设置"], in: app))
+    }
+
+    @MainActor
+    func testReportsWindowSmoke() throws {
+        let app = launchIsolatedApp(opening: "--deskbrief-open-reports")
+
+        XCTAssertTrue(app.windows.element(boundBy: 0).waitForExistence(timeout: 5))
+        XCTAssertTrue(accessibilityElement("reports.root", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(hasAnyElement(["Report type", "报告类型"], in: app))
+        XCTAssertTrue(hasAnyElement(["Chart type", "图表类型"], in: app))
+    }
+
+    @MainActor
+    func testLogsWindowSmoke() throws {
+        let app = launchIsolatedApp(opening: "--deskbrief-open-logs")
+
+        XCTAssertTrue(app.windows.element(boundBy: 0).waitForExistence(timeout: 5))
+        XCTAssertTrue(accessibilityElement("logs.root", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(hasAnyElement(["All", "全部"], in: app))
+        XCTAssertTrue(hasAnyElement(["No Logs", "当前没有日志"], in: app))
     }
 
     @MainActor
     func testLaunchPerformance() throws {
-        let app = XCUIApplication()
         measure(metrics: [XCTClockMetric()]) {
+            let app = makeIsolatedApp()
             app.launch()
             app.terminate()
+        }
+    }
+
+    private func launchIsolatedApp(opening launchArgument: String) -> XCUIApplication {
+        let app = makeIsolatedApp(opening: launchArgument)
+        app.launch()
+        launchedApps.append(app)
+        return app
+    }
+
+    private func makeIsolatedApp(opening launchArgument: String? = nil) -> XCUIApplication {
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DeskBriefUITests-\(UUID().uuidString)", isDirectory: true)
+        cleanupURLs.append(supportURL)
+
+        let app = XCUIApplication()
+        app.launchArguments = ["--deskbrief-ui-testing"]
+        if let launchArgument {
+            app.launchArguments.append(launchArgument)
+        }
+        app.launchEnvironment["DESKBRIEF_UI_TEST_SUPPORT_DIR"] = supportURL.path
+        app.launchEnvironment["DESKBRIEF_UI_TEST_DEFAULTS_SUITE"] = "DeskBriefUITests.\(UUID().uuidString)"
+        app.launchEnvironment["DESKBRIEF_UI_TEST_KEYCHAIN_SERVICE"] = "DeskBriefUITests.\(UUID().uuidString)"
+        return app
+    }
+
+    private func accessibilityElement(_ identifier: String, in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)[identifier]
+    }
+
+    private func hasAnyElement(_ labels: [String], in app: XCUIApplication) -> Bool {
+        labels.contains { label in
+            app.descendants(matching: .any)[label].exists
         }
     }
 }

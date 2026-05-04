@@ -550,8 +550,78 @@ extension DeskBriefTests {
     @Test func runtimeErrorRecordingFiltersOutNonAPIErrors() async throws {
         #expect(AnalysisService.shouldRecordRuntimeError(AnalysisServiceError.invalidResponse("empty output")))
         #expect(AnalysisService.shouldRecordRuntimeError(AnalysisServiceError.httpError(statusCode: 500, body: "server error")))
+        #expect(AnalysisService.shouldRecordRuntimeError(AnalysisServiceError.invalidImageData("invalid image")))
+        #expect(AnalysisService.shouldRemoveFailedScreenshot(after: AnalysisServiceError.invalidImageData("invalid image")))
         #expect(!AnalysisService.shouldRecordRuntimeError(AnalysisServiceError.invalidConfiguration("missing url")))
         #expect(!AnalysisService.shouldRecordRuntimeError(CancellationError()))
+        #expect(!AnalysisService.shouldRemoveFailedScreenshot(after: AnalysisServiceError.invalidResponse("empty output")))
+    }
+
+    @MainActor
+    @Test func settingsStoreRollsBackScreenshotAPIKeyAndShowsAlertWhenKeychainWriteFails() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        userDefaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.userDefaultsKey)
+        let keychain = FakeKeychainStore(values: [
+            AppDefaults.apiKeyAccount: "saved-key"
+        ])
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let logStore = AppLogStore(database: database)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain, logStore: logStore)
+        keychain.queuedResults = [
+            .failure(account: AppDefaults.apiKeyAccount, operation: .update, status: -25308)
+        ]
+
+        store.apiKey = "new-key"
+
+        let alert = try #require(store.persistenceAlert)
+        let logMessage = try #require(try fetchOptionalString("SELECT message FROM app_logs WHERE source = 'settings' LIMIT 1;", databaseURL: databaseURL))
+
+        #expect(store.apiKey == "saved-key")
+        #expect(keychain.string(for: AppDefaults.apiKeyAccount) == "saved-key")
+        #expect(alert.title == "API Key 保存失败")
+        #expect(alert.message.contains("截屏分析"))
+        #expect(logMessage.contains("Failed to save API key for 截屏分析"))
+    }
+
+    @MainActor
+    @Test func settingsStoreRollsBackWorkContentAPIKeyWhenKeychainDeleteFails() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        userDefaults.set(AppLanguage.english.rawValue, forKey: AppLanguage.userDefaultsKey)
+        let keychain = FakeKeychainStore(values: [
+            AppDefaults.apiKeyAccount: "shared-key",
+            AppDefaults.workContentSummaryAPIKeyAccount: "work-key"
+        ])
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let logStore = AppLogStore(database: database)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain, logStore: logStore)
+        keychain.queuedResults = [
+            .failure(account: AppDefaults.workContentSummaryAPIKeyAccount, operation: .delete, status: -25308)
+        ]
+
+        store.workContentSummaryAPIKey = ""
+
+        let alert = try #require(store.persistenceAlert)
+
+        #expect(store.workContentSummaryAPIKey == "work-key")
+        #expect(keychain.string(for: AppDefaults.workContentSummaryAPIKeyAccount) == "work-key")
+        #expect(alert.title == "Failed to Save API Key")
+        #expect(alert.message.contains("Work Content Summary"))
     }
 
     @Test func analysisPromptIncludesSummaryInstructionAndJSONContract() async throws {

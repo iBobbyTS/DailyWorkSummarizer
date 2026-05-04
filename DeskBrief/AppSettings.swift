@@ -1,6 +1,12 @@
 import Foundation
 import Combine
 
+struct SettingsPersistenceAlert: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+
 @MainActor
 final class SettingsStore: ObservableObject {
     @Published var screenshotIntervalMinutes: Int {
@@ -90,7 +96,22 @@ final class SettingsStore: ObservableObject {
 
     @Published var apiKey: String {
         didSet {
-            keychain.set(apiKey, for: AppDefaults.apiKeyAccount)
+            guard !isRollingBackScreenshotAPIKey else {
+                return
+            }
+
+            let result = keychain.set(apiKey, for: AppDefaults.apiKeyAccount)
+            guard result.isSuccess else {
+                handleKeychainWriteFailure(
+                    result,
+                    profileName: L10n.string(.settingsTabScreenshotAnalysis, language: appLanguage)
+                )
+                isRollingBackScreenshotAPIKey = true
+                apiKey = oldValue
+                isRollingBackScreenshotAPIKey = false
+                notifySettingsChanged()
+                return
+            }
             notifySettingsChanged()
         }
     }
@@ -149,7 +170,22 @@ final class SettingsStore: ObservableObject {
 
     @Published var workContentSummaryAPIKey: String {
         didSet {
-            keychain.set(workContentSummaryAPIKey, for: AppDefaults.workContentSummaryAPIKeyAccount)
+            guard !isRollingBackWorkContentSummaryAPIKey else {
+                return
+            }
+
+            let result = keychain.set(workContentSummaryAPIKey, for: AppDefaults.workContentSummaryAPIKeyAccount)
+            guard result.isSuccess else {
+                handleKeychainWriteFailure(
+                    result,
+                    profileName: L10n.string(.settingsTabWorkContentSummary, language: appLanguage)
+                )
+                isRollingBackWorkContentSummaryAPIKey = true
+                workContentSummaryAPIKey = oldValue
+                isRollingBackWorkContentSummaryAPIKey = false
+                notifySettingsChanged()
+                return
+            }
             notifySettingsChanged()
         }
     }
@@ -175,16 +211,19 @@ final class SettingsStore: ObservableObject {
 
     @Published private(set) var categoryRules: [CategoryRule]
     @Published private(set) var categoryRulesValidationMessage: String?
+    @Published var persistenceAlert: SettingsPersistenceAlert?
 
     private let userDefaults: UserDefaults
-    private let keychain: KeychainStore
+    private let keychain: KeychainStoring
     private let database: AppDatabase
     private let logStore: AppLogStore?
+    private var isRollingBackScreenshotAPIKey = false
+    private var isRollingBackWorkContentSummaryAPIKey = false
 
     init(
         database: AppDatabase,
         userDefaults: UserDefaults = .standard,
-        keychain: KeychainStore,
+        keychain: KeychainStoring,
         logStore: AppLogStore? = nil
     ) {
         self.database = database
@@ -400,6 +439,19 @@ final class SettingsStore: ObservableObject {
         } catch {
             logStore?.addError(source: .settings, context: context, error: error)
         }
+    }
+
+    private func handleKeychainWriteFailure(_ result: KeychainWriteResult, profileName: String) {
+        let error = KeychainWriteError(result: result)
+        logStore?.addError(source: .settings, context: "Failed to save API key for \(profileName)", error: error)
+        persistenceAlert = SettingsPersistenceAlert(
+            title: L10n.string(.settingsKeychainSaveFailedTitle, language: appLanguage),
+            message: L10n.string(
+                .settingsKeychainSaveFailedMessage,
+                language: appLanguage,
+                arguments: [profileName, result.statusDescription]
+            )
+        )
     }
 
     private func isPreservedCategoryRule(id: UUID) -> Bool {

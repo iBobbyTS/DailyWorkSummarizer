@@ -105,6 +105,8 @@ nonisolated enum L10n {
         case settingsModelCopyConfirmTitle
         case settingsModelCopyToWorkContentSummaryConfirmMessage
         case settingsModelCopyToScreenshotAnalysisConfirmMessage
+        case settingsKeychainSaveFailedTitle
+        case settingsKeychainSaveFailedMessage
         case commonConfirm
         case commonCancel
         case settingsModelTestResult
@@ -232,6 +234,7 @@ nonisolated enum L10n {
         case reportDailySummaryInvalidResponse
         case reportDailySummaryNoActivity
         case analysisHTTPError
+        case analysisInvalidImageData
         case analysisNeedsCategoryRule
         case analysisNeedsBaseURL
         case analysisNeedsModelName
@@ -346,6 +349,8 @@ nonisolated enum L10n {
             .settingsModelCopyConfirmTitle: "确认复制模型配置",
             .settingsModelCopyToWorkContentSummaryConfirmMessage: "确认后会覆盖“工作内容总结”里的模型配置。",
             .settingsModelCopyToScreenshotAnalysisConfirmMessage: "确认后会覆盖“截屏分析”里的模型配置。",
+            .settingsKeychainSaveFailedTitle: "API Key 保存失败",
+            .settingsKeychainSaveFailedMessage: "未能把“%@”的 API Key 写入 Keychain，设置已恢复为上一次保存的值。\n\n%@",
             .commonConfirm: "确认",
             .commonCancel: "取消",
             .settingsModelTestResult: "测试结果",
@@ -473,6 +478,7 @@ nonisolated enum L10n {
             .reportDailySummaryInvalidResponse: "模型返回无法解析为有效的日报 JSON 总结结果",
             .reportDailySummaryNoActivity: "当天没有可用于总结的活动记录",
             .analysisHTTPError: "接口返回错误 (%d)：%@",
+            .analysisInvalidImageData: "截图文件已损坏或不是可识别的图片",
             .analysisNeedsCategoryRule: "至少需要配置一条有效的分析类别和描述",
             .analysisNeedsBaseURL: "请先配置模型接口地址",
             .analysisNeedsModelName: "请先配置模型名称",
@@ -585,6 +591,8 @@ nonisolated enum L10n {
             .settingsModelCopyConfirmTitle: "Confirm model config copy",
             .settingsModelCopyToWorkContentSummaryConfirmMessage: "This will overwrite the model configuration in Work Content Summary.",
             .settingsModelCopyToScreenshotAnalysisConfirmMessage: "This will overwrite the model configuration in Screenshot Analysis.",
+            .settingsKeychainSaveFailedTitle: "Failed to Save API Key",
+            .settingsKeychainSaveFailedMessage: "DeskBrief could not write the API key for “%@” to Keychain, so the setting was restored to the last saved value.\n\n%@",
             .commonConfirm: "Confirm",
             .commonCancel: "Cancel",
             .settingsModelTestResult: "Test Result",
@@ -712,6 +720,7 @@ nonisolated enum L10n {
             .reportDailySummaryInvalidResponse: "The model response could not be parsed into a valid daily report JSON result",
             .reportDailySummaryNoActivity: "There are no activity records available for this day",
             .analysisHTTPError: "API returned an error (%d): %@",
+            .analysisInvalidImageData: "The screenshot file is damaged or is not a recognizable image",
             .analysisNeedsCategoryRule: "Configure at least one valid category and description first",
             .analysisNeedsBaseURL: "Configure the model base URL first",
             .analysisNeedsModelName: "Configure the model name first",

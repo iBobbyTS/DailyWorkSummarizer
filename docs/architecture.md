@@ -69,7 +69,8 @@ The app is centered around a small set of long-lived services created at launch 
 - `AnalysisService` keeps run state on the main actor, but delegates each screenshot's long-running image load, OCR, model request, and response parsing to `AnalysisWorker` so UI state updates and cancellation stay responsive.
 - `MenuBarApp` subscribes to both analysis and summary runtime notifications so the Current Status submenu can show the active analysis or summary run and manual LM Studio force-unload actions without relying on internal loaded-instance caches.
 - Runtime state marks explicit LM Studio load phases separately, so the Current Status submenu can distinguish "Loading model" from a model that has already been loaded for active work.
-- Before OCR or a model request, `AnalysisWorker` decodes the screenshot into an 8-bit RGB buffer and averages all RGB pixel values. Screenshots with an average value of 2 or less are treated as inactive, recorded as `离开`, and removed through the same processed-file cleanup path.
+- Before OCR, brightness checks, Apple Intelligence, or a multimodal model request, `AnalysisWorker` validates that the screenshot data can be decoded as an image. Invalid image data is recorded as a per-screenshot failure, logged to `app_logs`, removed from the pending screenshot directory, and never produces a fallback successful analysis result.
+- After decode validation, `AnalysisWorker` decodes the screenshot into an 8-bit RGB buffer and averages all RGB pixel values. Screenshots with an average value of 2 or less are treated as inactive, recorded as `离开`, and removed through the same processed-file cleanup path.
 - Depending on provider and analysis mode, the worker either:
   - runs local OCR first and sends text to a model, or
   - sends the screenshot image to a remote multimodal endpoint.
@@ -91,6 +92,7 @@ The app is centered around a small set of long-lived services created at launch 
 - A summary request explicitly separates its work-block scope from its daily-report scope. Work-block scopes target affected days or all missing blocks. Daily-report scopes target explicit candidate days or all missing final-ready reports. Affected work-block days do not imply a global daily-report scan.
 - Analysis-triggered daily-report scopes depend on the run trigger. Manual and scheduled analysis use the continuous day range covered by successfully processed screenshots in that run. Pure realtime analysis compares successfully processed result days with the last persisted analysis result before the run; it only candidates earlier days when a day boundary was crossed. If a manual or scheduled trigger merges into an active realtime run, that run upgrades to the bounded day-range behavior.
 - `DailyReportSummaryService` fetches analyzed activity items that overlap the target day.
+- Automatic daily-report candidate discovery enumerates every day overlapped by each reportable activity's half-open `[capturedAt, capturedAt + duration_minutes_snapshot)` interval. An activity that crosses midnight can therefore candidate the next day even when that day has no new capture timestamp, while an activity ending exactly at midnight does not candidate the following day.
 - The fetch includes the last result before the target day only when its stored duration crosses into the day, then clips that item to start at the report day boundary.
 - Items captured during the target day are clipped at the next day boundary when their stored duration crosses midnight.
 - The service does not need the first result from the following day for daily-summary generation because each persisted result already carries its own `duration_minutes_snapshot`.
@@ -113,6 +115,7 @@ The app is centered around a small set of long-lived services created at launch 
 - It derives display-only away intervals from gaps between adjacent persisted analysis results; it does not derive leading gaps before the first item or trailing gaps after the latest item.
 - Cross-day away gaps are split at report-day boundaries before aggregation.
 - It builds date ranges for day, week, month, and year views.
+- Real activity is split into day-clipped half-open segments before report ranges are built. Day, week, month, and year totals, item counts, and average hours per day are derived from those clipped segments, so activity that crosses a day, week, month, or year boundary appears in every overlapped reporting period with only the duration that belongs to that period.
 - It transforms raw items into:
   - aggregated category durations for bar charts
   - normalized event blocks for heatmaps
@@ -135,6 +138,7 @@ The app intentionally keeps two model profiles:
 This separation allows the app to use different providers, credentials, or model sizes for image-heavy analysis and text-only summarization.
 For LM Studio handoff, two profiles are considered the same loaded model only when their normalized chat endpoint, trimmed model name, and context length are equal. API keys are used for requests but are not part of the equivalence check.
 Each profile also carries its own LM Studio lifecycle toggle so the app can skip explicit load/unload calls when the model is already resident in the background.
+API key writes are treated as durable settings changes: `SettingsStore` records Keychain write or delete failures in `app_logs`, rolls the affected setting back to the last persisted value, and exposes a `SettingsPersistenceAlert` so `SettingsView` can block with a localized alert instead of letting the user leave with an unsaved credential.
 
 ## State propagation
 

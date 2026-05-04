@@ -104,6 +104,7 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         allowLengthRetry: Bool
     ) async throws -> AnalysisExecutionResult {
         let imageData = try await imageData(from: fileURL)
+        try await validateImageData(imageData, language: settings.appLanguage)
         if let brightnessSignal = await brightnessSignal(from: imageData),
            !brightnessSignal.isVisuallyActive {
             return inactiveScreenshotResult()
@@ -217,6 +218,23 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         }.value
     }
 
+    private func validateImageData(_ imageData: Data, language: AppLanguage) async throws {
+        let invalidImageMessage = localized(.analysisInvalidImageData, language: language)
+        try await Task.detached(priority: .utility) {
+            guard Self.canDecodeImage(from: imageData) else {
+                throw AnalysisServiceError.invalidImageData(invalidImageMessage)
+            }
+        }.value
+    }
+
+    nonisolated static func canDecodeImage(from imageData: Data) -> Bool {
+        guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil),
+              CGImageSourceCreateImageAtIndex(imageSource, 0, nil) != nil else {
+            return false
+        }
+        return true
+    }
+
     private func brightnessSignal(from imageData: Data) async -> ScreenshotBrightnessSignal? {
         await Task.detached(priority: .utility) {
             Self.brightnessSignal(from: imageData)
@@ -274,15 +292,24 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
 
     private func recognizedText(from imageData: Data, language: AppLanguage) async throws -> String {
         let recognitionLanguages = Self.recognitionLanguages(for: language)
+        let invalidImageMessage = localized(.analysisInvalidImageData, language: language)
         return try await Task.detached(priority: .utility) {
-            try Self.recognizedText(from: imageData, recognitionLanguages: recognitionLanguages)
+            try Self.recognizedText(
+                from: imageData,
+                recognitionLanguages: recognitionLanguages,
+                invalidImageMessage: invalidImageMessage
+            )
         }.value
     }
 
-    private static func recognizedText(from imageData: Data, recognitionLanguages: [String]) throws -> String {
+    private static func recognizedText(
+        from imageData: Data,
+        recognitionLanguages: [String],
+        invalidImageMessage: String
+    ) throws -> String {
         guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil),
               let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
-            return ""
+            throw AnalysisServiceError.invalidImageData(invalidImageMessage)
         }
 
         let request = VNRecognizeTextRequest()

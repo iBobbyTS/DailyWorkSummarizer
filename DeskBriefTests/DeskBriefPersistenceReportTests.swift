@@ -1058,6 +1058,105 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func summaryAfterAnalysisGeneratesOverlapOnlyCandidateDailyReport() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let previousDay = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
+        let overlapOnlyDay = calendar.date(byAdding: .day, value: 1, to: previousDay)!
+        let laterDay = calendar.date(byAdding: .day, value: 1, to: overlapOnlyDay)!
+        let previousNight = calendar.date(byAdding: .minute, value: 23 * 60 + 50, to: previousDay)!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.workContentSummaryProvider = .openAI
+        store.workContentSummaryAPIBaseURL = "https://work-content.example.com"
+        store.workContentSummaryModelName = "daily-report-model"
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: previousNight,
+            categoryName: "专注工作",
+            summaryText: "跨入候选日的工作",
+            durationMinutesSnapshot: 20
+        )
+        try database.insertAnalysisResult(
+            capturedAt: calendar.date(byAdding: .hour, value: 9, to: laterDay)!,
+            categoryName: "专注工作",
+            summaryText: "后续活动闭合候选日",
+            durationMinutesSnapshot: 30
+        )
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"dailySummary\\":\\"补齐了跨入日的日报\\",\\"categorySummaries\\":{\\"专注工作\\":\\"总结了跨日延续工作\\"}}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let service = DailyReportSummaryService(database: database, settingsStore: store, session: session)
+        await service.summarizeAfterAnalysis(
+            workBlockDayStarts: [],
+            dailyReportCandidateDayStarts: [overlapOnlyDay]
+        )
+
+        let report = try #require(try database.fetchDailyReport(for: overlapOnlyDay))
+
+        #expect(MockURLProtocol.requestCount == 1)
+        #expect(!report.isTemporary)
+        #expect(report.dailySummaryText == "补齐了跨入日的日报")
+        #expect(report.categorySummaries["专注工作"] == "总结了跨日延续工作")
+    }
+
+    @Test func dailyReportCoveredDayStartsTreatEndAtMidnightAsHalfOpenBoundary() throws {
+        let calendar = makeTestCalendar()
+        let dayStart = calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!
+        let previousNight = calendar.date(byAdding: .minute, value: 23 * 60 + 50, to: dayStart)!
+        let nextDay = calendar.date(byAdding: .day, value: 1, to: dayStart)!
+        let crossingItem = DailyReportActivityItem(
+            id: 1,
+            capturedAt: previousNight,
+            categoryName: "专注工作",
+            durationMinutes: 20,
+            itemSummaryText: "跨入次日"
+        )
+        let midnightEndingItem = DailyReportActivityItem(
+            id: 2,
+            capturedAt: previousNight,
+            categoryName: "专注工作",
+            durationMinutes: 10,
+            itemSummaryText: "正好到午夜"
+        )
+
+        #expect(DailyReportSummaryService.coveredDayStarts(for: crossingItem, calendar: calendar) == [dayStart, nextDay])
+        #expect(DailyReportSummaryService.coveredDayStarts(for: midnightEndingItem, calendar: calendar) == [dayStart])
+    }
+
+    @MainActor
     @Test func summaryAfterAnalysisDoesNotGenerateLatestActivityDayWithoutLaterReportableActivity() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DeskBriefTests.\(UUID().uuidString)"

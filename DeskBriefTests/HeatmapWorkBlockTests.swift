@@ -509,6 +509,125 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func reportsViewModelCreatesDayRangesForCrossDayPersistedActivity() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let firstDay = calendar.date(from: DateComponents(year: 2026, month: 4, day: 26))!
+        let secondDay = calendar.date(byAdding: .day, value: 1, to: firstDay)!
+        let crossDayStart = calendar.date(byAdding: .minute, value: 23 * 60 + 50, to: firstDay)!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        let summaryService = DailyReportSummaryService(database: database, settingsStore: store)
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: crossDayStart,
+            categoryName: "专注工作",
+            summaryText: "跨天持续工作",
+            durationMinutesSnapshot: 20
+        )
+
+        let viewModel = ReportsViewModel(
+            database: database,
+            settingsStore: store,
+            dailyReportSummaryService: summaryService
+        )
+        let rangesByDay = Dictionary(uniqueKeysWithValues: viewModel.allRanges.map {
+            (calendar.startOfDay(for: $0.interval.start), $0)
+        })
+
+        let firstDayRange = try #require(rangesByDay[firstDay])
+        let secondDayRange = try #require(rangesByDay[secondDay])
+
+        #expect(abs(firstDayRange.totalHours - (10.0 / 60.0)) < 0.0001)
+        #expect(abs(secondDayRange.totalHours - (10.0 / 60.0)) < 0.0001)
+        #expect(firstDayRange.itemCount == 1)
+        #expect(secondDayRange.itemCount == 1)
+    }
+
+    @MainActor
+    @Test func reportsViewModelClipsCrossWeekMonthAndYearRangeTotals() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let calendar = makeTestCalendar()
+        let weekBoundaryDay = calendar.date(from: DateComponents(year: 2026, month: 4, day: 26))!
+        let crossWeekStart = calendar.date(byAdding: .minute, value: 23 * 60 + 30, to: weekBoundaryDay)!
+        let yearBoundaryDay = calendar.date(from: DateComponents(year: 2027, month: 12, day: 31))!
+        let crossMonthAndYearStart = calendar.date(byAdding: .minute, value: 23 * 60 + 30, to: yearBoundaryDay)!
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.reportWeekStart = .monday
+        let summaryService = DailyReportSummaryService(database: database, settingsStore: store)
+
+        _ = try makeAnalysisRun(database: database)
+        try database.insertAnalysisResult(
+            capturedAt: crossWeekStart,
+            categoryName: "专注工作",
+            summaryText: "跨周工作",
+            durationMinutesSnapshot: 90
+        )
+        try database.insertAnalysisResult(
+            capturedAt: crossMonthAndYearStart,
+            categoryName: "专注工作",
+            summaryText: "跨月跨年工作",
+            durationMinutesSnapshot: 90
+        )
+
+        let viewModel = ReportsViewModel(
+            database: database,
+            settingsStore: store,
+            dailyReportSummaryService: summaryService
+        )
+        let weekCalendar = Calendar.reportCalendar(firstWeekday: ReportWeekStart.monday.calendarFirstWeekday)
+        viewModel.selectKind(.week)
+        let rangesByWeek = Dictionary(uniqueKeysWithValues: viewModel.allRanges.map { ($0.interval.start, $0) })
+        let firstWeekStart = crossWeekStart.startOfWeek(calendar: weekCalendar)
+        let secondWeekStart = calendar.date(byAdding: .day, value: 1, to: weekBoundaryDay)!.startOfWeek(calendar: weekCalendar)
+        let firstWeekRange = try #require(rangesByWeek[firstWeekStart])
+        let secondWeekRange = try #require(rangesByWeek[secondWeekStart])
+
+        #expect(abs(firstWeekRange.totalHours - 0.5) < 0.0001)
+        #expect(abs(secondWeekRange.totalHours - 1.0) < 0.0001)
+
+        viewModel.selectKind(.month)
+        let rangesByMonth = Dictionary(uniqueKeysWithValues: viewModel.allRanges.map { ($0.interval.start, $0) })
+        let currentMonthRange = try #require(rangesByMonth[crossMonthAndYearStart.monthStart(calendar: calendar)])
+        let nextMonthStart = calendar.date(byAdding: .day, value: 1, to: yearBoundaryDay)!.monthStart(calendar: calendar)
+        let nextMonthRange = try #require(rangesByMonth[nextMonthStart])
+        #expect(abs(currentMonthRange.totalHours - 0.5) < 0.0001)
+        #expect(abs(nextMonthRange.totalHours - 1.0) < 0.0001)
+
+        viewModel.selectKind(.year)
+        let rangesByYear = Dictionary(uniqueKeysWithValues: viewModel.allRanges.map { ($0.interval.start, $0) })
+        let currentYearRange = try #require(rangesByYear[crossMonthAndYearStart.yearStart(calendar: calendar)])
+        let nextYearStart = calendar.date(byAdding: .day, value: 1, to: yearBoundaryDay)!.yearStart(calendar: calendar)
+        let nextYearRange = try #require(rangesByYear[nextYearStart])
+        #expect(abs(currentYearRange.totalHours - 0.5) < 0.0001)
+        #expect(abs(nextYearRange.totalHours - 1.0) < 0.0001)
+    }
+
+    @MainActor
     @Test func reportsViewModelSkipsAllAwayDayRangesGeneratedBetweenActivity() async throws {
         let fixture = try makeReportsViewModelFixture(
             activityDates: [

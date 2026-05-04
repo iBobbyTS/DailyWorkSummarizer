@@ -1075,8 +1075,31 @@ final class DailyReportSummaryService {
     private func fetchReportableActivityDayStarts(calendar: Calendar) throws -> [Date] {
         let dayStarts = try database.fetchReportActivityItems()
             .filter { Self.isReportableCategory($0.categoryName) && Self.hasNonEmptySummary($0) }
-            .map { calendar.startOfDay(for: $0.capturedAt) }
+            .flatMap { Self.coveredDayStarts(for: $0, calendar: calendar) }
         return Array(Set(dayStarts)).sorted()
+    }
+
+    nonisolated static func coveredDayStarts(for item: DailyReportActivityItem, calendar: Calendar) -> [Date] {
+        var dayStarts: [Date] = []
+        var dayStart = calendar.startOfDay(for: item.capturedAt)
+        let itemEnd = item.endAt
+
+        while dayStart < itemEnd {
+            guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart),
+                  dayEnd > dayStart else {
+                break
+            }
+
+            let clippedStart = max(item.capturedAt, dayStart)
+            let clippedEnd = min(itemEnd, dayEnd)
+            if clippedEnd > clippedStart {
+                dayStarts.append(dayStart)
+            }
+
+            dayStart = dayEnd
+        }
+
+        return dayStarts
     }
 
     private func pendingReportableDayStarts(

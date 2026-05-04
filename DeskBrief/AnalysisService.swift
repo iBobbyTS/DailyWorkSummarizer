@@ -6,6 +6,7 @@ enum AnalysisServiceError: LocalizedError {
     case invalidResponse(String)
     case httpError(statusCode: Int, body: String)
     case lengthTruncated(String)
+    case invalidImageData(String)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ enum AnalysisServiceError: LocalizedError {
         case .httpError(let statusCode, let body):
             return L10n.string(.analysisHTTPError, arguments: [statusCode, body])
         case .lengthTruncated(let message):
+            return message
+        case .invalidImageData(let message):
             return message
         }
     }
@@ -636,6 +639,10 @@ final class AnalysisService {
 
                     if Self.shouldRecordRuntimeError(error) {
                         logStore.addError(source: .analysis, context: "Failed to analyze screenshot \(fileURL.lastPathComponent)", error: error)
+                    }
+                    if Self.shouldRemoveFailedScreenshot(after: error) {
+                        removeProcessedScreenshot(at: fileURL)
+                        NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
                     }
                     run.failureCount += 1
                     run.consecutiveFailureCount += 1
