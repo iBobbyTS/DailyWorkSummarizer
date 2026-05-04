@@ -1310,11 +1310,22 @@ enum SummaryInstructionTextViewTextSystem {
     static let lineFragmentPadding: CGFloat = 0
 
     static func apply(to textView: NSTextView) {
-        textView.drawsBackground = false
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.textColor = .labelColor
-        textView.textContainerInset = textContainerInset
-        textView.textContainer?.lineFragmentPadding = lineFragmentPadding
+        let preferredFont = NSFont.preferredFont(forTextStyle: .body)
+        if textView.drawsBackground {
+            textView.drawsBackground = false
+        }
+        if textView.font != preferredFont {
+            textView.font = preferredFont
+        }
+        if textView.textColor != .labelColor {
+            textView.textColor = .labelColor
+        }
+        if textView.textContainerInset != textContainerInset {
+            textView.textContainerInset = textContainerInset
+        }
+        if textView.textContainer?.lineFragmentPadding != lineFragmentPadding {
+            textView.textContainer?.lineFragmentPadding = lineFragmentPadding
+        }
     }
 }
 

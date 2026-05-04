@@ -116,6 +116,11 @@ enum ReportHoverStatePolicy {
         .heatmapOnly
     }
 
+    static func legendHoverRectsUpdate(from frames: [LegendItemFrame], current: [CGRect]) -> [CGRect]? {
+        let hoverRects = LegendHoverGeometry.hoverRects(for: frames.map(\.rect))
+        return hoverRects == current ? nil : hoverRects
+    }
+
     static func shouldClearLegendHover(at point: CGPoint, in rects: [CGRect]) -> Bool {
         guard !rects.isEmpty else {
             return false

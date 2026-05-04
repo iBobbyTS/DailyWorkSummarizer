@@ -53,6 +53,39 @@ struct ReportsView: View {
         )
     }
 
+    private var selectedKindBinding: Binding<ReportKind> {
+        Binding(
+            get: { viewModel.selectedKind },
+            set: { newValue in
+                DispatchQueue.main.async {
+                    viewModel.selectKind(newValue)
+                }
+            }
+        )
+    }
+
+    private var includeWorkdaysBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.includeWorkdays },
+            set: { newValue in
+                DispatchQueue.main.async {
+                    viewModel.setIncludeWorkdays(newValue)
+                }
+            }
+        )
+    }
+
+    private var includeWeekendsBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.includeWeekends },
+            set: { newValue in
+                DispatchQueue.main.async {
+                    viewModel.setIncludeWeekends(newValue)
+                }
+            }
+        )
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             leftPanel
@@ -81,7 +114,7 @@ struct ReportsView: View {
     private var leftPanel: some View {
         ZStack(alignment: .topTrailing) {
             VStack(alignment: .leading, spacing: 16) {
-                Picker(text(.reportType), selection: $viewModel.selectedKind) {
+                Picker(text(.reportType), selection: selectedKindBinding) {
                     ForEach(ReportKind.allCases) { kind in
                         Text(kind.title(in: language)).tag(kind)
                     }
@@ -111,7 +144,7 @@ struct ReportsView: View {
                     LazyVStack(spacing: 10) {
                         ForEach(viewModel.pageItems) { range in
                             Button {
-                                viewModel.selectedRangeID = range.id
+                                viewModel.selectRange(id: range.id)
                             } label: {
                                 VStack(alignment: .leading, spacing: 6) {
                                     Text(range.label)
@@ -215,10 +248,10 @@ struct ReportsView: View {
                 if viewModel.selectedKind != .day {
                     Spacer(minLength: 0)
 
-                    Toggle(text(.reportWorkdays), isOn: $viewModel.includeWorkdays)
+                    Toggle(text(.reportWorkdays), isOn: includeWorkdaysBinding)
                         .toggleStyle(.checkbox)
 
-                    Toggle(text(.reportWeekends), isOn: $viewModel.includeWeekends)
+                    Toggle(text(.reportWeekends), isOn: includeWeekendsBinding)
                         .toggleStyle(.checkbox)
                 }
             }
@@ -407,9 +440,17 @@ struct ReportsView: View {
             }
         }
         .onPreferenceChange(LegendItemFramePreferenceKey.self) { frames in
-            let hoverRects = LegendHoverGeometry.hoverRects(for: frames.map(\.rect))
-            if legendHoverRects != hoverRects {
-                legendHoverRects = hoverRects
+            guard let hoverRects = ReportHoverStatePolicy.legendHoverRectsUpdate(
+                from: frames,
+                current: legendHoverRects
+            ) else {
+                return
+            }
+
+            DispatchQueue.main.async {
+                if legendHoverRects != hoverRects {
+                    legendHoverRects = hoverRects
+                }
             }
         }
     }

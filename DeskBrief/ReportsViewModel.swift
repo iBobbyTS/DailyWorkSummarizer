@@ -4,43 +4,14 @@ import SwiftUI
 
 @MainActor
 final class ReportsViewModel: ObservableObject {
-    @Published var selectedKind: ReportKind = .day {
-        didSet {
-            dailyReportGenerationError = nil
-            selectedPage = 0
-            shouldResetHeatmapSelection = true
-            rebuildRanges()
-        }
-    }
-
-    @Published var selectedPage: Int = 0 {
-        didSet {
-            updatePageItems()
-        }
-    }
-
-    @Published var selectedRangeID: String? {
-        didSet {
-            dailyReportGenerationError = nil
-            shouldResetHeatmapSelection = true
-            updateChartItems()
-        }
-    }
+    @Published private(set) var selectedKind: ReportKind = .day
+    @Published private(set) var selectedPage: Int = 0
+    @Published private(set) var selectedRangeID: String?
 
     @Published var selectedVisualization: ReportVisualization = .barChart
     @Published var overlayDailyHeatmap = false
-    @Published var includeWorkdays = true {
-        didSet {
-            shouldResetHeatmapSelection = true
-            updateChartItems()
-        }
-    }
-    @Published var includeWeekends = true {
-        didSet {
-            shouldResetHeatmapSelection = true
-            updateChartItems()
-        }
-    }
+    @Published private(set) var includeWorkdays = true
+    @Published private(set) var includeWeekends = true
     @Published private(set) var selectedDailyReport: DailyReportRecord?
     @Published private(set) var isGeneratingDailyReport = false
     @Published private(set) var dailyReportGenerationError: String?
@@ -114,6 +85,41 @@ final class ReportsViewModel: ObservableObject {
         updateChartItems()
     }
 
+    func selectKind(_ kind: ReportKind) {
+        guard selectedKind != kind else { return }
+
+        selectedKind = kind
+        dailyReportGenerationError = nil
+        selectedPage = 0
+        shouldResetHeatmapSelection = true
+        rebuildRanges()
+    }
+
+    func selectRange(id: String?) {
+        guard selectedRangeID != id else { return }
+
+        selectedRangeID = id
+        dailyReportGenerationError = nil
+        shouldResetHeatmapSelection = true
+        updateChartItems()
+    }
+
+    func setIncludeWorkdays(_ isIncluded: Bool) {
+        guard includeWorkdays != isIncluded else { return }
+
+        includeWorkdays = isIncluded
+        shouldResetHeatmapSelection = true
+        updateChartItems()
+    }
+
+    func setIncludeWeekends(_ isIncluded: Bool) {
+        guard includeWeekends != isIncluded else { return }
+
+        includeWeekends = isIncluded
+        shouldResetHeatmapSelection = true
+        updateChartItems()
+    }
+
     func isHeatmapCategorySelected(_ category: String) -> Bool {
         selectedHeatmapCategories.contains(category)
     }
@@ -121,11 +127,13 @@ final class ReportsViewModel: ObservableObject {
     func showPreviousPage() {
         guard selectedPage > 0 else { return }
         selectedPage -= 1
+        updatePageItems()
     }
 
     func showNextPage() {
         guard selectedPage + 1 < totalPages else { return }
         selectedPage += 1
+        updatePageItems()
     }
 
     var appLanguage: AppLanguage {
@@ -223,7 +231,12 @@ final class ReportsViewModel: ObservableObject {
             return
         }
 
-        selectedRangeID = pageItems.first?.id
+        let nextRangeID = pageItems.first?.id
+        if selectedRangeID == nextRangeID {
+            updateChartItems()
+        } else {
+            selectRange(id: nextRangeID)
+        }
     }
 
     private func updateChartItems() {

@@ -83,6 +83,17 @@ extension DeskBriefTests {
         #expect(!ReportHoverStatePolicy.shouldClearLegendHover(at: CGPoint(x: 180, y: 15), in: []))
     }
 
+    @Test func reportHoverPolicySkipsUnchangedLegendRectUpdates() async throws {
+        let frames = [
+            LegendItemFrame(rect: CGRect(x: 0, y: 0, width: 80, height: 30)),
+            LegendItemFrame(rect: CGRect(x: 90, y: 0, width: 70, height: 30))
+        ]
+        let current = try #require(ReportHoverStatePolicy.legendHoverRectsUpdate(from: frames, current: []))
+
+        #expect(ReportHoverStatePolicy.legendHoverRectsUpdate(from: frames, current: current) == nil)
+        #expect(ReportHoverStatePolicy.legendHoverRectsUpdate(from: [], current: current) == [])
+    }
+
     @Test func captureSkipsWhenMouseLocationAndFrontmostAppAreUnchanged() async throws {
         let shouldSkip = ScreenshotService.shouldSkipCapture(
             currentMouseLocation: CGPoint(x: 120, y: 240),

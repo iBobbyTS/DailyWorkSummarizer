@@ -538,7 +538,7 @@ extension DeskBriefTests {
         )
         defer { fixture.cleanup() }
 
-        fixture.viewModel.selectedKind = .week
+        fixture.viewModel.selectKind(.week)
 
         let calendar = Calendar.reportCalendar(firstWeekday: ReportWeekStart.monday.calendarFirstWeekday)
         let displayedWeekStarts = Set(fixture.viewModel.allRanges.map { $0.interval.start })
@@ -558,7 +558,7 @@ extension DeskBriefTests {
         )
         defer { fixture.cleanup() }
 
-        fixture.viewModel.selectedKind = .month
+        fixture.viewModel.selectKind(.month)
 
         let calendar = Calendar.reportCalendar
         let displayedMonthStarts = Set(fixture.viewModel.allRanges.map { $0.interval.start })
@@ -578,7 +578,7 @@ extension DeskBriefTests {
         )
         defer { fixture.cleanup() }
 
-        fixture.viewModel.selectedKind = .year
+        fixture.viewModel.selectKind(.year)
 
         let calendar = Calendar.reportCalendar
         let displayedYearStarts = Set(fixture.viewModel.allRanges.map { $0.interval.start })
