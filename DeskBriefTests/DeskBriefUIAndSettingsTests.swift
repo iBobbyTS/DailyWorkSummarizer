@@ -838,6 +838,16 @@ extension DeskBriefTests {
             language: .simplifiedChinese
         )
         #expect(backfill.body == "已补充 5 个工作块总结，2 个日报。")
+
+        let backlog = AppNotificationMessageBuilder.realtimeAnalysisBacklogWarning(
+            warning: RealtimeAnalysisBacklogWarning(
+                previousPendingScreenshotCount: 4,
+                pendingScreenshotCount: 9
+            ),
+            language: .simplifiedChinese
+        )
+        #expect(backlog.title == "实时分析可能在积压")
+        #expect(backlog.body == "当前有 9 张截屏待分析，比上次检查多 5 张截屏。")
     }
 
     @Test func notificationMessageBuilderSkipsQuietAutomaticSuccessAndEmptyCancellation() async throws {
@@ -860,6 +870,34 @@ extension DeskBriefTests {
             dailyReportDayStarts: [],
             language: .simplifiedChinese
         ) == nil)
+    }
+
+    @Test func realtimeAnalysisBacklogMonitorWarnsOnEachFiveScreenshotIncrease() {
+        var monitor = RealtimeAnalysisBacklogMonitor(warningIncreaseThreshold: 5)
+
+        #expect(monitor.record(pendingScreenshotCount: 4) == nil)
+        #expect(monitor.previousPendingScreenshotCount == 4)
+
+        #expect(monitor.record(pendingScreenshotCount: 8) == nil)
+        #expect(monitor.previousPendingScreenshotCount == 8)
+
+        let firstWarning = monitor.record(pendingScreenshotCount: 13)
+        #expect(firstWarning == RealtimeAnalysisBacklogWarning(
+            previousPendingScreenshotCount: 8,
+            pendingScreenshotCount: 13
+        ))
+        #expect(monitor.previousPendingScreenshotCount == 13)
+
+        let secondWarning = monitor.record(pendingScreenshotCount: 18)
+        #expect(secondWarning == RealtimeAnalysisBacklogWarning(
+            previousPendingScreenshotCount: 13,
+            pendingScreenshotCount: 18
+        ))
+        #expect(monitor.previousPendingScreenshotCount == 18)
+
+        monitor.reset(baselinePendingScreenshotCount: 20)
+        #expect(monitor.record(pendingScreenshotCount: 24) == nil)
+        #expect(monitor.previousPendingScreenshotCount == 24)
     }
 
 }

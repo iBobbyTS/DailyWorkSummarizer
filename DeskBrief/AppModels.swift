@@ -7,6 +7,8 @@ nonisolated enum AppDefaults {
     static let analysisTimeMinutes = 18 * 60 + 30
     static let analysisStartupMode: AnalysisStartupMode = .scheduled
     static let autoAnalysisRequiresCharger = false
+    static let realtimeBacklogCheckIntervalSeconds: TimeInterval = 5 * 60
+    static let realtimeBacklogWarningIncreaseThreshold = 5
     nonisolated static let maxLogEntries = 1000
     static let lmStudioContextLength = 6000
     static let lmStudioAutoLoadUnloadModel = true

@@ -266,6 +266,7 @@ nonisolated enum L10n {
         case notificationAnalysisFailedTitle
         case notificationBackfillCompleteTitle
         case notificationBackfillFailedTitle
+        case notificationRealtimeBacklogTitle
         case notificationAnalysisCompleteNoReports
         case notificationAnalysisCompleteWithReports
         case notificationAnalysisPartialNoReports
@@ -276,6 +277,7 @@ nonisolated enum L10n {
         case notificationBackfillCompleteBody
         case notificationBackfillPartialBody
         case notificationBackfillFailedBody
+        case notificationRealtimeBacklogBody
         case notificationDailyReportForDay
         case notificationScreenshotCount
         case notificationScreenshotCountSingular
@@ -505,6 +507,7 @@ nonisolated enum L10n {
             .notificationAnalysisFailedTitle: "分析失败",
             .notificationBackfillCompleteTitle: "补漏完成",
             .notificationBackfillFailedTitle: "补漏失败",
+            .notificationRealtimeBacklogTitle: "实时分析可能在积压",
             .notificationAnalysisCompleteNoReports: "已分析 %@。",
             .notificationAnalysisCompleteWithReports: "已分析 %@，并生成 %@。",
             .notificationAnalysisPartialNoReports: "已分析 %@，%@失败。请进入日志查看详情。",
@@ -515,6 +518,7 @@ nonisolated enum L10n {
             .notificationBackfillCompleteBody: "已补充 %@，%@。",
             .notificationBackfillPartialBody: "已补充 %@，%@。部分项目失败，请进入日志查看详情。",
             .notificationBackfillFailedBody: "补漏运行失败，请进入日志查看详情。",
+            .notificationRealtimeBacklogBody: "当前有 %@待分析，比上次检查多 %@。",
             .notificationDailyReportForDay: "%@ 的日报",
             .notificationScreenshotCount: "%d 张截屏",
             .notificationScreenshotCountSingular: "%d 张截屏",
@@ -742,6 +746,7 @@ nonisolated enum L10n {
             .notificationAnalysisFailedTitle: "Analysis Failed",
             .notificationBackfillCompleteTitle: "Backfill Complete",
             .notificationBackfillFailedTitle: "Backfill Failed",
+            .notificationRealtimeBacklogTitle: "Realtime Analysis May Be Backlogged",
             .notificationAnalysisCompleteNoReports: "Analyzed %@.",
             .notificationAnalysisCompleteWithReports: "Analyzed %@ and generated %@.",
             .notificationAnalysisPartialNoReports: "Analyzed %@, %@ failed. Check the logs for details.",
@@ -752,6 +757,7 @@ nonisolated enum L10n {
             .notificationBackfillCompleteBody: "Filled in %@ and %@.",
             .notificationBackfillPartialBody: "Filled in %@ and %@. Some items failed; check the logs for details.",
             .notificationBackfillFailedBody: "Backfill failed. Check the logs for details.",
+            .notificationRealtimeBacklogBody: "There are %@ waiting to be analyzed, %@ more than the previous check.",
             .notificationDailyReportForDay: "the daily report for %@",
             .notificationScreenshotCount: "%d screenshots",
             .notificationScreenshotCountSingular: "%d screenshot",

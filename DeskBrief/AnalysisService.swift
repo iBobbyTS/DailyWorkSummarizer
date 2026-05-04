@@ -34,6 +34,8 @@ final class AnalysisService {
     private let notificationSender: AppNotificationSending
     private var timer: Timer?
     private var realtimeAnalysisTimer: Timer?
+    private var realtimeBacklogTimer: Timer?
+    private var realtimeBacklogMonitor = RealtimeAnalysisBacklogMonitor()
     private var wakeObserver: NSObjectProtocol?
     private var screenshotSavedObserver: NSObjectProtocol?
     private var runningTask: Task<Void, Never>?
@@ -80,6 +82,7 @@ final class AnalysisService {
     deinit {
         timer?.invalidate()
         realtimeAnalysisTimer?.invalidate()
+        realtimeBacklogTimer?.invalidate()
         runningTask?.cancel()
         if let wakeObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
@@ -91,6 +94,7 @@ final class AnalysisService {
 
     func start() {
         scheduleNextRun()
+        configureRealtimeBacklogMonitoring()
         screenshotSavedObserver = NotificationCenter.default.addObserver(
             forName: .screenshotFileSaved,
             object: nil,
@@ -116,6 +120,7 @@ final class AnalysisService {
 
     func reschedule() {
         scheduleNextRun()
+        configureRealtimeBacklogMonitoring()
         if settingsStore.snapshot.analysisStartupMode != .realtime {
             realtimeAnalysisTimer?.invalidate()
             realtimeAnalysisTimer = nil
@@ -281,6 +286,73 @@ final class AnalysisService {
         }
 
         triggerAnalysis(scheduledFor: Date(), trigger: .realtime)
+    }
+
+    func checkRealtimeAnalysisBacklogNow() async {
+        guard settingsStore.snapshot.analysisStartupMode == .realtime else {
+            stopRealtimeBacklogMonitoring()
+            return
+        }
+
+        guard let pendingCount = pendingScreenshotCountForRealtimeBacklogMonitor() else {
+            return
+        }
+
+        guard let warning = realtimeBacklogMonitor.record(pendingScreenshotCount: pendingCount) else {
+            return
+        }
+
+        let message = AppNotificationMessageBuilder.realtimeAnalysisBacklogWarning(
+            warning: warning,
+            language: settingsStore.appLanguage
+        )
+        await notificationSender.send(message)
+    }
+
+    private func configureRealtimeBacklogMonitoring() {
+        if settingsStore.snapshot.analysisStartupMode == .realtime {
+            startRealtimeBacklogMonitoringIfNeeded()
+        } else {
+            stopRealtimeBacklogMonitoring()
+        }
+    }
+
+    private func startRealtimeBacklogMonitoringIfNeeded() {
+        guard realtimeBacklogTimer == nil else {
+            return
+        }
+
+        realtimeBacklogMonitor.reset(
+            baselinePendingScreenshotCount: pendingScreenshotCountForRealtimeBacklogMonitor()
+        )
+
+        let timer = Timer(
+            timeInterval: AppDefaults.realtimeBacklogCheckIntervalSeconds,
+            repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.checkRealtimeAnalysisBacklogNow()
+            }
+        }
+        realtimeBacklogTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopRealtimeBacklogMonitoring() {
+        realtimeBacklogTimer?.invalidate()
+        realtimeBacklogTimer = nil
+        realtimeBacklogMonitor.reset()
+    }
+
+    private func pendingScreenshotCountForRealtimeBacklogMonitor() -> Int? {
+        do {
+            return try database.listScreenshotFiles(
+                defaultDurationMinutes: settingsStore.snapshot.screenshotIntervalMinutes
+            ).count
+        } catch {
+            logStore.addError(source: .analysis, context: "Failed to check realtime analysis backlog", error: error)
+            return nil
+        }
     }
 
     private func triggerAnalysis(scheduledFor _: Date, trigger: AnalysisTrigger) {

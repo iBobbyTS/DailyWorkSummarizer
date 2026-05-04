@@ -146,7 +146,70 @@ nonisolated struct DailyReportSummaryNotificationIntent: Equatable {
     }
 }
 
+nonisolated struct RealtimeAnalysisBacklogWarning: Equatable {
+    let previousPendingScreenshotCount: Int
+    let pendingScreenshotCount: Int
+
+    var increase: Int {
+        pendingScreenshotCount - previousPendingScreenshotCount
+    }
+}
+
+nonisolated struct RealtimeAnalysisBacklogMonitor: Equatable {
+    let warningIncreaseThreshold: Int
+    private(set) var previousPendingScreenshotCount: Int?
+
+    init(
+        warningIncreaseThreshold: Int = AppDefaults.realtimeBacklogWarningIncreaseThreshold,
+        previousPendingScreenshotCount: Int? = nil
+    ) {
+        self.warningIncreaseThreshold = warningIncreaseThreshold
+        self.previousPendingScreenshotCount = previousPendingScreenshotCount
+    }
+
+    mutating func reset(baselinePendingScreenshotCount: Int? = nil) {
+        previousPendingScreenshotCount = baselinePendingScreenshotCount
+    }
+
+    mutating func record(pendingScreenshotCount: Int) -> RealtimeAnalysisBacklogWarning? {
+        defer {
+            previousPendingScreenshotCount = pendingScreenshotCount
+        }
+
+        guard let previousPendingScreenshotCount else {
+            return nil
+        }
+
+        let increase = pendingScreenshotCount - previousPendingScreenshotCount
+        guard increase >= warningIncreaseThreshold else {
+            return nil
+        }
+
+        return RealtimeAnalysisBacklogWarning(
+            previousPendingScreenshotCount: previousPendingScreenshotCount,
+            pendingScreenshotCount: pendingScreenshotCount
+        )
+    }
+}
+
 nonisolated enum AppNotificationMessageBuilder {
+    static func realtimeAnalysisBacklogWarning(
+        warning: RealtimeAnalysisBacklogWarning,
+        language: AppLanguage
+    ) -> AppNotificationMessage {
+        AppNotificationMessage(
+            title: L10n.string(.notificationRealtimeBacklogTitle, language: language),
+            body: L10n.string(
+                .notificationRealtimeBacklogBody,
+                language: language,
+                arguments: [
+                    L10n.notificationScreenshotCount(warning.pendingScreenshotCount, language: language),
+                    L10n.notificationScreenshotCount(warning.increase, language: language),
+                ]
+            )
+        )
+    }
+
     static func analysisCompletion(
         context: AnalysisCompletionNotificationContext,
         dailyReportDayStarts: [Date],

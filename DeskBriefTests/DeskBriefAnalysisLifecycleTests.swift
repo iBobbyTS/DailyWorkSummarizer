@@ -669,6 +669,73 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func realtimeBacklogCheckWarnsWhenPendingScreenshotsGrowByFive() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.analysisStartupMode = .realtime
+        let notificationSender = SpyAppNotificationSender()
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            dailyReportSummaryService: DailyReportSummaryService(database: database, settingsStore: store),
+            notificationSender: notificationSender
+        )
+
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        func writePendingScreenshot(at index: Int) throws {
+            let minuteOffset = index * 5
+            let fileName = String(
+                format: "20260426-%02d%02d-i5.jpg",
+                10 + minuteOffset / 60,
+                minuteOffset % 60
+            )
+            try writeTestScreenshotPlaceholder(to: screenshotsDirectory.appendingPathComponent(fileName))
+        }
+
+        service.start()
+        for index in 0..<4 {
+            try writePendingScreenshot(at: index)
+        }
+        await service.checkRealtimeAnalysisBacklogNow()
+        #expect(notificationSender.messages.isEmpty)
+
+        for index in 4..<9 {
+            try writePendingScreenshot(at: index)
+        }
+        await service.checkRealtimeAnalysisBacklogNow()
+        #expect(notificationSender.messages.count == 1)
+        #expect(notificationSender.messages[0].title == "实时分析可能在积压")
+        #expect(notificationSender.messages[0].body == "当前有 9 张截屏待分析，比上次检查多 5 张截屏。")
+
+        for index in 9..<14 {
+            try writePendingScreenshot(at: index)
+        }
+        await service.checkRealtimeAnalysisBacklogNow()
+        #expect(notificationSender.messages.count == 2)
+        #expect(notificationSender.messages[1].body == "当前有 14 张截屏待分析，比上次检查多 5 张截屏。")
+
+        store.analysisStartupMode = .manual
+        await service.checkRealtimeAnalysisBacklogNow()
+        #expect(notificationSender.messages.count == 2)
+    }
+
+    @MainActor
     @Test func cancellingAnalysisStopsAppendingNewScreenshotsToCancelledRun() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory
