@@ -552,7 +552,7 @@ nonisolated enum L10n {
             .notificationScreenshotCountSingular: "%d 张截屏",
             .notificationDailyReportCount: "%d 个日报",
             .notificationDailyReportCountSingular: "%d 个日报",
-            .memoryCheckTitle: "加载模型前进行空余内存检查",
+            .memoryCheckTitle: "加载模型前进行可用内存检查",
             .memoryTotalRam: "总内存：",
             .memoryAvailableRam: "当前可用内存：",
             .memoryThresholdTooltip: "系统可用内存低于此阈值时不会加载模型",

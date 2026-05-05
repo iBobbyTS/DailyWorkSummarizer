@@ -501,18 +501,16 @@ struct SettingsView: View {
                             Divider()
 
                             VStack(alignment: .leading, spacing: 0) {
-                                HStack(spacing: 8) {
-                                    Text(text(.memoryCheckTitle))
-                                    Spacer()
-                                    Toggle("", isOn: memoryCheckEnabled)
-                                        .labelsHidden()
-                                        .toggleStyle(.switch)
-                                        .accessibilityLabel(text(.memoryCheckTitle))
-                                    InfoTooltipButton(text: text(.memoryThresholdTooltip))
+                                proportionalFieldRow(text(.memoryCheckTitle), fieldWidth: 64, tooltip: text(.memoryThresholdTooltip)) { fieldWidth in
+                                    HStack(spacing: 0) {
+                                        Spacer(minLength: 0)
+                                        Toggle("", isOn: memoryCheckEnabled)
+                                            .labelsHidden()
+                                            .toggleStyle(.switch)
+                                            .accessibilityLabel(text(.memoryCheckTitle))
+                                    }
+                                    .frame(width: fieldWidth, alignment: .trailing)
                                 }
-                                .padding(.horizontal, Layout.cardRowHorizontalPadding)
-                                .padding(.top, Layout.cardRowVerticalPadding)
-                                .padding(.bottom, 2)
 
                                 if memoryCheckEnabled.wrappedValue {
                                     VStack(alignment: .leading, spacing: 4) {
