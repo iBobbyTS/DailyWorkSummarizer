@@ -497,7 +497,8 @@ struct SettingsView: View {
                             isOn: lmStudioAutoLoadUnloadModel
                         )
 
-                        if lmStudioAutoLoadUnloadModel.wrappedValue {
+                        if lmStudioAutoLoadUnloadModel.wrappedValue,
+                           apiBaseURL.wrappedValue.contains("127.0.0.1") || apiBaseURL.wrappedValue.contains("localhost") {
                             Divider()
 
                             VStack(alignment: .leading, spacing: 0) {

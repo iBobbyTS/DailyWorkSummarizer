@@ -805,6 +805,7 @@ final class AnalysisService {
         }
 
         if settings.memoryCheckEnabled,
+           settings.isLocalBaseURL,
            !SystemMemoryInfo.isAboveThreshold(thresholdGB: settings.memoryThresholdGB) {
             logStore.add(
                 level: .log, source: .lmStudio,

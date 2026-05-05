@@ -419,6 +419,10 @@ nonisolated struct ModelProfileSettings: Equatable {
         self.memoryCheckEnabled = memoryCheckEnabled
         self.memoryThresholdGB = memoryThresholdGB
     }
+
+    var isLocalBaseURL: Bool {
+        apiBaseURL.contains("127.0.0.1") || apiBaseURL.contains("localhost")
+    }
 }
 
 nonisolated struct AppSettingsSnapshot {
