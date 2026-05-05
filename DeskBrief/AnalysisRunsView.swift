@@ -88,11 +88,13 @@ struct AnalysisRunsView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView([.horizontal, .vertical]) {
+                ScrollView([.horizontal]) {
                     VStack(spacing: 0) {
                         headerRow
                         Divider()
-                        rows
+                        ScrollView([.vertical]) {
+                            rows
+                        }
                     }
                     .font(.system(size: 12))
                 }
