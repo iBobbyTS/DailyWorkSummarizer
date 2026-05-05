@@ -25,9 +25,31 @@ struct LLMServiceRequest {
     let imageData: Data?
     let maximumResponseTokens: Int
     let timeoutInterval: TimeInterval
-    // Only used by the Apple Intelligence provider; remote providers ignore this value.
+    let keychainAccount: String?
     let appleUseCase: SystemLanguageModel.UseCase
     let appleSchema: GenerationSchema?
+
+    init(
+        settings: ModelProfileSettings,
+        appLanguage: AppLanguage,
+        prompt: String,
+        imageData: Data?,
+        maximumResponseTokens: Int,
+        timeoutInterval: TimeInterval,
+        keychainAccount: String? = nil,
+        appleUseCase: SystemLanguageModel.UseCase = .general,
+        appleSchema: GenerationSchema? = nil
+    ) {
+        self.settings = settings
+        self.appLanguage = appLanguage
+        self.prompt = prompt
+        self.imageData = imageData
+        self.maximumResponseTokens = maximumResponseTokens
+        self.timeoutInterval = timeoutInterval
+        self.keychainAccount = keychainAccount
+        self.appleUseCase = appleUseCase
+        self.appleSchema = appleSchema
+    }
 }
 
 struct LLMServiceResponse {
@@ -103,10 +125,12 @@ final class LLMService: @unchecked Sendable {
     }
 
     private let session: URLSession
+    private let credentialProvider: CredentialProviding
     private let activeRequestTaskStore = LLMActiveRequestTaskStore()
 
-    init(session: URLSession? = nil) {
+    init(session: URLSession? = nil, credentialProvider: CredentialProviding? = nil) {
         self.session = session ?? Self.makeSession()
+        self.credentialProvider = credentialProvider ?? NoOpCredentialProvider()
     }
 
     static func providerContract(for provider: ModelProvider) -> LLMProviderContract {
@@ -284,6 +308,8 @@ final class LLMService: @unchecked Sendable {
             throw LLMServiceError.invalidRemoteConfiguration
         }
 
+        let apiKey = resolvedAPIKey(for: request)
+
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
         urlRequest.timeoutInterval = request.timeoutInterval
@@ -292,8 +318,8 @@ final class LLMService: @unchecked Sendable {
 
         switch request.settings.provider {
         case .openAI:
-            if !request.settings.apiKey.isEmpty {
-                urlRequest.setValue("Bearer \(request.settings.apiKey)", forHTTPHeaderField: "Authorization")
+            if !apiKey.isEmpty {
+                urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
             }
             urlRequest.httpBody = try buildOpenAIRequestBody(
                 imageData: request.imageData,
@@ -302,8 +328,8 @@ final class LLMService: @unchecked Sendable {
                 maximumResponseTokens: request.maximumResponseTokens
             )
         case .anthropic:
-            if !request.settings.apiKey.isEmpty {
-                urlRequest.setValue(request.settings.apiKey, forHTTPHeaderField: "x-api-key")
+            if !apiKey.isEmpty {
+                urlRequest.setValue(apiKey, forHTTPHeaderField: "x-api-key")
             }
             urlRequest.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
             urlRequest.httpBody = try buildAnthropicRequestBody(
@@ -313,8 +339,8 @@ final class LLMService: @unchecked Sendable {
                 maximumResponseTokens: request.maximumResponseTokens
             )
         case .lmStudio:
-            if !request.settings.apiKey.isEmpty {
-                urlRequest.setValue("Bearer \(request.settings.apiKey)", forHTTPHeaderField: "Authorization")
+            if !apiKey.isEmpty {
+                urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
             }
         case .appleIntelligence:
             throw LLMServiceError.invalidRemoteConfiguration
@@ -336,7 +362,7 @@ final class LLMService: @unchecked Sendable {
             throw LLMServiceError.invalidHTTPResponse
         }
 
-        let rawBody = String(decoding: requestResult.data, as: UTF8.self)
+        let rawBody = CredentialSanitizer.sanitizeForError(String(decoding: requestResult.data, as: UTF8.self))
         guard (200..<300).contains(httpResponse.statusCode) else {
             throw LLMServiceError.httpError(statusCode: httpResponse.statusCode, body: rawBody)
         }
@@ -398,6 +424,16 @@ final class LLMService: @unchecked Sendable {
         case .appleIntelligence:
             throw LLMServiceError.invalidRemoteConfiguration
         }
+    }
+
+    private func resolvedAPIKey(for request: LLMServiceRequest) -> String {
+        guard request.settings.apiKey.isEmpty else {
+            return request.settings.apiKey
+        }
+        guard let account = request.keychainAccount else {
+            return ""
+        }
+        return credentialProvider.apiKey(for: account)
     }
 
     private func performLMStudioRequest(

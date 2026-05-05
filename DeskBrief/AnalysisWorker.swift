@@ -171,6 +171,7 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
                     imageData: requestImageData,
                     maximumResponseTokens: 300,
                     timeoutInterval: 120,
+                    keychainAccount: AppDefaults.apiKeyAccount,
                     appleUseCase: .general,
                     appleSchema: nil
                 )

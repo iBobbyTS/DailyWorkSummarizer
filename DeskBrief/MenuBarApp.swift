@@ -113,6 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             let userDefaults = launchConfiguration.userDefaultsSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
             let settingsStore = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain, logStore: logStore)
             let notificationService = SystemAppNotificationService(logStore: logStore)
+            let credentialProvider: CredentialProviding = KeychainCredentialProvider(keychain: keychain)
 
             self.database = database
             self.settingsStore = settingsStore
@@ -122,7 +123,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 database: database,
                 settingsStore: settingsStore,
                 logStore: logStore,
-                notificationSender: notificationService
+                notificationSender: notificationService,
+                credentialProvider: credentialProvider
             )
             self.dailyReportSummaryService = dailyReportSummaryService
             self.analysisService = AnalysisService(
@@ -130,7 +132,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 settingsStore: settingsStore,
                 logStore: logStore,
                 dailyReportSummaryService: dailyReportSummaryService,
-                notificationSender: notificationService
+                notificationSender: notificationService,
+                credentialProvider: credentialProvider
             )
             self.reportsViewModel = ReportsViewModel(
                 database: database,

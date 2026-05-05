@@ -99,8 +99,8 @@ final class AppLogStore: ObservableObject {
     private static func describe(_ error: Error) -> String {
         let described = String(describing: error).trimmingCharacters(in: .whitespacesAndNewlines)
         if !described.isEmpty {
-            return described
+            return CredentialSanitizer.sanitize(described)
         }
-        return error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        return CredentialSanitizer.sanitize(error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }

@@ -32,6 +32,7 @@ final class AnalysisService {
     private let llmService: LLMService
     private let analysisWorker: AnalysisWorker
     private let notificationSender: AppNotificationSending
+    private let credentialProvider: CredentialProviding
 
     init(
         database: AppDatabase,
@@ -40,7 +41,8 @@ final class AnalysisService {
         dailyReportSummaryService: DailyReportSummaryService,
         session: URLSession? = nil,
         runCoordinator: AppRunCoordinator? = nil,
-        notificationSender: AppNotificationSending? = nil
+        notificationSender: AppNotificationSending? = nil,
+        credentialProvider: CredentialProviding? = nil
     ) {
         self.database = database
         self.settingsStore = settingsStore
@@ -48,12 +50,13 @@ final class AnalysisService {
         self.dailyReportSummaryService = dailyReportSummaryService
         self.runCoordinator = runCoordinator ?? dailyReportSummaryService.runCoordinator
         self.notificationSender = notificationSender ?? NoOpAppNotificationService()
+        self.credentialProvider = credentialProvider ?? NoOpCredentialProvider()
 
         let resolvedSession = session ?? Self.makeIsolatedSession()
-        self.llmService = LLMService(session: resolvedSession)
+        self.llmService = LLMService(session: resolvedSession, credentialProvider: self.credentialProvider)
         self.analysisWorker = AnalysisWorker(llmService: self.llmService)
 
-        let lmStudioLifecycle = LMStudioModelLifecycle(session: resolvedSession) { [weak settingsStore, weak logStore] chinese, english in
+        let lmStudioLifecycle = LMStudioModelLifecycle(session: resolvedSession, credentialProvider: credentialProvider) { [weak settingsStore, weak logStore] chinese, english in
             Task { @MainActor in
                 guard let logStore else { return }
                 let language = settingsStore?.appLanguage ?? .current
@@ -167,7 +170,7 @@ final class AnalysisService {
             language: snapshot.appLanguage
         )
         var loadedModel: LMStudioLoadedModel?
-        let lmStudioLifecycleForTest = LMStudioModelLifecycle(session: Self.makeIsolatedSession())
+        let lmStudioLifecycleForTest = LMStudioModelLifecycle(session: Self.makeIsolatedSession(), credentialProvider: credentialProvider)
         do {
             loadedModel = try await loadScreenshotAnalysisModelIfNeeded(
                 for: snapshot.screenshotAnalysisModelProfile,

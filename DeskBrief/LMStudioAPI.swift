@@ -73,14 +73,24 @@ final class LMStudioModelLifecycle {
     typealias LogHandler = (String, String) -> Void
 
     private let session: URLSession
+    private let credentialProvider: CredentialProviding
     private let log: LogHandler
 
     init(
         session: URLSession,
+        credentialProvider: CredentialProviding? = nil,
         log: @escaping LogHandler = { _, _ in }
     ) {
         self.session = session
+        self.credentialProvider = credentialProvider ?? NoOpCredentialProvider()
         self.log = log
+    }
+
+    private func resolvedAPIKey(for settings: ModelProfileSettings) -> String {
+        guard settings.apiKey.isEmpty else {
+            return settings.apiKey
+        }
+        return credentialProvider.apiKey(for: AppDefaults.apiKeyAccount)
     }
 
     func load(settings: ModelProfileSettings) async throws -> LMStudioLoadedModel {
@@ -90,7 +100,7 @@ final class LMStudioModelLifecycle {
         }
 
         let loadURL = modelsURL.appendingPathComponent("load")
-        var request = makeJSONRequest(url: loadURL, method: "POST", apiKey: settings.apiKey)
+        var request = makeJSONRequest(url: loadURL, method: "POST", apiKey: resolvedAPIKey(for: settings))
         request.httpBody = try LMStudioAPI.buildLoadRequestBody(
             modelName: settings.modelName,
             contextLength: settings.lmStudioContextLength
@@ -109,14 +119,14 @@ final class LMStudioModelLifecycle {
             throw LMStudioModelLifecycleError.invalidHTTPResponse
         }
 
-        let responseBody = String(decoding: result.data, as: UTF8.self)
+        let rawBody = CredentialSanitizer.sanitizeForError(String(decoding: result.data, as: UTF8.self))
         guard (200..<300).contains(response.statusCode) else {
-            let body = Self.truncatedDebugText(responseBody)
+            let body = Self.truncatedDebugText(rawBody)
             record(
                 chinese: "LM Studio load 返回 \(response.statusCode)，响应：\(body)",
                 english: "LM Studio load returned \(response.statusCode). Body: \(body)"
             )
-            throw LMStudioModelLifecycleError.httpError(statusCode: response.statusCode, body: responseBody)
+            throw LMStudioModelLifecycleError.httpError(statusCode: response.statusCode, body: rawBody)
         }
 
         guard let instanceID = LMStudioAPI.parseLoadResponseInstanceID(from: result.data) else {
@@ -148,7 +158,7 @@ final class LMStudioModelLifecycle {
         }
 
         let unloadURL = modelsURL.appendingPathComponent("unload")
-        var request = makeJSONRequest(url: unloadURL, method: "POST", apiKey: settings.apiKey)
+        var request = makeJSONRequest(url: unloadURL, method: "POST", apiKey: resolvedAPIKey(for: settings))
         request.httpBody = try JSONSerialization.data(withJSONObject: ["instance_id": resolvedInstanceID])
         record(
             chinese: "开始请求 LM Studio /api/v1/models/unload，instance_id=\(resolvedInstanceID)。",
@@ -164,14 +174,14 @@ final class LMStudioModelLifecycle {
             throw LMStudioModelLifecycleError.invalidHTTPResponse
         }
 
-        let responseBody = String(decoding: result.data, as: UTF8.self)
+        let rawBodyUnload = CredentialSanitizer.sanitizeForError(String(decoding: result.data, as: UTF8.self))
         guard (200..<300).contains(response.statusCode) else {
-            let body = Self.truncatedDebugText(responseBody)
+            let body = Self.truncatedDebugText(rawBodyUnload)
             record(
                 chinese: "LM Studio unload 返回 \(response.statusCode)，响应：\(body)",
                 english: "LM Studio unload returned \(response.statusCode). Body: \(body)"
             )
-            throw LMStudioModelLifecycleError.httpError(statusCode: response.statusCode, body: responseBody)
+            throw LMStudioModelLifecycleError.httpError(statusCode: response.statusCode, body: rawBodyUnload)
         }
 
         record(
@@ -185,7 +195,7 @@ final class LMStudioModelLifecycle {
             chinese: "开始请求 LM Studio /api/v1/models，用于匹配待卸载实例。",
             english: "Requesting LM Studio /api/v1/models to match the instance to unload."
         )
-        let request = makeJSONRequest(url: modelsURL, method: "GET", apiKey: settings.apiKey)
+        let request = makeJSONRequest(url: modelsURL, method: "GET", apiKey: resolvedAPIKey(for: settings))
         let result = try await performDataRequest(for: request)
         guard let response = result.response as? HTTPURLResponse else {
             record(
@@ -195,14 +205,14 @@ final class LMStudioModelLifecycle {
             throw LMStudioModelLifecycleError.invalidHTTPResponse
         }
 
-        let responseBody = String(decoding: result.data, as: UTF8.self)
+        let rawBodyModels = CredentialSanitizer.sanitizeForError(String(decoding: result.data, as: UTF8.self))
         guard (200..<300).contains(response.statusCode) else {
-            let body = Self.truncatedDebugText(responseBody)
+            let body = Self.truncatedDebugText(rawBodyModels)
             record(
                 chinese: "LM Studio /api/v1/models 返回 \(response.statusCode)，响应：\(body)",
                 english: "LM Studio /api/v1/models returned \(response.statusCode). Body: \(body)"
             )
-            throw LMStudioModelLifecycleError.httpError(statusCode: response.statusCode, body: responseBody)
+            throw LMStudioModelLifecycleError.httpError(statusCode: response.statusCode, body: rawBodyModels)
         }
 
         let modelsCount = LMStudioAPI.modelsCount(from: result.data) ?? 0

@@ -128,7 +128,8 @@ final class DailyReportSummaryService {
         logStore: AppLogStore? = nil,
         session: URLSession? = nil,
         runCoordinator: AppRunCoordinator? = nil,
-        notificationSender: AppNotificationSending? = nil
+        notificationSender: AppNotificationSending? = nil,
+        credentialProvider: CredentialProviding? = nil
     ) {
         self.database = database
         self.settingsStore = settingsStore
@@ -136,8 +137,8 @@ final class DailyReportSummaryService {
         self.notificationSender = notificationSender ?? NoOpAppNotificationService()
         self.runCoordinator = runCoordinator ?? AppRunCoordinator()
         let resolvedSession = session ?? Self.makeSession()
-        self.llmService = LLMService(session: resolvedSession)
-        self.lmStudioLifecycle = LMStudioModelLifecycle(session: resolvedSession) { [weak settingsStore, weak logStore] chinese, english in
+        self.llmService = LLMService(session: resolvedSession, credentialProvider: credentialProvider)
+        self.lmStudioLifecycle = LMStudioModelLifecycle(session: resolvedSession, credentialProvider: credentialProvider) { [weak settingsStore, weak logStore] chinese, english in
             Task { @MainActor in
                 guard let logStore else { return }
                 let language = settingsStore?.appLanguage ?? .current
@@ -1236,6 +1237,7 @@ final class DailyReportSummaryService {
                     imageData: nil,
                     maximumResponseTokens: 900,
                     timeoutInterval: 120,
+                    keychainAccount: AppDefaults.workContentSummaryAPIKeyAccount,
                     // Apple Intelligence text summarization uses the general model use case.
                     appleUseCase: .general,
                     appleSchema: nil
