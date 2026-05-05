@@ -661,18 +661,22 @@ final class DailyReportSummaryService {
             let outputMax: Int? = summaryRunTokenOutputValues.max()
 
             if let sid = currentSummaryRunID {
-                try? database.finishSummaryRun(
-                    id: sid,
-                    status: result.hasFailures ? (totalSuccess > 0 ? "partial_failed" : "failed") : "succeeded",
-                    successCount: totalSuccess,
-                    failureCount: totalFailures,
-                    inputMeanTokens: inputMean,
-                    inputMaxTokens: inputMax,
-                    outputMeanTokens: outputMean,
-                    outputMaxTokens: outputMax,
-                    averageItemDurationSeconds: totalCount > 0 ? elapsedSeconds / Double(totalCount) : nil,
-                    errorMessage: result.hasFailures ? "部分总结失败" : nil
-                )
+                do {
+                    try database.finishSummaryRun(
+                        id: sid,
+                        status: result.hasFailures ? (totalSuccess > 0 ? "partial_failed" : "failed") : "succeeded",
+                        successCount: totalSuccess,
+                        failureCount: totalFailures,
+                        inputMeanTokens: inputMean,
+                        inputMaxTokens: inputMax,
+                        outputMeanTokens: outputMean,
+                        outputMaxTokens: outputMax,
+                        averageItemDurationSeconds: totalCount > 0 ? elapsedSeconds / Double(totalCount) : nil,
+                        errorMessage: result.hasFailures ? "部分总结失败" : nil
+                    )
+                } catch {
+                    logStore?.addError(source: .summary, context: "Failed to finish summary run \(sid)", error: error)
+                }
             }
             currentSummaryRunID = nil
 
@@ -680,14 +684,18 @@ final class DailyReportSummaryService {
         } catch {
             let elapsedSeconds = Date().timeIntervalSince(runStartTime)
             if let sid = currentSummaryRunID {
-                try? database.finishSummaryRun(
-                    id: sid,
-                    status: "failed",
-                    successCount: 0,
-                    failureCount: totalCount,
-                    averageItemDurationSeconds: totalCount > 0 ? elapsedSeconds / Double(totalCount) : nil,
-                    errorMessage: error.localizedDescription
-                )
+                do {
+                    try database.finishSummaryRun(
+                        id: sid,
+                        status: "failed",
+                        successCount: 0,
+                        failureCount: totalCount,
+                        averageItemDurationSeconds: totalCount > 0 ? elapsedSeconds / Double(totalCount) : nil,
+                        errorMessage: error.localizedDescription
+                    )
+                } catch {
+                    logStore?.addError(source: .summary, context: "Failed to finish summary run \(sid)", error: error)
+                }
             }
             currentSummaryRunID = nil
             throw error
