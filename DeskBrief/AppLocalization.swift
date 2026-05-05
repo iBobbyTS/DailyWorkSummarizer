@@ -267,6 +267,8 @@ nonisolated enum L10n {
         case screenshotCommandFailed
         case notificationAnalysisCompleteTitle
         case notificationAnalysisFailedTitle
+        case notificationMemoryInsufficientTitle
+        case notificationMemoryInsufficientBody
         case notificationBackfillCompleteTitle
         case notificationBackfillFailedTitle
         case notificationRealtimeBacklogTitle
@@ -533,6 +535,8 @@ nonisolated enum L10n {
             .screenshotCommandFailed: "系统 screencapture 命令执行失败",
             .notificationAnalysisCompleteTitle: "分析完成",
             .notificationAnalysisFailedTitle: "分析失败",
+            .notificationMemoryInsufficientTitle: "内存不足",
+            .notificationMemoryInsufficientBody: "取消执行%@，当前可用内存%@GiB，少于设置的%@GiB下限",
             .notificationBackfillCompleteTitle: "补漏完成",
             .notificationBackfillFailedTitle: "补漏失败",
             .notificationRealtimeBacklogTitle: "实时分析可能在积压",
@@ -797,6 +801,8 @@ nonisolated enum L10n {
             .screenshotCommandFailed: "The system screencapture command failed",
             .notificationAnalysisCompleteTitle: "Analysis Complete",
             .notificationAnalysisFailedTitle: "Analysis Failed",
+            .notificationMemoryInsufficientTitle: "Insufficient Memory",
+            .notificationMemoryInsufficientBody: "Cancelled %@: current available memory %@GiB is below the %@GiB threshold",
             .notificationBackfillCompleteTitle: "Backfill Complete",
             .notificationBackfillFailedTitle: "Backfill Failed",
             .notificationRealtimeBacklogTitle: "Realtime Analysis May Be Backlogged",

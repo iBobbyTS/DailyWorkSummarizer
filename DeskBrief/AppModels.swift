@@ -425,6 +425,29 @@ nonisolated struct ModelProfileSettings: Equatable {
     }
 }
 
+enum ModelMemoryError: LocalizedError {
+    case insufficientMemory(thresholdGB: Double, availableGB: Double)
+
+    var thresholdGB: Double {
+        switch self {
+        case .insufficientMemory(let threshold, _): return threshold
+        }
+    }
+
+    var availableGB: Double {
+        switch self {
+        case .insufficientMemory(_, let available): return available
+        }
+    }
+
+    var errorDescription: String? {
+        switch self {
+        case .insufficientMemory(let threshold, let available):
+            return "可用内存不足：已要求 \(String(format: "%.0f", threshold)) GiB，当前可用 \(String(format: "%.1f", available)) GiB"
+        }
+    }
+}
+
 nonisolated struct AppSettingsSnapshot {
     let screenshotIntervalMinutes: Int
     let analysisTimeMinutes: Int

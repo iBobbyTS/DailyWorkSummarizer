@@ -385,9 +385,24 @@ final class DailyReportSummaryService {
                 didCancel = true
                 break
             } catch {
-                recordSummaryError(error, context: "Failed to run summary request")
+                let memoryError = error as? ModelMemoryError
+                if memoryError == nil {
+                    recordSummaryError(error, context: "Failed to run summary request")
+                }
                 resumeWaiters(in: requestToRun, error: error)
-                await sendFailureNotificationsIfNeeded(for: requestToRun)
+                if let memoryError {
+                    let language = settingsStore.appLanguage
+                    await notificationSender.send(
+                        AppNotificationMessageBuilder.modelMemoryInsufficient(
+                            runTypeName: L10n.string(.settingsTabWorkContentSummary, language: language),
+                            thresholdGB: memoryError.thresholdGB,
+                            availableGB: memoryError.availableGB,
+                            language: language
+                        )
+                    )
+                } else {
+                    await sendFailureNotificationsIfNeeded(for: requestToRun)
+                }
             }
 
             guard let nextRequest = takePendingMergedSummaryRequest() else {
@@ -1038,11 +1053,11 @@ final class DailyReportSummaryService {
             if settings.memoryCheckEnabled,
                settings.isLocalBaseURL,
                !SystemMemoryInfo.isAboveThreshold(thresholdGB: settings.memoryThresholdGB) {
-                logStore?.add(
-                    level: .log, source: .lmStudio,
-                    message: "Skipping summary model load: available memory below threshold \(settings.memoryThresholdGB) GB"
+                let available = SystemMemoryInfo.currentAvailableGB ?? 0
+                throw ModelMemoryError.insufficientMemory(
+                    thresholdGB: settings.memoryThresholdGB,
+                    availableGB: available
                 )
-                return try await operation()
             }
 
             if !runtimeState.isStopping {

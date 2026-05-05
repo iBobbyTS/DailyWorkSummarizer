@@ -306,6 +306,26 @@ nonisolated enum AppNotificationMessageBuilder {
         )
     }
 
+    static func modelMemoryInsufficient(
+        runTypeName: String,
+        thresholdGB: Double,
+        availableGB: Double,
+        language: AppLanguage
+    ) -> AppNotificationMessage {
+        AppNotificationMessage(
+            title: L10n.string(.notificationMemoryInsufficientTitle, language: language),
+            body: L10n.string(
+                .notificationMemoryInsufficientBody,
+                language: language,
+                arguments: [
+                    runTypeName,
+                    String(format: "%.1f", availableGB),
+                    String(format: "%.0f", thresholdGB),
+                ]
+            )
+        )
+    }
+
     private static func dailyReportDescription(
         for dayStarts: [Date],
         language: AppLanguage

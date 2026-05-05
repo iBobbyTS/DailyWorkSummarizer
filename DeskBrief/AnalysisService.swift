@@ -546,7 +546,8 @@ final class AnalysisService {
         do {
             loadedAnalysisModel = try await loadScreenshotAnalysisModelIfNeeded(for: snapshot.screenshotAnalysisModelProfile)
         } catch {
-            if Self.shouldRecordRuntimeError(error) {
+            let memoryError = error as? ModelMemoryError
+            if memoryError == nil, Self.shouldRecordRuntimeError(error) {
                 logStore.addError(source: .analysis, context: "Failed to load screenshot analysis model", error: error)
             }
             finishAnalysisRun(
@@ -557,7 +558,18 @@ final class AnalysisService {
                 errorMessage: error.localizedDescription
             )
             run.failureCount = run.totalCount
-            await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
+            if let memoryError {
+                await notificationSender.send(
+                    AppNotificationMessageBuilder.modelMemoryInsufficient(
+                        runTypeName: L10n.string(.settingsTabScreenshotAnalysis, language: snapshot.appLanguage),
+                        thresholdGB: memoryError.thresholdGB,
+                        availableGB: memoryError.availableGB,
+                        language: snapshot.appLanguage
+                    )
+                )
+            } else {
+                await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
+            }
             return
         }
 
@@ -807,11 +819,11 @@ final class AnalysisService {
         if settings.memoryCheckEnabled,
            settings.isLocalBaseURL,
            !SystemMemoryInfo.isAboveThreshold(thresholdGB: settings.memoryThresholdGB) {
-            logStore.add(
-                level: .log, source: .lmStudio,
-                message: "Skipping screenshot analysis model load: available memory below threshold \(settings.memoryThresholdGB) GB"
+            let available = SystemMemoryInfo.currentAvailableGB ?? 0
+            throw ModelMemoryError.insufficientMemory(
+                thresholdGB: settings.memoryThresholdGB,
+                availableGB: available
             )
-            return nil
         }
 
         if runtimeState.isRunning, !runtimeState.isStopping {
