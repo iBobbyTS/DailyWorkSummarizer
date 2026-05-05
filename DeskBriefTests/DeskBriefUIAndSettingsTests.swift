@@ -205,19 +205,19 @@ extension DeskBriefTests {
         #expect(L10n.string(.appName, language: .simplifiedChinese) == "工迹")
         #expect(L10n.string(.appName, language: .english) == "DeskBrief")
         #expect(
-            L10n.string(.settingsModelLMStudioAutoLoadUnloadModel, language: .simplifiedChinese)
+            L10n.string(.settingsModelLMStudioExplicitLoadUnloadModel, language: .simplifiedChinese)
                 == "主动装卸载模型"
         )
         #expect(
-            L10n.string(.settingsModelLMStudioAutoLoadUnloadModelHelp, language: .simplifiedChinese)
+            L10n.string(.settingsModelLMStudioExplicitLoadUnloadModelHelp, language: .simplifiedChinese)
                 == "App会在开始分析前后主动加载和卸载模型，如果使用的模型是始终保持在后台的，请关闭这个选项"
         )
         #expect(
-            L10n.string(.settingsModelLMStudioAutoLoadUnloadModel, language: .english)
-                == "Auto load/unload model"
+            L10n.string(.settingsModelLMStudioExplicitLoadUnloadModel, language: .english)
+                == "Explicitly load/unload model"
         )
         #expect(
-            L10n.string(.settingsModelLMStudioAutoLoadUnloadModelHelp, language: .english)
+            L10n.string(.settingsModelLMStudioExplicitLoadUnloadModelHelp, language: .english)
                 == "The app will proactively load and unload the model before and after analysis. If the model stays loaded in the background, turn this off."
         )
         #expect(L10n.string(.menuForceUnloadScreenshotAnalysisModel, language: .simplifiedChinese) == "强制卸载截屏分析模型")
@@ -492,7 +492,7 @@ extension DeskBriefTests {
         store.provider = .lmStudio
         store.apiBaseURL = "http://127.0.0.1:1234"
         store.modelName = "analysis-model"
-        store.screenshotAnalysisLMStudioAutoLoadUnloadModel = false
+        store.screenshotAnalysisLMStudioExplicitLoadUnloadModel = false
         store.imageAnalysisMethod = .multimodal
 
         let session = makeMockSession { request in

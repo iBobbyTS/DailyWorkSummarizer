@@ -1027,7 +1027,7 @@ final class DailyReportSummaryService {
         operation: () async throws -> T
     ) async throws -> T {
         guard settings.provider == .lmStudio,
-              settings.automaticallyLoadAndUnloadModel else {
+              settings.explicitLoadUnloadModel else {
             return try await operation()
         }
 

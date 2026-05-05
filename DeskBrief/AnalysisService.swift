@@ -575,7 +575,7 @@ final class AnalysisService {
 
         func recordLMStudioCancellationObservationIfNeeded() {
             guard snapshot.screenshotAnalysisModelProfile.provider == .lmStudio,
-                  snapshot.screenshotAnalysisModelProfile.automaticallyLoadAndUnloadModel,
+                  snapshot.screenshotAnalysisModelProfile.explicitLoadUnloadModel,
                   !run.didLogLMStudioCancellationObservation else { return }
             run.didLogLMStudioCancellationObservation = true
             recordLMStudioLog(
@@ -716,7 +716,7 @@ final class AnalysisService {
             )
             if let unloadingStage = Self.stoppingStageAfterGenerationStops(
                 for: snapshot.screenshotAnalysisModelProfile.provider,
-                lifecycleEnabled: snapshot.screenshotAnalysisModelProfile.automaticallyLoadAndUnloadModel
+                lifecycleEnabled: snapshot.screenshotAnalysisModelProfile.explicitLoadUnloadModel
             ) {
                 updateRuntimeState(
                     startedAt: run.startedAt,
@@ -808,7 +808,7 @@ final class AnalysisService {
 
     private func loadScreenshotAnalysisModelIfNeeded(for settings: ModelProfileSettings) async throws -> LMStudioLoadedModel? {
         guard settings.provider == .lmStudio,
-              settings.automaticallyLoadAndUnloadModel else {
+              settings.explicitLoadUnloadModel else {
             return nil
         }
 
@@ -856,8 +856,8 @@ final class AnalysisService {
         let analysisSettings = snapshot.screenshotAnalysisModelProfile
         let summarySettings = snapshot.workContentSummaryModelProfile
 
-        let analysisLifecycleEnabled = analysisSettings.provider == .lmStudio && analysisSettings.automaticallyLoadAndUnloadModel
-        let summaryLifecycleEnabled = summarySettings.provider == .lmStudio && summarySettings.automaticallyLoadAndUnloadModel
+        let analysisLifecycleEnabled = analysisSettings.provider == .lmStudio && analysisSettings.explicitLoadUnloadModel
+        let summaryLifecycleEnabled = summarySettings.provider == .lmStudio && summarySettings.explicitLoadUnloadModel
         let equivalentLoadConfiguration = LMStudioAPI.hasEquivalentLoadConfiguration(analysisSettings, summarySettings)
         let canReuseAnalysisModel = analysisLifecycleEnabled
             && summarySettings.provider == .lmStudio
@@ -1124,7 +1124,7 @@ final class AnalysisService {
         cancelActiveRequest: Bool
     ) async {
         if settings.provider == .lmStudio,
-           settings.automaticallyLoadAndUnloadModel {
+           settings.explicitLoadUnloadModel {
             let lastInstanceID = lastLMStudioModelInstanceID ?? "未记录"
             recordLMStudioLog(
                 chinese: "进入 LM Studio 清理阶段，Task.isCancelled=\(Task.isCancelled)，最近一次 chat 的 model_instance_id=\(lastInstanceID)。",
@@ -1143,7 +1143,7 @@ final class AnalysisService {
         }
 
         guard settings.provider == .lmStudio,
-              settings.automaticallyLoadAndUnloadModel else {
+              settings.explicitLoadUnloadModel else {
             return
         }
 

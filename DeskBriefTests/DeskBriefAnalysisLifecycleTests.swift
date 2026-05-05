@@ -1404,7 +1404,7 @@ extension DeskBriefTests {
         store.workContentSummaryAPIBaseURL = "http://127.0.0.1:1234"
         store.workContentSummaryModelName = "summary-model"
         store.workContentSummaryLMStudioContextLength = 12_000
-        store.workContentSummaryLMStudioAutoLoadUnloadModel = false
+        store.workContentSummaryLMStudioExplicitLoadUnloadModel = false
 
         let session = makeMockSession { request in
             try lmStudioLifecycleTestResponse(for: request)
@@ -1675,7 +1675,7 @@ extension DeskBriefTests {
         store.workContentSummaryAPIBaseURL = "http://127.0.0.1:1234"
         store.workContentSummaryModelName = "summary-model"
         store.workContentSummaryLMStudioContextLength = 12_000
-        store.workContentSummaryLMStudioAutoLoadUnloadModel = lifecycleEnabled
+        store.workContentSummaryLMStudioExplicitLoadUnloadModel = lifecycleEnabled
 
         _ = try makeAnalysisRun(database: database)
         try database.insertAnalysisResult(
@@ -1760,7 +1760,7 @@ extension DeskBriefTests {
         store.apiBaseURL = analysisProvider == .lmStudio ? "http://127.0.0.1:1234" : "https://analysis.example.com"
         store.modelName = "analysis-model"
         store.lmStudioContextLength = 6000
-        store.screenshotAnalysisLMStudioAutoLoadUnloadModel = analysisLifecycleEnabled
+        store.screenshotAnalysisLMStudioExplicitLoadUnloadModel = analysisLifecycleEnabled
         store.imageAnalysisMethod = .multimodal
         store.analysisStartupMode = .manual
 
@@ -1770,7 +1770,7 @@ extension DeskBriefTests {
             : "https://summary.example.com"
         store.workContentSummaryModelName = summaryMatchesAnalysis ? "analysis-model" : "summary-model"
         store.workContentSummaryLMStudioContextLength = summaryMatchesAnalysis ? 6000 : 12000
-        store.workContentSummaryLMStudioAutoLoadUnloadModel = summaryLifecycleEnabled
+        store.workContentSummaryLMStudioExplicitLoadUnloadModel = summaryLifecycleEnabled
 
         _ = try makeAnalysisRun(database: database)
         try database.insertAnalysisResult(

@@ -107,7 +107,7 @@ extension DeskBriefTests {
         store.modelName = "claude-screenshot"
         store.apiKey = "screenshot-key"
         store.lmStudioContextLength = 8192
-        store.screenshotAnalysisLMStudioAutoLoadUnloadModel = false
+        store.screenshotAnalysisLMStudioExplicitLoadUnloadModel = false
         store.imageAnalysisMethod = .multimodal
         store.copyScreenshotAnalysisModelToWorkContentSummary()
 
@@ -115,14 +115,14 @@ extension DeskBriefTests {
         #expect(store.workContentSummaryAPIBaseURL == "https://screenshot.example.com")
         #expect(store.workContentSummaryModelName == "claude-screenshot")
         #expect(store.workContentSummaryAPIKey == "screenshot-key")
-        #expect(!store.workContentSummaryLMStudioAutoLoadUnloadModel)
+        #expect(!store.workContentSummaryLMStudioExplicitLoadUnloadModel)
 
         store.workContentSummaryProvider = .lmStudio
         store.workContentSummaryAPIBaseURL = "http://127.0.0.1:1234"
         store.workContentSummaryModelName = "work-content-model"
         store.workContentSummaryAPIKey = "work-content-key"
         store.workContentSummaryLMStudioContextLength = 12000
-        store.workContentSummaryLMStudioAutoLoadUnloadModel = true
+        store.workContentSummaryLMStudioExplicitLoadUnloadModel = true
         store.imageAnalysisMethod = .multimodal
 
         store.copyWorkContentSummaryModelToScreenshotAnalysis()
@@ -132,7 +132,7 @@ extension DeskBriefTests {
         #expect(store.modelName == "work-content-model")
         #expect(store.apiKey == "work-content-key")
         #expect(store.lmStudioContextLength == 12000)
-        #expect(store.screenshotAnalysisLMStudioAutoLoadUnloadModel)
+        #expect(store.screenshotAnalysisLMStudioExplicitLoadUnloadModel)
         #expect(store.imageAnalysisMethod == .multimodal)
     }
 
@@ -153,18 +153,18 @@ extension DeskBriefTests {
         let database = try AppDatabase(databaseURL: databaseURL)
         let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
 
-        #expect(store.screenshotAnalysisLMStudioAutoLoadUnloadModel == AppDefaults.lmStudioAutoLoadUnloadModel)
-        #expect(store.workContentSummaryLMStudioAutoLoadUnloadModel == AppDefaults.lmStudioAutoLoadUnloadModel)
+        #expect(store.screenshotAnalysisLMStudioExplicitLoadUnloadModel == AppDefaults.lmStudioExplicitLoadUnloadModel)
+        #expect(store.workContentSummaryLMStudioExplicitLoadUnloadModel == AppDefaults.lmStudioExplicitLoadUnloadModel)
 
-        store.screenshotAnalysisLMStudioAutoLoadUnloadModel = false
-        store.workContentSummaryLMStudioAutoLoadUnloadModel = false
+        store.screenshotAnalysisLMStudioExplicitLoadUnloadModel = false
+        store.workContentSummaryLMStudioExplicitLoadUnloadModel = false
 
         let reloadedStore = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
 
-        #expect(!reloadedStore.screenshotAnalysisLMStudioAutoLoadUnloadModel)
-        #expect(!reloadedStore.workContentSummaryLMStudioAutoLoadUnloadModel)
-        #expect(!reloadedStore.snapshot.screenshotAnalysisModelProfile.automaticallyLoadAndUnloadModel)
-        #expect(!reloadedStore.snapshot.workContentSummaryModelProfile.automaticallyLoadAndUnloadModel)
+        #expect(!reloadedStore.screenshotAnalysisLMStudioExplicitLoadUnloadModel)
+        #expect(!reloadedStore.workContentSummaryLMStudioExplicitLoadUnloadModel)
+        #expect(!reloadedStore.snapshot.screenshotAnalysisModelProfile.explicitLoadUnloadModel)
+        #expect(!reloadedStore.snapshot.workContentSummaryModelProfile.explicitLoadUnloadModel)
     }
 
     @MainActor

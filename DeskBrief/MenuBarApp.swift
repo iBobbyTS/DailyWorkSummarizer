@@ -578,7 +578,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             await waitForCurrentWorkToStop()
         }
 
-        if !profile.automaticallyLoadAndUnloadModel {
+        if !profile.explicitLoadUnloadModel {
             let appName = text(.appName, language: language)
             guard confirmForceUnloadWhenLifecycleDisabled(appName: appName, language: language) else {
                 return

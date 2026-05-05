@@ -137,9 +137,9 @@ struct SettingsView: View {
                         get: { settingsStore.lmStudioContextLength },
                         set: { settingsStore.lmStudioContextLength = $0 }
                     ),
-                    lmStudioAutoLoadUnloadModel: Binding(
-                        get: { settingsStore.screenshotAnalysisLMStudioAutoLoadUnloadModel },
-                        set: { settingsStore.screenshotAnalysisLMStudioAutoLoadUnloadModel = $0 }
+                    lmStudioExplicitLoadUnloadModel: Binding(
+                        get: { settingsStore.screenshotAnalysisLMStudioExplicitLoadUnloadModel },
+                        set: { settingsStore.screenshotAnalysisLMStudioExplicitLoadUnloadModel = $0 }
                     ),
                     memoryCheckEnabled: Binding(
                         get: { settingsStore.screenshotAnalysisMemoryCheckEnabled },
@@ -183,9 +183,9 @@ struct SettingsView: View {
                         get: { settingsStore.workContentSummaryLMStudioContextLength },
                         set: { settingsStore.workContentSummaryLMStudioContextLength = $0 }
                     ),
-                    lmStudioAutoLoadUnloadModel: Binding(
-                        get: { settingsStore.workContentSummaryLMStudioAutoLoadUnloadModel },
-                        set: { settingsStore.workContentSummaryLMStudioAutoLoadUnloadModel = $0 }
+                    lmStudioExplicitLoadUnloadModel: Binding(
+                        get: { settingsStore.workContentSummaryLMStudioExplicitLoadUnloadModel },
+                        set: { settingsStore.workContentSummaryLMStudioExplicitLoadUnloadModel = $0 }
                     ),
                     memoryCheckEnabled: Binding(
                         get: { settingsStore.workContentSummaryMemoryCheckEnabled },
@@ -398,7 +398,7 @@ struct SettingsView: View {
         modelName: Binding<String>,
         apiKey: Binding<String>,
         lmStudioContextLength: Binding<Int>,
-        lmStudioAutoLoadUnloadModel: Binding<Bool>,
+        lmStudioExplicitLoadUnloadModel: Binding<Bool>,
         memoryCheckEnabled: Binding<Bool>,
         memoryThresholdGB: Binding<Double>,
         copyButtonTitle: String,
@@ -491,13 +491,13 @@ struct SettingsView: View {
                         Divider()
 
                         modelLifecycleToggleRow(
-                            text(.settingsModelLMStudioAutoLoadUnloadModel),
-                            helpText: text(.settingsModelLMStudioAutoLoadUnloadModelHelp),
+                            text(.settingsModelLMStudioExplicitLoadUnloadModel),
+                            helpText: text(.settingsModelLMStudioExplicitLoadUnloadModelHelp),
                             tooltip: "目前仅支持LM Studio，打开后App会在截屏分析、工作内容总结前后发起加载、卸载请求。通常打开此选项配合*定时启动*，适合运行在工作电脑上；关闭此选项配合*截屏后立即启动*，适合专门的大模型电脑/服务器。",
-                            isOn: lmStudioAutoLoadUnloadModel
+                            isOn: lmStudioExplicitLoadUnloadModel
                         )
 
-                        if lmStudioAutoLoadUnloadModel.wrappedValue,
+                        if lmStudioExplicitLoadUnloadModel.wrappedValue,
                            apiBaseURL.wrappedValue.contains("127.0.0.1") || apiBaseURL.wrappedValue.contains("localhost") {
                             Divider()
 

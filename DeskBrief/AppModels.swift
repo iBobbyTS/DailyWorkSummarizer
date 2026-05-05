@@ -13,7 +13,8 @@ nonisolated enum AppDefaults {
     static let memoryCheckEnabled = false
     static let memoryThresholdGB: Double = 4.0
     static let lmStudioContextLength = 6000
-    static let lmStudioAutoLoadUnloadModel = true
+    // Explicit = app proactively loads/unloads model, instead of sending ad-hoc chat requests
+    static let lmStudioExplicitLoadUnloadModel = true
     static let maxPageSize = 31
     static let screenshotFileExtension = "jpg"
     static let apiKeyAccount = "model-api-key.screenshot-analysis"
@@ -394,7 +395,9 @@ nonisolated struct ModelProfileSettings: Equatable {
     let apiKey: String
     let lmStudioContextLength: Int
     let imageAnalysisMethod: ImageAnalysisMethod
-    let automaticallyLoadAndUnloadModel: Bool
+    // Explicit = app proactively manages model lifecycle (load/unload),
+    // rather than sending ad-hoc chat requests without lifecycle management
+    let explicitLoadUnloadModel: Bool
     let memoryCheckEnabled: Bool
     let memoryThresholdGB: Double
 
@@ -405,7 +408,8 @@ nonisolated struct ModelProfileSettings: Equatable {
         apiKey: String,
         lmStudioContextLength: Int,
         imageAnalysisMethod: ImageAnalysisMethod,
-        automaticallyLoadAndUnloadModel: Bool = AppDefaults.lmStudioAutoLoadUnloadModel,
+        // Explicit = app proactively manages model lifecycle (load/unload)
+        explicitLoadUnloadModel: Bool = AppDefaults.lmStudioExplicitLoadUnloadModel,
         memoryCheckEnabled: Bool = AppDefaults.memoryCheckEnabled,
         memoryThresholdGB: Double = AppDefaults.memoryThresholdGB
     ) {
@@ -415,7 +419,7 @@ nonisolated struct ModelProfileSettings: Equatable {
         self.apiKey = apiKey
         self.lmStudioContextLength = lmStudioContextLength
         self.imageAnalysisMethod = imageAnalysisMethod
-        self.automaticallyLoadAndUnloadModel = automaticallyLoadAndUnloadModel
+        self.explicitLoadUnloadModel = explicitLoadUnloadModel
         self.memoryCheckEnabled = memoryCheckEnabled
         self.memoryThresholdGB = memoryThresholdGB
     }
