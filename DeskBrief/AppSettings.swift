@@ -277,22 +277,6 @@ final class SettingsStore: ObservableObject {
         let savedAPIKey = keychain.string(for: AppDefaults.apiKeyAccount)
         let savedLMStudioContextLength = userDefaults.object(forKey: Keys.lmStudioContextLength) as? Int ?? AppDefaults.lmStudioContextLength
 
-        // Migration from legacy "AutoLoadUnload" keys
-        let legacyScreenshotKey = "settings.screenshotAnalysis.lmStudioAutoLoadUnloadModel"
-        let legacyWorkContentSummaryKey = "settings.workContentSummary.lmStudioAutoLoadUnloadModel"
-        if userDefaults.object(forKey: legacyScreenshotKey) != nil,
-           userDefaults.object(forKey: Keys.screenshotAnalysisLMStudioExplicitLoadUnloadModel) == nil {
-            let oldValue = userDefaults.bool(forKey: legacyScreenshotKey)
-            userDefaults.set(oldValue, forKey: Keys.screenshotAnalysisLMStudioExplicitLoadUnloadModel)
-            userDefaults.removeObject(forKey: legacyScreenshotKey)
-        }
-        if userDefaults.object(forKey: legacyWorkContentSummaryKey) != nil,
-           userDefaults.object(forKey: Keys.workContentSummaryLMStudioExplicitLoadUnloadModel) == nil {
-            let oldValue = userDefaults.bool(forKey: legacyWorkContentSummaryKey)
-            userDefaults.set(oldValue, forKey: Keys.workContentSummaryLMStudioExplicitLoadUnloadModel)
-            userDefaults.removeObject(forKey: legacyWorkContentSummaryKey)
-        }
-
         let savedScreenshotAnalysisLMStudioExplicitLoadUnloadModel = userDefaults.object(forKey: Keys.screenshotAnalysisLMStudioExplicitLoadUnloadModel) as? Bool ?? AppDefaults.lmStudioExplicitLoadUnloadModel
         let savedScreenshotAnalysisMemoryCheckEnabled = userDefaults.object(forKey: Keys.screenshotAnalysisMemoryCheckEnabled) as? Bool ?? AppDefaults.memoryCheckEnabled
         let savedScreenshotAnalysisMemoryThresholdGB = userDefaults.object(forKey: Keys.screenshotAnalysisMemoryThresholdGB) as? Double ?? AppDefaults.memoryThresholdGB

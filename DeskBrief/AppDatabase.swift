@@ -1057,11 +1057,6 @@ final class AppDatabase: @unchecked Sendable {
             );
         """)
 
-        _ = try? execute("ALTER TABLE analysis_runs ADD COLUMN input_mean_tokens DOUBLE;")
-        _ = try? execute("ALTER TABLE analysis_runs ADD COLUMN input_max_tokens INTEGER;")
-        _ = try? execute("ALTER TABLE analysis_runs ADD COLUMN output_mean_tokens DOUBLE;")
-        _ = try? execute("ALTER TABLE analysis_runs ADD COLUMN output_max_tokens INTEGER;")
-
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_category_name ON analysis_results (category_name, captured_at DESC);")
         try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_results_captured_at_unique ON analysis_results (captured_at);")
         try execute("CREATE INDEX IF NOT EXISTS idx_daily_work_block_summaries_interval ON daily_work_block_summaries (start_at ASC, end_at ASC);")
@@ -1070,18 +1065,18 @@ final class AppDatabase: @unchecked Sendable {
         try execute("CREATE INDEX IF NOT EXISTS idx_app_logs_created_at ON app_logs (created_at DESC);")
     }
 
-    private func execute(_ sql: String) throws {
-        try queue.sync {
-            try executeLocked(sql)
-        }
-    }
-
     private func prepareStatement(_ sql: String) throws -> OpaquePointer? {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
             throw DatabaseError.prepareStatement(String(cString: sqlite3_errmsg(handle)))
         }
         return statement
+    }
+
+    private func execute(_ sql: String) throws {
+        try queue.sync {
+            try executeLocked(sql)
+        }
     }
 
     private func ensureTableExistsLocked(_ tableName: String) throws {
