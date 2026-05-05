@@ -286,6 +286,10 @@ nonisolated enum L10n {
         case notificationScreenshotCountSingular
         case notificationDailyReportCount
         case notificationDailyReportCountSingular
+        case memoryCheckTitle
+        case memoryTotalRam
+        case memoryAvailableRam
+        case memoryThresholdTooltip
         case menuAnalysisRuns
         case windowAnalysisRuns
         case windowAnalysisRunsEmptyTitle
@@ -548,6 +552,10 @@ nonisolated enum L10n {
             .notificationScreenshotCountSingular: "%d 张截屏",
             .notificationDailyReportCount: "%d 个日报",
             .notificationDailyReportCountSingular: "%d 个日报",
+            .memoryCheckTitle: "加载模型前进行空余内存检查",
+            .memoryTotalRam: "总内存：",
+            .memoryAvailableRam: "当前可用内存：",
+            .memoryThresholdTooltip: "系统可用内存低于此阈值时不会加载模型",
             .menuAnalysisRuns: "分析记录",
             .windowAnalysisRuns: "分析记录",
             .windowAnalysisRunsEmptyTitle: "暂无分析记录",
@@ -808,6 +816,10 @@ nonisolated enum L10n {
             .notificationScreenshotCountSingular: "%d screenshot",
             .notificationDailyReportCount: "%d daily reports",
             .notificationDailyReportCountSingular: "%d daily report",
+            .memoryCheckTitle: "Check available memory before loading model",
+            .memoryTotalRam: "Total RAM: ",
+            .memoryAvailableRam: "Available: ",
+            .memoryThresholdTooltip: "Model will not be loaded when available memory falls below this threshold",
             .menuAnalysisRuns: "Analysis Runs",
             .windowAnalysisRuns: "Analysis Runs",
             .windowAnalysisRunsEmptyTitle: "No Analysis Runs",

@@ -1035,6 +1035,15 @@ final class DailyReportSummaryService {
                 throw CancellationError()
             }
 
+            if settings.memoryCheckEnabled,
+               !SystemMemoryInfo.isAboveThreshold(thresholdGB: settings.memoryThresholdGB) {
+                logStore?.add(
+                    level: .log, source: .lmStudio,
+                    message: "Skipping summary model load: available memory below threshold \(settings.memoryThresholdGB) GB"
+                )
+                return try await operation()
+            }
+
             if !runtimeState.isStopping {
                 updateRuntimeState(
                     modelName: settings.modelName,

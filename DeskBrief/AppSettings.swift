@@ -209,6 +209,34 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var screenshotAnalysisMemoryCheckEnabled: Bool {
+        didSet {
+            userDefaults.set(screenshotAnalysisMemoryCheckEnabled, forKey: Keys.screenshotAnalysisMemoryCheckEnabled)
+            notifySettingsChanged()
+        }
+    }
+
+    @Published var screenshotAnalysisMemoryThresholdGB: Double {
+        didSet {
+            userDefaults.set(screenshotAnalysisMemoryThresholdGB, forKey: Keys.screenshotAnalysisMemoryThresholdGB)
+            notifySettingsChanged()
+        }
+    }
+
+    @Published var workContentSummaryMemoryCheckEnabled: Bool {
+        didSet {
+            userDefaults.set(workContentSummaryMemoryCheckEnabled, forKey: Keys.workContentSummaryMemoryCheckEnabled)
+            notifySettingsChanged()
+        }
+    }
+
+    @Published var workContentSummaryMemoryThresholdGB: Double {
+        didSet {
+            userDefaults.set(workContentSummaryMemoryThresholdGB, forKey: Keys.workContentSummaryMemoryThresholdGB)
+            notifySettingsChanged()
+        }
+    }
+
     @Published private(set) var categoryRules: [CategoryRule]
     @Published private(set) var categoryRulesValidationMessage: String?
     @Published var persistenceAlert: SettingsPersistenceAlert?
@@ -249,6 +277,8 @@ final class SettingsStore: ObservableObject {
         let savedAPIKey = keychain.string(for: AppDefaults.apiKeyAccount)
         let savedLMStudioContextLength = userDefaults.object(forKey: Keys.lmStudioContextLength) as? Int ?? AppDefaults.lmStudioContextLength
         let savedScreenshotAnalysisLMStudioAutoLoadUnloadModel = userDefaults.object(forKey: Keys.screenshotAnalysisLMStudioAutoLoadUnloadModel) as? Bool ?? AppDefaults.lmStudioAutoLoadUnloadModel
+        let savedScreenshotAnalysisMemoryCheckEnabled = userDefaults.object(forKey: Keys.screenshotAnalysisMemoryCheckEnabled) as? Bool ?? AppDefaults.memoryCheckEnabled
+        let savedScreenshotAnalysisMemoryThresholdGB = userDefaults.object(forKey: Keys.screenshotAnalysisMemoryThresholdGB) as? Double ?? AppDefaults.memoryThresholdGB
         let savedImageAnalysisMethod = Self.resolvedImageAnalysisMethod(
             ImageAnalysisMethod(rawValue: userDefaults.string(forKey: Keys.imageAnalysisMethod) ?? "")
                 ?? AppDefaults.defaultImageAnalysisMethod,
@@ -265,6 +295,8 @@ final class SettingsStore: ObservableObject {
             : keychain.string(for: AppDefaults.workContentSummaryAPIKeyAccount)
         let savedWorkContentSummaryLMStudioContextLength = userDefaults.object(forKey: Keys.workContentSummaryLMStudioContextLength) as? Int ?? savedLMStudioContextLength
         let savedWorkContentSummaryLMStudioAutoLoadUnloadModel = userDefaults.object(forKey: Keys.workContentSummaryLMStudioAutoLoadUnloadModel) as? Bool ?? AppDefaults.lmStudioAutoLoadUnloadModel
+        let savedWorkContentSummaryMemoryCheckEnabled = userDefaults.object(forKey: Keys.workContentSummaryMemoryCheckEnabled) as? Bool ?? AppDefaults.memoryCheckEnabled
+        let savedWorkContentSummaryMemoryThresholdGB = userDefaults.object(forKey: Keys.workContentSummaryMemoryThresholdGB) as? Double ?? AppDefaults.memoryThresholdGB
         let savedRules: [CategoryRule]
         do {
             savedRules = try database.fetchCategoryRules()
@@ -293,6 +325,10 @@ final class SettingsStore: ObservableObject {
         workContentSummaryAPIKey = savedWorkContentSummaryAPIKey
         workContentSummaryLMStudioContextLength = max(4096, min(65536, savedWorkContentSummaryLMStudioContextLength))
         workContentSummaryLMStudioAutoLoadUnloadModel = savedWorkContentSummaryLMStudioAutoLoadUnloadModel
+        screenshotAnalysisMemoryCheckEnabled = savedScreenshotAnalysisMemoryCheckEnabled
+        screenshotAnalysisMemoryThresholdGB = savedScreenshotAnalysisMemoryThresholdGB
+        workContentSummaryMemoryCheckEnabled = savedWorkContentSummaryMemoryCheckEnabled
+        workContentSummaryMemoryThresholdGB = savedWorkContentSummaryMemoryThresholdGB
         let initialRules = savedRules.isEmpty ? AppDefaults.defaultCategoryRules(language: savedAppLanguage) : savedRules
         categoryRules = Self.normalizedCategoryRules(initialRules, language: savedAppLanguage)
         categoryRulesValidationMessage = nil
@@ -320,7 +356,9 @@ final class SettingsStore: ObservableObject {
                 apiKey: apiKey.trimmingCharacters(in: .whitespacesAndNewlines),
                 lmStudioContextLength: lmStudioContextLength,
                 imageAnalysisMethod: imageAnalysisMethod,
-                automaticallyLoadAndUnloadModel: screenshotAnalysisLMStudioAutoLoadUnloadModel
+                automaticallyLoadAndUnloadModel: screenshotAnalysisLMStudioAutoLoadUnloadModel,
+                memoryCheckEnabled: screenshotAnalysisMemoryCheckEnabled,
+                memoryThresholdGB: screenshotAnalysisMemoryThresholdGB
             ),
             workContentSummaryModelProfile: ModelProfileSettings(
                 provider: workContentSummaryProvider,
@@ -329,7 +367,9 @@ final class SettingsStore: ObservableObject {
                 apiKey: workContentSummaryAPIKey.trimmingCharacters(in: .whitespacesAndNewlines),
                 lmStudioContextLength: workContentSummaryLMStudioContextLength,
                 imageAnalysisMethod: .ocr,
-                automaticallyLoadAndUnloadModel: workContentSummaryLMStudioAutoLoadUnloadModel
+                automaticallyLoadAndUnloadModel: workContentSummaryLMStudioAutoLoadUnloadModel,
+                memoryCheckEnabled: workContentSummaryMemoryCheckEnabled,
+                memoryThresholdGB: workContentSummaryMemoryThresholdGB
             ),
             categoryRules: categoryRules
         )
@@ -407,6 +447,8 @@ final class SettingsStore: ObservableObject {
         workContentSummaryAPIKey = apiKey
         workContentSummaryLMStudioContextLength = lmStudioContextLength
         workContentSummaryLMStudioAutoLoadUnloadModel = screenshotAnalysisLMStudioAutoLoadUnloadModel
+        workContentSummaryMemoryCheckEnabled = screenshotAnalysisMemoryCheckEnabled
+        workContentSummaryMemoryThresholdGB = screenshotAnalysisMemoryThresholdGB
     }
 
     func copyWorkContentSummaryModelToScreenshotAnalysis() {
@@ -416,6 +458,8 @@ final class SettingsStore: ObservableObject {
         apiKey = workContentSummaryAPIKey
         lmStudioContextLength = workContentSummaryLMStudioContextLength
         screenshotAnalysisLMStudioAutoLoadUnloadModel = workContentSummaryLMStudioAutoLoadUnloadModel
+        screenshotAnalysisMemoryCheckEnabled = workContentSummaryMemoryCheckEnabled
+        screenshotAnalysisMemoryThresholdGB = workContentSummaryMemoryThresholdGB
     }
 
     private func saveCategoryRules() {
@@ -524,11 +568,15 @@ final class SettingsStore: ObservableObject {
         static let modelName = "settings.modelName"
         static let lmStudioContextLength = "settings.lmStudioContextLength"
         static let screenshotAnalysisLMStudioAutoLoadUnloadModel = "settings.screenshotAnalysis.lmStudioAutoLoadUnloadModel"
+        static let screenshotAnalysisMemoryCheckEnabled = "settings.screenshotAnalysis.memoryCheckEnabled"
+        static let screenshotAnalysisMemoryThresholdGB = "settings.screenshotAnalysis.memoryThresholdGB"
         static let imageAnalysisMethod = "settings.imageAnalysisMethod"
         static let workContentSummaryProvider = "settings.workContentSummary.provider"
         static let workContentSummaryAPIBaseURL = "settings.workContentSummary.apiBaseURL"
         static let workContentSummaryModelName = "settings.workContentSummary.modelName"
         static let workContentSummaryLMStudioContextLength = "settings.workContentSummary.lmStudioContextLength"
         static let workContentSummaryLMStudioAutoLoadUnloadModel = "settings.workContentSummary.lmStudioAutoLoadUnloadModel"
+        static let workContentSummaryMemoryCheckEnabled = "settings.workContentSummary.memoryCheckEnabled"
+        static let workContentSummaryMemoryThresholdGB = "settings.workContentSummary.memoryThresholdGB"
     }
 }

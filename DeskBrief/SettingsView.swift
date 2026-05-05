@@ -141,6 +141,14 @@ struct SettingsView: View {
                         get: { settingsStore.screenshotAnalysisLMStudioAutoLoadUnloadModel },
                         set: { settingsStore.screenshotAnalysisLMStudioAutoLoadUnloadModel = $0 }
                     ),
+                    memoryCheckEnabled: Binding(
+                        get: { settingsStore.screenshotAnalysisMemoryCheckEnabled },
+                        set: { settingsStore.screenshotAnalysisMemoryCheckEnabled = $0 }
+                    ),
+                    memoryThresholdGB: Binding(
+                        get: { settingsStore.screenshotAnalysisMemoryThresholdGB },
+                        set: { settingsStore.screenshotAnalysisMemoryThresholdGB = $0 }
+                    ),
                     copyButtonTitle: text(.settingsModelCopyToWorkContentSummary),
                     onCopy: { pendingModelCopyDestination = .workContentSummary },
                     showImageAnalysisMethod: true,
@@ -178,6 +186,14 @@ struct SettingsView: View {
                     lmStudioAutoLoadUnloadModel: Binding(
                         get: { settingsStore.workContentSummaryLMStudioAutoLoadUnloadModel },
                         set: { settingsStore.workContentSummaryLMStudioAutoLoadUnloadModel = $0 }
+                    ),
+                    memoryCheckEnabled: Binding(
+                        get: { settingsStore.workContentSummaryMemoryCheckEnabled },
+                        set: { settingsStore.workContentSummaryMemoryCheckEnabled = $0 }
+                    ),
+                    memoryThresholdGB: Binding(
+                        get: { settingsStore.workContentSummaryMemoryThresholdGB },
+                        set: { settingsStore.workContentSummaryMemoryThresholdGB = $0 }
                     ),
                     copyButtonTitle: text(.settingsModelCopyToScreenshotAnalysis),
                     onCopy: { pendingModelCopyDestination = .screenshotAnalysis },
@@ -383,6 +399,8 @@ struct SettingsView: View {
         apiKey: Binding<String>,
         lmStudioContextLength: Binding<Int>,
         lmStudioAutoLoadUnloadModel: Binding<Bool>,
+        memoryCheckEnabled: Binding<Bool>,
+        memoryThresholdGB: Binding<Double>,
         copyButtonTitle: String,
         onCopy: @escaping () -> Void,
         showImageAnalysisMethod: Bool,
@@ -478,6 +496,58 @@ struct SettingsView: View {
                             tooltip: "目前仅支持LM Studio，打开后App会在截屏分析、工作内容总结前后发起加载、卸载请求。通常打开此选项配合*定时启动*，适合运行在工作电脑上；关闭此选项配合*截屏后立即启动*，适合专门的大模型电脑/服务器。",
                             isOn: lmStudioAutoLoadUnloadModel
                         )
+
+                        if lmStudioAutoLoadUnloadModel.wrappedValue {
+                            Divider()
+
+                            VStack(alignment: .leading, spacing: 0) {
+                                HStack(spacing: 8) {
+                                    Text(text(.memoryCheckTitle))
+                                    Spacer()
+                                    Toggle("", isOn: memoryCheckEnabled)
+                                        .labelsHidden()
+                                        .toggleStyle(.switch)
+                                        .accessibilityLabel(text(.memoryCheckTitle))
+                                    InfoTooltipButton(text: text(.memoryThresholdTooltip))
+                                }
+                                .padding(.horizontal, Layout.cardRowHorizontalPadding)
+                                .padding(.top, Layout.cardRowVerticalPadding)
+                                .padding(.bottom, 2)
+
+                                if memoryCheckEnabled.wrappedValue {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("\(text(.memoryTotalRam)) \(formatGB(SystemMemoryInfo.totalGB)) GiB")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Text("\(text(.memoryAvailableRam)) \(formatGB(SystemMemoryInfo.currentAvailableGB)) GiB")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.horizontal, Layout.cardRowHorizontalPadding)
+
+                                    HStack(spacing: 8) {
+                                        Text("1 GiB")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Slider(value: memoryThresholdGB, in: 1.0...max(1.1, SystemMemoryInfo.totalGB), step: 1)
+                                            .help(text(.memoryThresholdTooltip))
+                                        TextField(
+                                            "",
+                                            value: memoryThresholdGB,
+                                            formatter: Layout.plainIntegerFormatter
+                                        )
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 56)
+                                        Text("GiB")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.horizontal, Layout.cardRowHorizontalPadding)
+                                    .padding(.bottom, Layout.cardRowVerticalPadding)
+                                    .padding(.top, 4)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -937,6 +1007,11 @@ struct SettingsView: View {
             .help(helpText)
         }
         .frame(height: 52)
+    }
+
+    private func formatGB(_ gb: Double?) -> String {
+        guard let gb else { return "—" }
+        return String(format: "%.1f", gb)
     }
 
     private func text(_ key: L10n.Key) -> String {

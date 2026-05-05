@@ -804,6 +804,15 @@ final class AnalysisService {
             throw CancellationError()
         }
 
+        if settings.memoryCheckEnabled,
+           !SystemMemoryInfo.isAboveThreshold(thresholdGB: settings.memoryThresholdGB) {
+            logStore.add(
+                level: .log, source: .lmStudio,
+                message: "Skipping screenshot analysis model load: available memory below threshold \(settings.memoryThresholdGB) GB"
+            )
+            return nil
+        }
+
         if runtimeState.isRunning, !runtimeState.isStopping {
             updateRuntimeState(
                 startedAt: runtimeState.startedAt,

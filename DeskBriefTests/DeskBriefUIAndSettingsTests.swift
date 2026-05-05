@@ -277,7 +277,7 @@ extension DeskBriefTests {
         let statusSubmenuActions = topLevelItems[0].submenu?.items.compactMap { selectorName(for: $0) }
         let statusSubmenu = try #require(topLevelItems[0].submenu)
 
-        #expect(topLevelItems.count == 9)
+        #expect(topLevelItems.count == 10)
         #expect(menu.autoenablesItems == false)
         #expect(topLevelItems[0].submenu != nil)
         #expect(topLevelItems[0].submenu?.autoenablesItems == false)
@@ -289,8 +289,9 @@ extension DeskBriefTests {
         #expect(topLevelItems[5].submenu?.autoenablesItems == false)
         #expect(startupModeValues == AnalysisStartupMode.allCases.map(\.rawValue))
         #expect(selectorName(for: topLevelItems[6]) == "openLogs")
-        #expect(topLevelItems[7].isSeparatorItem)
-        #expect(selectorName(for: topLevelItems[8]) == "quit")
+        #expect(selectorName(for: topLevelItems[7]) == "openAnalysisRuns")
+        #expect(topLevelItems[8].isSeparatorItem)
+        #expect(selectorName(for: topLevelItems[9]) == "quit")
         #expect(statusSubmenuActions?.contains("openLogs") == false)
         #expect(statusSubmenuActions?.contains("runAnalysisNow") == true)
         #expect(statusSubmenu.items.count == 15)

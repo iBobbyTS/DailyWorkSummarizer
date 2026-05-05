@@ -10,6 +10,8 @@ nonisolated enum AppDefaults {
     static let realtimeBacklogCheckIntervalSeconds: TimeInterval = 5 * 60
     static let realtimeBacklogWarningIncreaseThreshold = 5
     nonisolated static let maxLogEntries = 1000
+    static let memoryCheckEnabled = false
+    static let memoryThresholdGB: Double = 4.0
     static let lmStudioContextLength = 6000
     static let lmStudioAutoLoadUnloadModel = true
     static let maxPageSize = 31
@@ -393,6 +395,8 @@ nonisolated struct ModelProfileSettings: Equatable {
     let lmStudioContextLength: Int
     let imageAnalysisMethod: ImageAnalysisMethod
     let automaticallyLoadAndUnloadModel: Bool
+    let memoryCheckEnabled: Bool
+    let memoryThresholdGB: Double
 
     init(
         provider: ModelProvider,
@@ -401,7 +405,9 @@ nonisolated struct ModelProfileSettings: Equatable {
         apiKey: String,
         lmStudioContextLength: Int,
         imageAnalysisMethod: ImageAnalysisMethod,
-        automaticallyLoadAndUnloadModel: Bool = AppDefaults.lmStudioAutoLoadUnloadModel
+        automaticallyLoadAndUnloadModel: Bool = AppDefaults.lmStudioAutoLoadUnloadModel,
+        memoryCheckEnabled: Bool = AppDefaults.memoryCheckEnabled,
+        memoryThresholdGB: Double = AppDefaults.memoryThresholdGB
     ) {
         self.provider = provider
         self.apiBaseURL = apiBaseURL
@@ -410,6 +416,8 @@ nonisolated struct ModelProfileSettings: Equatable {
         self.lmStudioContextLength = lmStudioContextLength
         self.imageAnalysisMethod = imageAnalysisMethod
         self.automaticallyLoadAndUnloadModel = automaticallyLoadAndUnloadModel
+        self.memoryCheckEnabled = memoryCheckEnabled
+        self.memoryThresholdGB = memoryThresholdGB
     }
 }
 
