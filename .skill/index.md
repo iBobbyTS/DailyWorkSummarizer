@@ -23,3 +23,6 @@
 - 涉及模型配置时，始终同时检查两套配置：
   - 截屏分析：`provider` / `imageAnalysisMethod` / `apiBaseURL` / `modelName`
   - 工作内容总结：`workContentSummaryProvider` / `workContentSummaryAPIBaseURL` / `workContentSummaryModelName`
+
+- `settings-ui-tooltips.md`
+  适用：给配置项添加 info.circle + popover tooltip。包含 InfoTooltipButton 模式、两种插入方式（参数化行 / inline 行）、以及多行中文文本的操作注意事项。
