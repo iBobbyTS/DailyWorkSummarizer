@@ -54,6 +54,8 @@ struct SettingsView: View {
     @State private var isTestingModel = false
     @State private var pendingModelCopyDestination: ModelCopyDestination?
 
+    @State private var showIntervalTooltip = false
+
     private var language: AppLanguage {
         settingsStore.appLanguage
     }
@@ -782,6 +784,20 @@ struct SettingsView: View {
                         .fixedSize()
                 }
                 .frame(width: controlGroupWidth, alignment: .trailing)
+
+                Button {
+                    showIntervalTooltip.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                        .help("")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .popover(isPresented: $showIntervalTooltip, arrowEdge: .trailing) {
+                    Text(.init("建议**10分钟**。\n启动软件时开始计时，退出软件暂停，软件本身不提供暂停功能。"))
+                        .padding()
+                        .frame(width: 280)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, Layout.cardRowHorizontalPadding)
