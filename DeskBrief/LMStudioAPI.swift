@@ -47,15 +47,15 @@ enum LMStudioModelLifecycleError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidRemoteConfiguration:
-            return "LM Studio model management endpoint is invalid."
+            return L10n.string(.lmStudioEndpointInvalid)
         case .invalidHTTPResponse:
-            return "LM Studio model management did not return a valid HTTP response."
+            return L10n.string(.lmStudioHTTPResponseInvalid)
         case .missingResponseData:
-            return "LM Studio model management did not return data."
+            return L10n.string(.lmStudioNoData)
         case .httpError(let statusCode, let body):
             return L10n.string(.analysisHTTPError, arguments: [statusCode, body])
         case .missingLoadedInstanceID(let modelName):
-            return "LM Studio did not return or expose a loaded instance for \(modelName)."
+            return L10n.string(.lmStudioMissingLoadedInstanceID, arguments: [modelName])
         }
     }
 }

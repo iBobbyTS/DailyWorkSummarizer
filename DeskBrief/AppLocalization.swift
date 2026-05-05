@@ -312,6 +312,24 @@ nonisolated enum L10n {
         case analysisRunsStatusRunning
         case notificationWorkBlockSummaryCount
         case notificationWorkBlockSummaryCountSingular
+        case settingsAnalysisStartupModeTooltip
+        case settingsAnalysisScheduledTimeTooltip
+        case settingsAnalysisChargerRequirementTooltip
+        case settingsModelServiceTooltip
+        case settingsModelImageAnalysisMethodTooltip
+        case settingsModelBaseURLTooltip
+        case settingsModelNameTooltip
+        case settingsModelAPIKeyTooltip
+        case settingsModelContextLengthTooltip
+        case settingsModelLMStudioExplicitLoadUnloadModelTooltip
+        case settingsIntervalTooltip
+        case settingsLanguageTooltip
+        case settingsReportWeekStartTooltip
+        case modelMemoryError
+        case lmStudioEndpointInvalid
+        case lmStudioHTTPResponseInvalid
+        case lmStudioNoData
+        case lmStudioMissingLoadedInstanceID
     }
 
     private static let tables: [AppLanguage: [Key: String]] = [
@@ -580,6 +598,24 @@ nonisolated enum L10n {
             .analysisRunsStatusRunning: "运行中",
             .notificationWorkBlockSummaryCount: "%d 个工作块总结",
             .notificationWorkBlockSummaryCountSingular: "%d 个工作块总结",
+            .settingsAnalysisStartupModeTooltip: "软件提供3种启动截屏分析的模式：\n1. *不自动启动*：必须点开 菜单栏图标-当前状态-立即分析 来启动。\n2. *定时启动*：如果电脑晚上通常不睡眠，建议选择这一项。\n3. *截屏后立即启动*：适合使用远程大模型服务，或者有一个专门运行大模型的电脑/服务器（包含本机）常驻运行大模型。",
+            .settingsAnalysisScheduledTimeTooltip: "当\"分析启动模式\"设置为\"*定时启动*\"时，会在这个时间分析所有存着的截屏。",
+            .settingsAnalysisChargerRequirementTooltip: "当\"分析启动模式\"设置为\"*定时启动*\"或\"*截屏后立即启动*\"时，只有在连接电源适配器时，才会触发分析。如果笔记本电脑在本地运行大模型，建议开启。\n注：如果充电器功率小于电脑能耗，系统也会认为正在充电。",
+            .settingsModelServiceTooltip: "Anthropic尚未测试。*LM Studio*已经过详细测试，Ollama等其他提供商建议使用*OpenAI*格式。Apple Intelligence目前质量非常差，不建议使用。",
+            .settingsModelImageAnalysisMethodTooltip: "优先使用*多模态*，即原生支持图像理解的语言模型，如千问3.5、Gemma 4等；*OCR*是进行文字识别后再使用语言模型进行分析，文字识别适用于Apple Intelligence",
+            .settingsModelBaseURLTooltip: "例：http://localhost:1234, https://api.deepseek.com\n不要包含/v1等后缀，也不要包含/",
+            .settingsModelNameTooltip: "例：google/gemma-4-26b-a4b, deepseek-v4-flash",
+            .settingsModelAPIKeyTooltip: "可留空（如本地模型服务）",
+            .settingsModelContextLengthTooltip: "截屏分析不建议超过6000，总结可以更长。",
+            .settingsModelLMStudioExplicitLoadUnloadModelTooltip: "目前仅支持LM Studio，打开后App会在截屏分析、工作内容总结前后发起加载、卸载请求。通常打开此选项配合*定时启动*，适合运行在工作电脑上；关闭此选项配合*截屏后立即启动*，适合专门的大模型电脑/服务器。",
+            .settingsIntervalTooltip: "建议**10分钟**。\n启动软件时开始计时，退出软件暂停，软件本身不提供暂停功能。",
+            .settingsLanguageTooltip: "建议选择和截屏分析、工作内容总结填入的信息相同的语言",
+            .settingsReportWeekStartTooltip: "仅用于周报。",
+            .modelMemoryError: "可用内存不足：已要求 %.0f GiB，当前可用 %.1f GiB",
+            .lmStudioEndpointInvalid: "LM Studio 模型管理接口地址无效。",
+            .lmStudioHTTPResponseInvalid: "LM Studio 模型管理未返回有效的 HTTP 响应。",
+            .lmStudioNoData: "LM Studio 模型管理未返回数据。",
+            .lmStudioMissingLoadedInstanceID: "LM Studio 未返回或未暴露模型 %@ 的已加载实例。",
         ],
         .english: [
             .settingsTabScreenshot: "Screenshot",
@@ -846,6 +882,24 @@ nonisolated enum L10n {
             .analysisRunsStatusRunning: "Running",
             .notificationWorkBlockSummaryCount: "%d work block summaries",
             .notificationWorkBlockSummaryCountSingular: "%d work block summary",
+            .settingsAnalysisStartupModeTooltip: "3 analysis startup modes:\n1. *Manual*: Click menu bar icon > Status > Analyze Now.\n2. *Scheduled*: Best if your Mac stays on overnight.\n3. *On capture*: Best for remote AI services or a dedicated AI server (including local).",
+            .settingsAnalysisScheduledTimeTooltip: "When startup mode is set to \"*Scheduled*\", all pending screenshots will be analyzed at this time.",
+            .settingsAnalysisChargerRequirementTooltip: "When startup mode is \"*Scheduled*\" or \"*On capture*\", analysis only runs when connected to a power adapter. Recommended for laptops running local models.\nNote: The system considers charging active even if the charger power is lower than consumption.",
+            .settingsModelServiceTooltip: "Anthropic is untested. *LM Studio* has been thoroughly tested. For Ollama and other providers, use the *OpenAI* format. Apple Intelligence currently has very low quality and is not recommended.",
+            .settingsModelImageAnalysisMethodTooltip: "Prefer *Multimodal* (native image understanding models like Qwen 2.5, Gemma 4); *OCR* extracts text first then uses a language model. OCR is suitable for Apple Intelligence.",
+            .settingsModelBaseURLTooltip: "Example: http://localhost:1234, https://api.deepseek.com\nDo not include /v1 or trailing /",
+            .settingsModelNameTooltip: "Example: google/gemma-4-26b-a4b, deepseek-v4-flash",
+            .settingsModelAPIKeyTooltip: "Leave empty if not required (e.g., local model service)",
+            .settingsModelContextLengthTooltip: "Screenshot analysis should not exceed 6000. Summaries can be longer.",
+            .settingsModelLMStudioExplicitLoadUnloadModelTooltip: "Currently only supports LM Studio. When enabled, the app sends load/unload requests around screenshot analysis and work content summary. Usually paired with *Scheduled* mode. Disable for *On capture* mode on a dedicated AI server.",
+            .settingsIntervalTooltip: "Recommended: **10 minutes**.\nTiming starts when the app launches and pauses when the app exits. The app does not have a built-in pause feature.",
+            .settingsLanguageTooltip: "It is recommended to use the same language as the information entered for screenshot analysis and work content summary.",
+            .settingsReportWeekStartTooltip: "Only used for weekly reports.",
+            .modelMemoryError: "Insufficient available memory: requested %.0f GiB, available %.1f GiB",
+            .lmStudioEndpointInvalid: "LM Studio model management endpoint is invalid.",
+            .lmStudioHTTPResponseInvalid: "LM Studio model management did not return a valid HTTP response.",
+            .lmStudioNoData: "LM Studio model management did not return data.",
+            .lmStudioMissingLoadedInstanceID: "LM Studio did not return or expose a loaded instance for %@.",
         ],
     ]
 

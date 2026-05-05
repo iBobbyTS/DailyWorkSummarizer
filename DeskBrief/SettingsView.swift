@@ -235,7 +235,7 @@ struct SettingsView: View {
                     .pickerStyle(.menu)
                     .fixedSize()
                     .frame(width: Layout.analysisStartupModePickerWidth, alignment: .trailing)
-                InfoTooltipButton(text: "软件提供3种启动截屏分析的模式：\n1. *不自动启动*：必须点开 菜单栏图标-当前状态-立即分析 来启动。\n2. *定时启动*：如果电脑晚上通常不睡眠，建议选择这一项。\n3. *截屏后立即启动*：适合使用远程大模型服务，或者有一个专门运行大模型的电脑/服务器（包含本机）常驻运行大模型。")
+                InfoTooltipButton(text: text(.settingsAnalysisStartupModeTooltip))
                 }
                 .padding(.horizontal, Layout.cardRowHorizontalPadding)
                 .padding(.vertical, Layout.cardRowVerticalPadding)
@@ -253,7 +253,7 @@ struct SettingsView: View {
                         )
                         .labelsHidden()
                         .datePickerStyle(.field)
-                        InfoTooltipButton(text: "当\"分析启动模式\"设置为\"*定时启动*\"时，会在这个时间分析所有存着的截屏。")
+                        InfoTooltipButton(text: text(.settingsAnalysisScheduledTimeTooltip))
                     }
                     .padding(.horizontal, Layout.cardRowHorizontalPadding)
                     .padding(.vertical, Layout.cardRowVerticalPadding)
@@ -271,7 +271,7 @@ struct SettingsView: View {
                         Toggle("", isOn: $settingsStore.autoAnalysisRequiresCharger)
                             .labelsHidden()
                             .toggleStyle(.switch)
-                        InfoTooltipButton(text: "当\"分析启动模式\"设置为\"*定时启动*\"或\"*截屏后立即启动*\"时，只有在连接电源适配器时，才会触发分析。如果笔记本电脑在本地运行大模型，建议开启。\n注：如果充电器功率小于电脑能耗，系统也会认为正在充电。")
+                        InfoTooltipButton(text: text(.settingsAnalysisChargerRequirementTooltip))
                     }
                     .padding(.horizontal, Layout.cardRowHorizontalPadding)
                     .padding(.vertical, Layout.cardRowVerticalPadding)
@@ -411,7 +411,7 @@ struct SettingsView: View {
                 .font(.title2.weight(.semibold))
 
             VStack(alignment: .leading, spacing: 0) {
-                proportionalFieldRow(text(.settingsModelService), tooltip: "Anthropic尚未测试。*LM Studio*已经过详细测试，Ollama等其他提供商建议使用*OpenAI*格式。Apple Intelligence目前质量非常差，不建议使用。") { fieldWidth in
+                proportionalFieldRow(text(.settingsModelService), tooltip: text(.settingsModelServiceTooltip)) { fieldWidth in
                     HStack(spacing: 0) {
                         Spacer(minLength: 0)
                         Picker("", selection: provider) {
@@ -432,7 +432,7 @@ struct SettingsView: View {
                 if showImageAnalysisMethod {
                     Divider()
 
-                    proportionalFieldRow(text(.settingsModelImageAnalysisMethod), tooltip: "优先使用*多模态*，即原生支持图像理解的语言模型，如千问3.5、Gemma 4等；*OCR*是进行文字识别后再使用语言模型进行分析，文字识别适用于Apple Intelligence") { fieldWidth in
+                    proportionalFieldRow(text(.settingsModelImageAnalysisMethod), tooltip: text(.settingsModelImageAnalysisMethodTooltip)) { fieldWidth in
                         HStack(spacing: 0) {
                             Spacer(minLength: 0)
                             Picker("", selection: imageAnalysisMethod) {
@@ -453,7 +453,7 @@ struct SettingsView: View {
                 if provider.wrappedValue.requiresRemoteConfiguration {
                     Divider()
 
-                    proportionalFieldRow(text(.settingsModelBaseURL), tooltip: "例：http://localhost:1234, https://api.deepseek.com\n不要包含/v1等后缀，也不要包含/") { fieldWidth in
+                    proportionalFieldRow(text(.settingsModelBaseURL), tooltip: text(.settingsModelBaseURLTooltip)) { fieldWidth in
                         TextField(provider.wrappedValue == .lmStudio ? "http://127.0.0.1:1234" : "http://127.0.0.1:8000", text: apiBaseURL)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: fieldWidth)
@@ -461,7 +461,7 @@ struct SettingsView: View {
 
                     Divider()
 
-                    proportionalFieldRow(text(.settingsModelName), tooltip: "例：google/gemma-4-26b-a4b, deepseek-v4-flash") { fieldWidth in
+                    proportionalFieldRow(text(.settingsModelName), tooltip: text(.settingsModelNameTooltip)) { fieldWidth in
                         TextField(text(.settingsModelNamePlaceholder), text: modelName)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: fieldWidth)
@@ -469,7 +469,7 @@ struct SettingsView: View {
 
                     Divider()
 
-                    proportionalFieldRow(text(.settingsModelAPIKey), tooltip: "可留空（如本地模型服务）") { fieldWidth in
+                    proportionalFieldRow(text(.settingsModelAPIKey), tooltip: text(.settingsModelAPIKeyTooltip)) { fieldWidth in
                         SecureField(text(.settingsModelAPIKeyPlaceholder), text: apiKey)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: fieldWidth)
@@ -478,7 +478,7 @@ struct SettingsView: View {
                     if provider.wrappedValue == .lmStudio {
                         Divider()
 
-                        proportionalFieldRow(text(.settingsModelContextLength), fieldWidth: Layout.contextFieldWidth, tooltip: "截屏分析不建议超过6000，总结可以更长。") { fieldWidth in
+                        proportionalFieldRow(text(.settingsModelContextLength), fieldWidth: Layout.contextFieldWidth, tooltip: text(.settingsModelContextLengthTooltip)) { fieldWidth in
                             TextField(
                                 "4096 - 65536",
                                 value: lmStudioContextLength,
@@ -493,7 +493,7 @@ struct SettingsView: View {
                         modelLifecycleToggleRow(
                             text(.settingsModelLMStudioExplicitLoadUnloadModel),
                             helpText: text(.settingsModelLMStudioExplicitLoadUnloadModelHelp),
-                            tooltip: "目前仅支持LM Studio，打开后App会在截屏分析、工作内容总结前后发起加载、卸载请求。通常打开此选项配合*定时启动*，适合运行在工作电脑上；关闭此选项配合*截屏后立即启动*，适合专门的大模型电脑/服务器。",
+                            tooltip: text(.settingsModelLMStudioExplicitLoadUnloadModelTooltip),
                             isOn: lmStudioExplicitLoadUnloadModel
                         )
 
@@ -867,7 +867,7 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .popover(isPresented: $showIntervalTooltip, arrowEdge: .trailing) {
-                    Text(.init("建议**10分钟**。\n启动软件时开始计时，退出软件暂停，软件本身不提供暂停功能。"))
+                        Text(text(.settingsIntervalTooltip))
                         .padding()
                         .frame(width: 280)
                 }
@@ -885,7 +885,7 @@ struct SettingsView: View {
                 .font(.title2.weight(.semibold))
 
             VStack(alignment: .leading, spacing: 0) {
-                proportionalFieldRow(text(.settingsLanguage), tooltip: "建议选择和截屏分析、工作内容总结填入的信息相同的语言") { fieldWidth in
+                proportionalFieldRow(text(.settingsLanguage), tooltip: text(.settingsLanguageTooltip)) { fieldWidth in
                     HStack(spacing: 0) {
                         Spacer(minLength: 0)
                         Picker("", selection: $settingsStore.appLanguage) {
@@ -920,7 +920,7 @@ struct SettingsView: View {
                 .font(.title2.weight(.semibold))
 
             VStack(alignment: .leading, spacing: 0) {
-                proportionalFieldRow(text(.settingsReportWeekStart), tooltip: "仅用于周报。") { fieldWidth in
+                proportionalFieldRow(text(.settingsReportWeekStart), tooltip: text(.settingsReportWeekStartTooltip)) { fieldWidth in
                     HStack(spacing: 0) {
                         Spacer(minLength: 0)
                         Picker("", selection: $settingsStore.reportWeekStart) {

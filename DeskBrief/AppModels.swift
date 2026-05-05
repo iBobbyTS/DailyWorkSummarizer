@@ -447,7 +447,7 @@ enum ModelMemoryError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .insufficientMemory(let threshold, let available):
-            return "可用内存不足：已要求 \(String(format: "%.0f", threshold)) GiB，当前可用 \(String(format: "%.1f", available)) GiB"
+            return L10n.string(.modelMemoryError, arguments: [threshold, available])
         }
     }
 }
