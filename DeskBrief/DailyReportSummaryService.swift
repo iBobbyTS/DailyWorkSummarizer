@@ -118,6 +118,9 @@ final class DailyReportSummaryService {
             NotificationCenter.default.post(name: .dailyReportSummaryStatusDidChange, object: nil)
         }
     }
+    private var currentSummaryRunID: Int64?
+    private var summaryRunTokenInputValues: [Int] = []
+    private var summaryRunTokenOutputValues: [Int] = []
 
     init(
         database: AppDatabase,
@@ -547,72 +550,131 @@ final class DailyReportSummaryService {
             return DailyReportSummaryExecutionResult()
         }
 
+        let modelName = snapshot.workContentSummaryModelProfile.modelName
+        let summaryRunID: Int64
+        do {
+            summaryRunID = try database.createSummaryRun(
+                modelName: modelName,
+                totalItems: totalCount
+            )
+            currentSummaryRunID = summaryRunID
+            summaryRunTokenInputValues = []
+            summaryRunTokenOutputValues = []
+        } catch {
+            logStore?.addError(source: .summary, context: "Failed to create summary run", error: error)
+            currentSummaryRunID = nil
+        }
+
         updateRuntimeState(
-            modelName: snapshot.workContentSummaryModelProfile.modelName,
+            modelName: modelName,
             completedCount: 0,
             totalCount: totalCount
         )
 
-        return try await withLMStudioLifecycleIfNeeded(
-            settings: snapshot.workContentSummaryModelProfile,
-            policy: request.lmStudioLifecyclePolicy
-        ) {
-            var result = DailyReportSummaryExecutionResult()
-            var completedCount = 0
+        let runStartTime = Date()
 
-            let workBlockResult = try await summarizeWorkBlocksWorkLocked(
-                blocks: candidateBlocks,
-                snapshot: snapshot,
-                targetDayStarts: targetDayStarts,
-                completedCountOffset: completedCount,
-                totalCount: totalCount
-            )
-            completedCount += workBlockResult.completedCount
-            result.workBlockSummariesCreatedCount += workBlockResult.createdCount
-            result.workBlockSummaryFailureCount += workBlockResult.failureCount
+        do {
+            let result = try await withLMStudioLifecycleIfNeeded(
+                settings: snapshot.workContentSummaryModelProfile,
+                policy: request.lmStudioLifecyclePolicy
+            ) {
+                var result = DailyReportSummaryExecutionResult()
+                var completedCount = 0
 
-            let dailyReportResult = try await summarizeDailyReportsWorkLocked(
-                pendingDays: pendingDays,
-                snapshot: snapshot,
-                completedCountOffset: completedCount,
-                totalCount: totalCount
-            )
-            completedCount += dailyReportResult.completedCount
-            result.dailyReportFailureCount += dailyReportResult.failureCount
-            result.dailyReports.merge(dailyReportResult.dailyReports) { _, new in new }
-
-            for dayStart in explicitDayStarts {
-                if Task.isCancelled {
-                    throw CancellationError()
-                }
-
-                do {
-                    let isTemporary = !Self.shouldWriteFinalDailyReport(
-                        for: dayStart,
-                        latestReportableDayStart: latestDayStart
-                    )
-                    let record = try await summarizeDayContentLocked(
-                        dayStart,
-                        snapshot: snapshot,
-                        isTemporary: isTemporary
-                    )
-                    result.dailyReports[dayStart] = record
-                } catch is CancellationError {
-                    throw CancellationError()
-                } catch {
-                    result.dayErrors[dayStart] = error
-                    result.dailyReportFailureCount += 1
-                }
-
-                completedCount += 1
-                updateRuntimeState(
-                    modelName: snapshot.workContentSummaryModelProfile.modelName,
-                    completedCount: completedCount,
+                let workBlockResult = try await summarizeWorkBlocksWorkLocked(
+                    blocks: candidateBlocks,
+                    snapshot: snapshot,
+                    targetDayStarts: targetDayStarts,
+                    completedCountOffset: completedCount,
                     totalCount: totalCount
                 )
+                completedCount += workBlockResult.completedCount
+                result.workBlockSummariesCreatedCount += workBlockResult.createdCount
+                result.workBlockSummaryFailureCount += workBlockResult.failureCount
+
+                let dailyReportResult = try await summarizeDailyReportsWorkLocked(
+                    pendingDays: pendingDays,
+                    snapshot: snapshot,
+                    completedCountOffset: completedCount,
+                    totalCount: totalCount
+                )
+                completedCount += dailyReportResult.completedCount
+                result.dailyReportFailureCount += dailyReportResult.failureCount
+                result.dailyReports.merge(dailyReportResult.dailyReports) { _, new in new }
+
+                for dayStart in explicitDayStarts {
+                    if Task.isCancelled {
+                        throw CancellationError()
+                    }
+
+                    do {
+                        let isTemporary = !Self.shouldWriteFinalDailyReport(
+                            for: dayStart,
+                            latestReportableDayStart: latestDayStart
+                        )
+                        let record = try await summarizeDayContentLocked(
+                            dayStart,
+                            snapshot: snapshot,
+                            isTemporary: isTemporary
+                        )
+                        result.dailyReports[dayStart] = record
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        result.dayErrors[dayStart] = error
+                        result.dailyReportFailureCount += 1
+                    }
+
+                    completedCount += 1
+                    updateRuntimeState(
+                        modelName: modelName,
+                        completedCount: completedCount,
+                        totalCount: totalCount
+                    )
+                }
+
+                return result
             }
 
+            let elapsedSeconds = Date().timeIntervalSince(runStartTime)
+            let totalSuccess = result.dailyReports.count
+            let totalFailures = result.workBlockSummaryFailureCount + result.dailyReportFailureCount
+            let inputMean: Double? = summaryRunTokenInputValues.isEmpty ? nil : Double(summaryRunTokenInputValues.reduce(0, +)) / Double(summaryRunTokenInputValues.count)
+            let inputMax: Int? = summaryRunTokenInputValues.max()
+            let outputMean: Double? = summaryRunTokenOutputValues.isEmpty ? nil : Double(summaryRunTokenOutputValues.reduce(0, +)) / Double(summaryRunTokenOutputValues.count)
+            let outputMax: Int? = summaryRunTokenOutputValues.max()
+
+            if let sid = currentSummaryRunID {
+                try? database.finishSummaryRun(
+                    id: sid,
+                    status: result.hasFailures ? (totalSuccess > 0 ? "partial_failed" : "failed") : "succeeded",
+                    successCount: totalSuccess,
+                    failureCount: totalFailures,
+                    inputMeanTokens: inputMean,
+                    inputMaxTokens: inputMax,
+                    outputMeanTokens: outputMean,
+                    outputMaxTokens: outputMax,
+                    averageItemDurationSeconds: totalCount > 0 ? elapsedSeconds / Double(totalCount) : nil,
+                    errorMessage: result.hasFailures ? "部分总结失败" : nil
+                )
+            }
+            currentSummaryRunID = nil
+
             return result
+        } catch {
+            let elapsedSeconds = Date().timeIntervalSince(runStartTime)
+            if let sid = currentSummaryRunID {
+                try? database.finishSummaryRun(
+                    id: sid,
+                    status: "failed",
+                    successCount: 0,
+                    failureCount: totalCount,
+                    averageItemDurationSeconds: totalCount > 0 ? elapsedSeconds / Double(totalCount) : nil,
+                    errorMessage: error.localizedDescription
+                )
+            }
+            currentSummaryRunID = nil
+            throw error
         }
     }
 
@@ -1154,6 +1216,14 @@ final class DailyReportSummaryService {
                     appleSchema: nil
                 )
             )
+            if let tokenUsage = response.tokenUsage {
+                if let input = tokenUsage.inputTokens {
+                    summaryRunTokenInputValues.append(input)
+                }
+                if let output = tokenUsage.outputTokens {
+                    summaryRunTokenOutputValues.append(output)
+                }
+            }
             guard let text = response.text else {
                 throw DailyReportSummaryServiceError.invalidResponse(
                     localized(.reportDailySummaryInvalidResponse, language: language)

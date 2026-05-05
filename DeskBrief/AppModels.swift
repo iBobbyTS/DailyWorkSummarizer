@@ -552,6 +552,59 @@ struct DailyReportRecord: Equatable {
     }
 }
 
+struct AnalysisRunRecord: Identifiable {
+    let id: Int64
+    let status: String
+    let modelName: String
+    let totalItems: Int
+    let successCount: Int
+    let failureCount: Int
+    let inputMeanTokens: Double?
+    let inputMaxTokens: Int?
+    let outputMeanTokens: Double?
+    let outputMaxTokens: Int?
+    let averageItemDurationSeconds: Double?
+    let errorMessage: String?
+    let createdAt: Date
+
+    var totalTokensAvg: Double? {
+        guard let input = inputMeanTokens, let output = outputMeanTokens else { return nil }
+        return input + output
+    }
+
+    var totalTokensMax: Int? {
+        guard let input = inputMaxTokens, let output = outputMaxTokens else { return nil }
+        return input + output
+    }
+}
+
+struct SummaryRunRecord: Identifiable {
+    let id: Int64
+    let analysisRunID: Int64?
+    let status: String
+    let modelName: String
+    let totalItems: Int
+    let successCount: Int
+    let failureCount: Int
+    let inputMeanTokens: Double?
+    let inputMaxTokens: Int?
+    let outputMeanTokens: Double?
+    let outputMaxTokens: Int?
+    let averageItemDurationSeconds: Double?
+    let errorMessage: String?
+    let createdAt: Date
+
+    var totalTokensAvg: Double? {
+        guard let input = inputMeanTokens, let output = outputMeanTokens else { return nil }
+        return input + output
+    }
+
+    var totalTokensMax: Int? {
+        guard let input = inputMaxTokens, let output = outputMaxTokens else { return nil }
+        return input + output
+    }
+}
+
 struct ScreenshotFileRecord: Identifiable {
     let url: URL
     let capturedAt: Date

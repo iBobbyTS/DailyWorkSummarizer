@@ -42,7 +42,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - Menu bar labels should be short and scannable.
 - Keep long runtime details in status lines or dedicated windows rather than long action labels.
 - Mutating actions should use explicit menu items; state display should stay separate from commands.
-- Keep first-level commands ordered as Current Status, Reports, Clear Early Screenshots, divider, Settings, Analysis startup mode, Show Logs, divider, then Quit.
+- Keep first-level commands ordered as Current Status, Reports, Clear Early Screenshots, divider, Settings, Analysis startup mode, Show Logs, Analysis Runs, divider, then Quit.
 - Nested menus are appropriate for compact first-level option groups such as analysis startup mode.
 - The Current Status submenu should switch between an idle summary, a running screenshot-analysis block, or a running work-content-summary block. Screenshot analysis and work-content summary runs are mutually exclusive, so both running blocks should not appear together.
 - During explicit LM Studio model loading, the model line should say `Loading model` instead of `Current model` for both screenshot analysis and work-content summary.
@@ -77,6 +77,14 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - Daily report legends keep category-summary hover stable across chip gaps by checking pointer locations against row-union hover rectangles with a small margin; individual chip exits should not clear the hovered category, and trailing empty space after the last row should not count as hovered.
 - Derived statuses such as temporary daily reports should be visually marked where the result appears, not explained in a detached help block.
 - Runtime logs should remain dense, sortable or filterable when needed, and copy/export friendly.
+
+## Analysis Runs
+
+- The Analysis Runs window is opened from a dedicated menu item below Show Logs, maintaining menu bar consistency with the existing logs and reports entry points.
+- The view uses a dense scrollable table (horizontal + vertical) with fixed-width columns so all columns remain readable at typical window sizes.
+- Column order matches the data priority: time, model, status, success/failure, analysis duration, summary duration, analysis tokens, summary tokens, and error.
+- Summary-related columns (summary duration, summary tokens) display linked `summary_runs` data when the summary run was triggered by that analysis run. If no summary run is linked, the cell shows an em dash (`—`).
+- The Auto-Refresh behavior relies on `appDatabaseDidChange` notifications so the table stays current without polling.
 
 ## Localization
 

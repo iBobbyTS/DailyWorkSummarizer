@@ -49,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var settingsWindow: NSWindow?
     private var reportsWindow: NSWindow?
     private var logsWindow: NSWindow?
+    private var analysisRunsWindow: NSWindow?
+    private var analysisRunsViewModel: AnalysisRunsViewModel?
     private var settingsObserver: NSObjectProtocol?
     private var databaseObserver: NSObjectProtocol?
     private var screenshotObserver: NSObjectProtocol?
@@ -76,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private let openScreenshotsItem = NSMenuItem(title: "", action: #selector(openScreenshotsFolder), keyEquivalent: "")
     private let backfillMissingSummariesItem = NSMenuItem(title: "", action: #selector(backfillMissingSummaries), keyEquivalent: "")
     private let viewLogsItem = NSMenuItem(title: "", action: #selector(openLogs), keyEquivalent: "")
+    private let viewAnalysisRunsItem = NSMenuItem(title: "", action: #selector(openAnalysisRuns), keyEquivalent: "")
     private let analysisStartupModeMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var analysisStartupModeItems: [AnalysisStartupMode: NSMenuItem] = [:]
     private let analyzeNowItem = NSMenuItem(title: "", action: #selector(runAnalysisNow), keyEquivalent: "")
@@ -179,6 +182,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             reportsWindow = nil
         } else if window == logsWindow {
             logsWindow = nil
+        } else if window == analysisRunsWindow {
+            analysisRunsWindow = nil
         }
     }
 
@@ -302,6 +307,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         backfillMissingSummariesItem.target = self
         viewLogsItem.target = self
         viewLogsItem.isEnabled = true
+        viewAnalysisRunsItem.target = self
+        viewAnalysisRunsItem.isEnabled = true
         analyzeNowItem.target = self
         clearOneDayScreenshotsItem.target = self
         clearOneDayScreenshotsItem.representedObject = EarlyScreenshotCleanupScope.oneDay.rawValue
@@ -360,6 +367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.addItem(analysisStartupModeMenuItem)
         menu.setSubmenu(analysisStartupModeSubmenu, for: analysisStartupModeMenuItem)
         menu.addItem(viewLogsItem)
+        menu.addItem(viewAnalysisRunsItem)
         menu.addItem(.separator())
         menu.addItem(quitMenuItem)
         menu.items.forEach { $0.target = self }
@@ -448,6 +456,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.setContentSize(NSSize(width: 780, height: 500))
         window.center()
         logsWindow = window
+        activateAndShow(window)
+    }
+
+    @objc private func openAnalysisRuns() {
+        guard let database, let settingsStore else { return }
+        if let window = analysisRunsWindow {
+            activateAndShow(window)
+            return
+        }
+
+        if analysisRunsViewModel == nil {
+            analysisRunsViewModel = AnalysisRunsViewModel(database: database, settingsStore: settingsStore)
+        }
+        let viewModel = analysisRunsViewModel!
+
+        let controller = NSHostingController(rootView: AnalysisRunsView(viewModel: viewModel))
+        let window = NSWindow(contentViewController: controller)
+        window.delegate = self
+        window.title = text(.windowAnalysisRuns, language: settingsStore.appLanguage)
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.setContentSize(NSSize(width: 1100, height: 500))
+        window.center()
+        analysisRunsWindow = window
         activateAndShow(window)
     }
 
@@ -739,6 +770,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         viewLogsItem.title = text(.menuShowLogs, language: language)
         viewLogsItem.isEnabled = true
+        viewAnalysisRunsItem.title = text(.menuAnalysisRuns, language: language)
+        viewAnalysisRunsItem.isEnabled = true
         backfillMissingSummariesItem.title = text(.menuBackfillMissingSummaries, language: language)
         analysisStartupModeMenuItem.title = text(.menuAnalysisStartupMode, language: language)
         for mode in AnalysisStartupMode.allCases {
@@ -885,6 +918,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         settingsWindow?.title = text(.windowSettings, language: language)
         reportsWindow?.title = text(.windowReports, language: language)
         logsWindow?.title = text(.windowLogs, language: language)
+        analysisRunsWindow?.title = text(.windowAnalysisRuns, language: language)
     }
 
     private func terminateOtherRunningInstances() {

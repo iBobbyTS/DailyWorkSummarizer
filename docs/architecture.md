@@ -29,11 +29,13 @@ The app is centered around a small set of long-lived services created at launch 
 - `LMStudioModelLifecycle`
   Explicit LM Studio load/unload helper used by analysis, summaries, and settings model tests when the corresponding model profile has lifecycle management enabled.
 - `MenuBarApp` / `AppDelegate`
-  Menu bar state rendering, current-status sections, force-unload actions, and window/menu orchestration.
+  Menu bar state rendering, current-status sections, force-unload actions, window/menu orchestration, and the Analysis Runs window entry point below Show Logs.
 - `ReportsViewModel`
   Report range construction, chart data, heatmap data, daily work-block summary mixing, and daily report presentation in `ReportsViewModel.swift`.
 - `ReportsView`
   Report window composition in `ReportsView.swift`, with legend helpers in `ReportLegendViews.swift` and heatmap renderers in `ReportHeatmapViews.swift`.
+- `AnalysisRunsView` / `AnalysisRunsViewModel`
+  Dedicated SwiftUI window showing a scrollable table of past analysis runs and their linked summary runs, with model, success/failure counts, token statistics, timing, and error messages. The view model subscribes to `appDatabaseDidChange` and reloads automatically.
 - `AppLogStore`
   SQLite-backed runtime log list used by the menu-bar log window and the shared sink for non-fatal runtime failures.
 

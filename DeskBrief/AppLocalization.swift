@@ -286,6 +286,24 @@ nonisolated enum L10n {
         case notificationScreenshotCountSingular
         case notificationDailyReportCount
         case notificationDailyReportCountSingular
+        case menuAnalysisRuns
+        case windowAnalysisRuns
+        case windowAnalysisRunsEmptyTitle
+        case windowAnalysisRunsEmptyDescription
+        case analysisRunsColumnTime
+        case analysisRunsColumnModel
+        case analysisRunsColumnStatus
+        case analysisRunsColumnSuccess
+        case analysisRunsColumnAnalysisDuration
+        case analysisRunsColumnSummaryDuration
+        case analysisRunsColumnAnalysisTokens
+        case analysisRunsColumnSummaryTokens
+        case analysisRunsColumnError
+        case analysisRunsStatusSucceeded
+        case analysisRunsStatusFailed
+        case analysisRunsStatusCancelled
+        case analysisRunsStatusPartial
+        case analysisRunsStatusRunning
         case notificationWorkBlockSummaryCount
         case notificationWorkBlockSummaryCountSingular
     }
@@ -530,6 +548,24 @@ nonisolated enum L10n {
             .notificationScreenshotCountSingular: "%d 张截屏",
             .notificationDailyReportCount: "%d 个日报",
             .notificationDailyReportCountSingular: "%d 个日报",
+            .menuAnalysisRuns: "分析记录",
+            .windowAnalysisRuns: "分析记录",
+            .windowAnalysisRunsEmptyTitle: "暂无分析记录",
+            .windowAnalysisRunsEmptyDescription: "完成截屏分析后，会在这里显示运行记录。",
+            .analysisRunsColumnTime: "时间",
+            .analysisRunsColumnModel: "模型",
+            .analysisRunsColumnStatus: "状态",
+            .analysisRunsColumnSuccess: "成功/失败",
+            .analysisRunsColumnAnalysisDuration: "平均分析耗时",
+            .analysisRunsColumnSummaryDuration: "平均总结耗时",
+            .analysisRunsColumnAnalysisTokens: "分析Token\n均/最",
+            .analysisRunsColumnSummaryTokens: "总结Token\n均/最",
+            .analysisRunsColumnError: "错误信息",
+            .analysisRunsStatusSucceeded: "成功",
+            .analysisRunsStatusFailed: "失败",
+            .analysisRunsStatusCancelled: "已取消",
+            .analysisRunsStatusPartial: "部分失败",
+            .analysisRunsStatusRunning: "运行中",
             .notificationWorkBlockSummaryCount: "%d 个工作块总结",
             .notificationWorkBlockSummaryCountSingular: "%d 个工作块总结",
         ],
@@ -772,6 +808,24 @@ nonisolated enum L10n {
             .notificationScreenshotCountSingular: "%d screenshot",
             .notificationDailyReportCount: "%d daily reports",
             .notificationDailyReportCountSingular: "%d daily report",
+            .menuAnalysisRuns: "Analysis Runs",
+            .windowAnalysisRuns: "Analysis Runs",
+            .windowAnalysisRunsEmptyTitle: "No Analysis Runs",
+            .windowAnalysisRunsEmptyDescription: "Analysis run records will appear here after you complete a screenshot analysis.",
+            .analysisRunsColumnTime: "Time",
+            .analysisRunsColumnModel: "Model",
+            .analysisRunsColumnStatus: "Status",
+            .analysisRunsColumnSuccess: "Succeed/Fail",
+            .analysisRunsColumnAnalysisDuration: "Avg Analysis",
+            .analysisRunsColumnSummaryDuration: "Avg Summary",
+            .analysisRunsColumnAnalysisTokens: "Analysis\nAvg/Max",
+            .analysisRunsColumnSummaryTokens: "Summary\nAvg/Max",
+            .analysisRunsColumnError: "Error",
+            .analysisRunsStatusSucceeded: "Succeeded",
+            .analysisRunsStatusFailed: "Failed",
+            .analysisRunsStatusCancelled: "Cancelled",
+            .analysisRunsStatusPartial: "Partial",
+            .analysisRunsStatusRunning: "Running",
             .notificationWorkBlockSummaryCount: "%d work block summaries",
             .notificationWorkBlockSummaryCountSingular: "%d work block summary",
         ],

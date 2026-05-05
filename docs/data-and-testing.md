@@ -20,6 +20,8 @@ The app stores runtime data under Application Support:
 - `analysis_runs`
   One compact record per analysis batch, including run status, model name, item counts, average item duration, and run-level error text.
   `total_items` can grow during an active run when new screenshots are appended to the same queue.
+- `summary_runs`
+  One record per work-content summary batch, including status, model name, item counts, token usage, average item duration, and error text. Optionally linked to its originating `analysis_runs` row via `analysis_run_id`.
 - `analysis_results`
   Successful per-item screenshot analysis output, including capture time, category, summary, and duration snapshot.
   `captured_at` is unique; duplicate inserts are ignored so an existing result is not overwritten.
@@ -161,6 +163,13 @@ Recent analysis runs:
 ```sh
 sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
   "select id,status,model_name,total_items,success_count,failure_count,average_item_duration_seconds from analysis_runs order by id desc limit 20;"
+```
+
+Recent summary runs (token usage and duration per item):
+
+```sh
+sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" \
+  "select id,status,model_name,total_items,success_count,failure_count,input_mean_tokens,output_mean_tokens,average_item_duration_seconds,error_message from summary_runs order by id desc limit 20;"
 ```
 
 Recent analysis results:

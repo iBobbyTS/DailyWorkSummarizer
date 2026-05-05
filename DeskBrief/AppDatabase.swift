@@ -284,6 +284,172 @@ final class AppDatabase: @unchecked Sendable {
         }
     }
 
+    func fetchAnalysisRuns() throws -> [AnalysisRunRecord] {
+        try queue.sync {
+            let statement = try prepareStatement("""
+                SELECT
+                    id, status, model_name, total_items,
+                    success_count, failure_count,
+                    input_mean_tokens, input_max_tokens,
+                    output_mean_tokens, output_max_tokens,
+                    average_item_duration_seconds, error_message,
+                    created_at
+                FROM analysis_runs
+                ORDER BY id DESC
+                LIMIT 200;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            var records: [AnalysisRunRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let id = sqlite3_column_int64(statement, 0)
+                let status = string(at: 1, from: statement)
+                let modelName = string(at: 2, from: statement)
+                let totalItems = Int(sqlite3_column_int64(statement, 3))
+                let successCount = Int(sqlite3_column_int64(statement, 4))
+                let failureCount = Int(sqlite3_column_int64(statement, 5))
+
+                let inputMeanTokens: Double? = sqlite3_column_type(statement, 6) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 6)
+                let inputMaxTokens: Int? = sqlite3_column_type(statement, 7) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 7))
+                let outputMeanTokens: Double? = sqlite3_column_type(statement, 8) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 8)
+                let outputMaxTokens: Int? = sqlite3_column_type(statement, 9) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 9))
+                let averageItemDurationSeconds: Double? = sqlite3_column_type(statement, 10) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 10)
+                let errorMessage: String? = sqlite3_column_type(statement, 11) == SQLITE_NULL ? nil : string(at: 11, from: statement)
+                let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 12))
+
+                records.append(AnalysisRunRecord(
+                    id: id, status: status, modelName: modelName,
+                    totalItems: totalItems, successCount: successCount, failureCount: failureCount,
+                    inputMeanTokens: inputMeanTokens, inputMaxTokens: inputMaxTokens,
+                    outputMeanTokens: outputMeanTokens, outputMaxTokens: outputMaxTokens,
+                    averageItemDurationSeconds: averageItemDurationSeconds,
+                    errorMessage: errorMessage, createdAt: createdAt
+                ))
+            }
+            return records
+        }
+    }
+
+    func createSummaryRun(
+        modelName: String,
+        totalItems: Int,
+        analysisRunID: Int64? = nil,
+        status: String = "running"
+    ) throws -> Int64 {
+        try queue.sync {
+            let statement = try prepareStatement("""
+                INSERT INTO summary_runs (
+                    analysis_run_id, status, model_name, total_items, created_at
+                ) VALUES (?, ?, ?, ?, ?);
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            let now = Date().timeIntervalSince1970
+            if let analysisRunID {
+                sqlite3_bind_int64(statement, 1, analysisRunID)
+            } else {
+                sqlite3_bind_null(statement, 1)
+            }
+            bind(status, at: 2, to: statement)
+            bind(modelName, at: 3, to: statement)
+            sqlite3_bind_int64(statement, 4, Int64(totalItems))
+            sqlite3_bind_double(statement, 5, now)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
+            }
+            return sqlite3_last_insert_rowid(handle)
+        }
+    }
+
+    func finishSummaryRun(
+        id: Int64,
+        status: String,
+        successCount: Int,
+        failureCount: Int,
+        inputMeanTokens: Double? = nil,
+        inputMaxTokens: Int? = nil,
+        outputMeanTokens: Double? = nil,
+        outputMaxTokens: Int? = nil,
+        averageItemDurationSeconds: Double? = nil,
+        errorMessage: String? = nil
+    ) throws {
+        try queue.sync {
+            let statement = try prepareStatement("""
+                UPDATE summary_runs
+                SET status = ?, success_count = ?, failure_count = ?,
+                    input_mean_tokens = ?, input_max_tokens = ?,
+                    output_mean_tokens = ?, output_max_tokens = ?,
+                    average_item_duration_seconds = ?, error_message = ?
+                WHERE id = ?;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            bind(status, at: 1, to: statement)
+            sqlite3_bind_int64(statement, 2, Int64(successCount))
+            sqlite3_bind_int64(statement, 3, Int64(failureCount))
+            if let inputMeanTokens { sqlite3_bind_double(statement, 4, inputMeanTokens) } else { sqlite3_bind_null(statement, 4) }
+            if let inputMaxTokens { sqlite3_bind_int64(statement, 5, Int64(inputMaxTokens)) } else { sqlite3_bind_null(statement, 5) }
+            if let outputMeanTokens { sqlite3_bind_double(statement, 6, outputMeanTokens) } else { sqlite3_bind_null(statement, 6) }
+            if let outputMaxTokens { sqlite3_bind_int64(statement, 7, Int64(outputMaxTokens)) } else { sqlite3_bind_null(statement, 7) }
+            if let averageItemDurationSeconds { sqlite3_bind_double(statement, 8, averageItemDurationSeconds) } else { sqlite3_bind_null(statement, 8) }
+            bind(errorMessage, at: 9, to: statement)
+            sqlite3_bind_int64(statement, 10, id)
+
+            guard sqlite3_step(statement) == SQLITE_DONE else {
+                throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
+            }
+            postChangeNotification()
+        }
+    }
+
+    func fetchSummaryRuns() throws -> [SummaryRunRecord] {
+        try queue.sync {
+            let statement = try prepareStatement("""
+                SELECT
+                    id, analysis_run_id, status, model_name, total_items,
+                    success_count, failure_count,
+                    input_mean_tokens, input_max_tokens,
+                    output_mean_tokens, output_max_tokens,
+                    average_item_duration_seconds, error_message,
+                    created_at
+                FROM summary_runs
+                ORDER BY id DESC
+                LIMIT 200;
+            """)
+            defer { sqlite3_finalize(statement) }
+
+            var records: [SummaryRunRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let id = sqlite3_column_int64(statement, 0)
+                let analysisRunID: Int64? = sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 1)
+                let status = string(at: 2, from: statement)
+                let modelName = string(at: 3, from: statement)
+                let totalItems = Int(sqlite3_column_int64(statement, 4))
+                let successCount = Int(sqlite3_column_int64(statement, 5))
+                let failureCount = Int(sqlite3_column_int64(statement, 6))
+
+                let inputMeanTokens: Double? = sqlite3_column_type(statement, 7) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 7)
+                let inputMaxTokens: Int? = sqlite3_column_type(statement, 8) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 8))
+                let outputMeanTokens: Double? = sqlite3_column_type(statement, 9) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 9)
+                let outputMaxTokens: Int? = sqlite3_column_type(statement, 10) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(statement, 10))
+                let averageItemDurationSeconds: Double? = sqlite3_column_type(statement, 11) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 11)
+                let errorMessage: String? = sqlite3_column_type(statement, 12) == SQLITE_NULL ? nil : string(at: 12, from: statement)
+                let createdAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, 13))
+
+                records.append(SummaryRunRecord(
+                    id: id, analysisRunID: analysisRunID, status: status, modelName: modelName,
+                    totalItems: totalItems, successCount: successCount, failureCount: failureCount,
+                    inputMeanTokens: inputMeanTokens, inputMaxTokens: inputMaxTokens,
+                    outputMeanTokens: outputMeanTokens, outputMaxTokens: outputMaxTokens,
+                    averageItemDurationSeconds: averageItemDurationSeconds,
+                    errorMessage: errorMessage, createdAt: createdAt
+                ))
+            }
+            return records
+        }
+    }
+
     func fetchAppLogs(limit: Int? = nil) throws -> [AppLogEntry] {
         try queue.sync {
             let limitClause = if let limit {
@@ -827,6 +993,26 @@ final class AppDatabase: @unchecked Sendable {
                 average_item_duration_seconds DOUBLE,
                 error_message TEXT,
                 created_at DOUBLE NOT NULL
+            );
+        """)
+
+        try execute("""
+            CREATE TABLE IF NOT EXISTS summary_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                analysis_run_id INTEGER,
+                status TEXT NOT NULL,
+                model_name TEXT NOT NULL,
+                total_items INTEGER NOT NULL,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                failure_count INTEGER NOT NULL DEFAULT 0,
+                input_mean_tokens DOUBLE,
+                input_max_tokens INTEGER,
+                output_mean_tokens DOUBLE,
+                output_max_tokens INTEGER,
+                average_item_duration_seconds DOUBLE,
+                error_message TEXT,
+                created_at DOUBLE NOT NULL,
+                FOREIGN KEY (analysis_run_id) REFERENCES analysis_runs(id)
             );
         """)
 
