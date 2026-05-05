@@ -11,6 +11,7 @@ struct AnalysisExecutionResult {
     let ocrText: String?
     let reasoningText: String?
     let modelInstanceID: String?
+    let tokenUsage: LLMTokenUsage?
 }
 
 struct ParsedAnalysisPayload: Decodable {
@@ -124,7 +125,8 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
                 lmStudioTiming: nil,
                 ocrText: recognizedText,
                 reasoningText: nil,
-                modelInstanceID: nil
+                modelInstanceID: nil,
+                tokenUsage: nil
             )
         }
 
@@ -142,7 +144,8 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
                     lmStudioTiming: nil,
                     ocrText: recognizedText,
                     reasoningText: nil,
-                    modelInstanceID: nil
+                    modelInstanceID: nil,
+                    tokenUsage: nil
                 )
             }
             requestPrompt = buildOCRAnalysisPrompt(
@@ -208,7 +211,8 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
             lmStudioTiming: llmResponse.lmStudioTiming,
             ocrText: ocrText,
             reasoningText: llmResponse.reasoningText,
-            modelInstanceID: llmResponse.modelInstanceID
+            modelInstanceID: llmResponse.modelInstanceID,
+            tokenUsage: llmResponse.tokenUsage
         )
     }
 
@@ -432,7 +436,8 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
             lmStudioTiming: nil,
             ocrText: nil,
             reasoningText: nil,
-            modelInstanceID: nil
+            modelInstanceID: nil,
+            tokenUsage: nil
         )
     }
 

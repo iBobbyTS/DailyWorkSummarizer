@@ -628,6 +628,7 @@ final class AnalysisService {
 
                     run.successCount += 1
                     run.consecutiveFailureCount = 0
+                    run.recordTokenUsage(from: result.tokenUsage)
                     removeProcessedScreenshot(at: fileURL)
                     NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
                 } catch {
@@ -694,6 +695,10 @@ final class AnalysisService {
                 status: "cancelled",
                 successCount: run.successCount,
                 failureCount: run.failureCount,
+                inputMeanTokens: run.inputMeanTokens,
+                inputMaxTokens: run.inputMaxTokens,
+                outputMeanTokens: run.outputMeanTokens,
+                outputMaxTokens: run.outputMaxTokens,
                 averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
                 errorMessage: localized(.analysisCancelledByUser, language: snapshot.appLanguage)
             )
@@ -726,6 +731,10 @@ final class AnalysisService {
                 status: finalStatus,
                 successCount: run.successCount,
                 failureCount: run.failureCount,
+                inputMeanTokens: run.inputMeanTokens,
+                inputMaxTokens: run.inputMaxTokens,
+                outputMeanTokens: run.outputMeanTokens,
+                outputMaxTokens: run.outputMaxTokens,
                 averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
                 errorMessage: message
             )
@@ -752,6 +761,10 @@ final class AnalysisService {
             status: finalStatus,
             successCount: run.successCount,
             failureCount: run.failureCount,
+            inputMeanTokens: run.inputMeanTokens,
+            inputMaxTokens: run.inputMaxTokens,
+                outputMeanTokens: run.outputMeanTokens,
+                outputMaxTokens: run.outputMaxTokens,
             averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
             errorMessage: run.failureCount > 0 ? localized(.analysisPartialFailures, language: snapshot.appLanguage) : nil
         )
@@ -1035,6 +1048,10 @@ final class AnalysisService {
         status: String,
         successCount: Int,
         failureCount: Int,
+        inputMeanTokens: Double? = nil,
+        inputMaxTokens: Int? = nil,
+        outputMeanTokens: Double? = nil,
+        outputMaxTokens: Int? = nil,
         averageItemDurationSeconds: Double? = nil,
         errorMessage: String? = nil
     ) {
@@ -1044,6 +1061,10 @@ final class AnalysisService {
                 status: status,
                 successCount: successCount,
                 failureCount: failureCount,
+                inputMeanTokens: inputMeanTokens,
+                inputMaxTokens: inputMaxTokens,
+                outputMeanTokens: outputMeanTokens,
+                outputMaxTokens: outputMaxTokens,
                 averageItemDurationSeconds: averageItemDurationSeconds,
                 errorMessage: errorMessage
             )

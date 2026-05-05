@@ -211,13 +211,17 @@ final class AppDatabase: @unchecked Sendable {
         status: String,
         successCount: Int,
         failureCount: Int,
+        inputMeanTokens: Double? = nil,
+        inputMaxTokens: Int? = nil,
+        outputMeanTokens: Double? = nil,
+        outputMaxTokens: Int? = nil,
         averageItemDurationSeconds: Double? = nil,
         errorMessage: String? = nil
     ) throws {
         try queue.sync {
             let statement = try prepareStatement("""
                 UPDATE analysis_runs
-                SET status = ?, success_count = ?, failure_count = ?, average_item_duration_seconds = ?, error_message = ?
+                SET status = ?, success_count = ?, failure_count = ?, input_mean_tokens = ?, input_max_tokens = ?, output_mean_tokens = ?, output_max_tokens = ?, average_item_duration_seconds = ?, error_message = ?
                 WHERE id = ?;
             """)
             defer { sqlite3_finalize(statement) }
@@ -225,13 +229,33 @@ final class AppDatabase: @unchecked Sendable {
             bind(status, at: 1, to: statement)
             sqlite3_bind_int64(statement, 2, Int64(successCount))
             sqlite3_bind_int64(statement, 3, Int64(failureCount))
-            if let averageItemDurationSeconds {
-                sqlite3_bind_double(statement, 4, averageItemDurationSeconds)
+            if let inputMeanTokens {
+                sqlite3_bind_double(statement, 4, inputMeanTokens)
             } else {
                 sqlite3_bind_null(statement, 4)
             }
-            bind(errorMessage, at: 5, to: statement)
-            sqlite3_bind_int64(statement, 6, id)
+            if let inputMaxTokens {
+                sqlite3_bind_int64(statement, 5, Int64(inputMaxTokens))
+            } else {
+                sqlite3_bind_null(statement, 5)
+            }
+            if let outputMeanTokens {
+                sqlite3_bind_double(statement, 6, outputMeanTokens)
+            } else {
+                sqlite3_bind_null(statement, 6)
+            }
+            if let outputMaxTokens {
+                sqlite3_bind_int64(statement, 7, Int64(outputMaxTokens))
+            } else {
+                sqlite3_bind_null(statement, 7)
+            }
+            if let averageItemDurationSeconds {
+                sqlite3_bind_double(statement, 8, averageItemDurationSeconds)
+            } else {
+                sqlite3_bind_null(statement, 8)
+            }
+            bind(errorMessage, at: 9, to: statement)
+            sqlite3_bind_int64(statement, 10, id)
 
             guard sqlite3_step(statement) == SQLITE_DONE else {
                 throw DatabaseError.execute(String(cString: sqlite3_errmsg(handle)))
@@ -796,6 +820,10 @@ final class AppDatabase: @unchecked Sendable {
                 total_items INTEGER NOT NULL,
                 success_count INTEGER NOT NULL DEFAULT 0,
                 failure_count INTEGER NOT NULL DEFAULT 0,
+                input_mean_tokens DOUBLE,
+                input_max_tokens INTEGER,
+                output_mean_tokens DOUBLE,
+                output_max_tokens INTEGER,
                 average_item_duration_seconds DOUBLE,
                 error_message TEXT,
                 created_at DOUBLE NOT NULL
@@ -842,6 +870,11 @@ final class AppDatabase: @unchecked Sendable {
                 message TEXT NOT NULL
             );
         """)
+
+        _ = try? execute("ALTER TABLE analysis_runs ADD COLUMN input_mean_tokens DOUBLE;")
+        _ = try? execute("ALTER TABLE analysis_runs ADD COLUMN input_max_tokens INTEGER;")
+        _ = try? execute("ALTER TABLE analysis_runs ADD COLUMN output_mean_tokens DOUBLE;")
+        _ = try? execute("ALTER TABLE analysis_runs ADD COLUMN output_max_tokens INTEGER;")
 
         try execute("CREATE INDEX IF NOT EXISTS idx_analysis_results_category_name ON analysis_results (category_name, captured_at DESC);")
         try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_results_captured_at_unique ON analysis_results (captured_at);")

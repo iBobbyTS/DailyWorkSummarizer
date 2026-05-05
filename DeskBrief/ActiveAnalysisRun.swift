@@ -32,6 +32,8 @@ final class ActiveAnalysisRun {
     var measuredItemCount = 0
     var wasCancelled = false
     var wasPausedAfterFailures = false
+    var inputTokenValues: [Int] = []
+    var outputTokenValues: [Int] = []
     var didLogLMStudioCancellationObservation = false
     var isAcceptingAppends = true
     private(set) var dailyReportStrategy: AnalysisRunDailyReportStrategy
@@ -95,6 +97,36 @@ final class ActiveAnalysisRun {
             return
         }
         dailyReportStrategy = .boundedRunDays
+    }
+
+    func recordTokenUsage(from tokenUsage: LLMTokenUsage?) {
+        guard let tokenUsage else { return }
+        if let input = tokenUsage.inputTokens {
+            inputTokenValues.append(input)
+        }
+        if let output = tokenUsage.outputTokens {
+            outputTokenValues.append(output)
+        }
+    }
+
+    var inputMeanTokens: Double? {
+        guard !inputTokenValues.isEmpty else { return nil }
+        let sum = inputTokenValues.reduce(0, +)
+        return Double(sum) / Double(inputTokenValues.count)
+    }
+
+    var inputMaxTokens: Int? {
+        inputTokenValues.max()
+    }
+
+    var outputMeanTokens: Double? {
+        guard !outputTokenValues.isEmpty else { return nil }
+        let sum = outputTokenValues.reduce(0, +)
+        return Double(sum) / Double(outputTokenValues.count)
+    }
+
+    var outputMaxTokens: Int? {
+        outputTokenValues.max()
     }
 
     func recordProcessedAnalysisResult(for screenshot: ScreenshotFileRecord, calendar: Calendar) {
