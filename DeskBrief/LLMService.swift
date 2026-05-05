@@ -76,7 +76,13 @@ enum LLMServiceError: Error {
 }
 
 private final class LLMURLSessionDataTaskBox: @unchecked Sendable {
-    nonisolated(unsafe) var task: URLSessionDataTask?
+    private let lock = NSLock()
+    private nonisolated(unsafe) var _task: URLSessionDataTask?
+
+    var task: URLSessionDataTask? {
+        get { lock.withLock { _task } }
+        set { lock.withLock { _task = newValue } }
+    }
 }
 
 private final class LLMActiveRequestTaskStore: @unchecked Sendable {

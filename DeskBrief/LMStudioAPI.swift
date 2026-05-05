@@ -66,7 +66,13 @@ private struct LMStudioLifecycleDataRequestResult {
 }
 
 private final class LMStudioLifecycleURLSessionDataTaskBox: @unchecked Sendable {
-    nonisolated(unsafe) var task: URLSessionDataTask?
+    private let lock = NSLock()
+    private nonisolated(unsafe) var _task: URLSessionDataTask?
+
+    var task: URLSessionDataTask? {
+        get { lock.withLock { _task } }
+        set { lock.withLock { _task = newValue } }
+    }
 }
 
 final class LMStudioModelLifecycle {
