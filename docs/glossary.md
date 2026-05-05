@@ -50,7 +50,7 @@ This glossary keeps DeskBrief's common Simplified Chinese and English product te
 | 模型服务 | Model provider | Provider picker label. |
 | 接口地址 | Base URL | Model API endpoint. |
 | 模型名称 | Model name | Model identifier. |
-| API 秘钥 | API key | Existing UI spelling; keep consistent unless changed deliberately. |
+| API 密钥 | API key | |
 | 上下文长度 | Context length | LM Studio context length. |
 | 图像分析方法 | Image analysis method | OCR vs multimodal mode. |
 | OCR（大模型仅做语言分析） | OCR (LLM text-only analysis) | OCR-first analysis path. |

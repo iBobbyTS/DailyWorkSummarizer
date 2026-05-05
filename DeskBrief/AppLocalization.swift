@@ -342,7 +342,7 @@ nonisolated enum L10n {
             .settingsModelBaseURL: "接口地址",
             .settingsModelName: "模型名称",
             .settingsModelNamePlaceholder: "请输入模型名称",
-            .settingsModelAPIKey: "API 秘钥",
+            .settingsModelAPIKey: "API 密钥",
             .settingsModelAPIKeyPlaceholder: "请输入 API Key（可留空）",
             .settingsModelContextLength: "上下文长度",
             .settingsModelLMStudioExplicitLoadUnloadModel: "主动装卸载模型",
