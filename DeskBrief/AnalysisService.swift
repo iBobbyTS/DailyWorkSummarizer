@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import FoundationModels
 
 enum AnalysisServiceError: LocalizedError {
     case invalidConfiguration(String)
@@ -10,16 +11,11 @@ enum AnalysisServiceError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidConfiguration(let message):
-            return message
-        case .invalidResponse(let message):
-            return message
-        case .httpError(let statusCode, let body):
-            return L10n.string(.analysisHTTPError, arguments: [statusCode, body])
-        case .lengthTruncated(let message):
-            return message
-        case .invalidImageData(let message):
-            return message
+        case .invalidConfiguration(let message): return message
+        case .invalidResponse(let message): return message
+        case .httpError(let statusCode, let body): return L10n.string(.analysisHTTPError, arguments: [statusCode, body])
+        case .lengthTruncated(let message): return message
+        case .invalidImageData(let message): return message
         }
     }
 }
@@ -31,25 +27,11 @@ final class AnalysisService {
     private let logStore: AppLogStore
     private let dailyReportSummaryService: DailyReportSummaryService
     private let runCoordinator: AppRunCoordinator
+    private let scheduler: AnalysisScheduler
+    private let executor: AnalysisRunExecutor
     private let llmService: LLMService
     private let analysisWorker: AnalysisWorker
-    private let lmStudioLifecycle: LMStudioModelLifecycle
     private let notificationSender: AppNotificationSending
-    private var timer: Timer?
-    private var realtimeAnalysisTimer: Timer?
-    private var realtimeBacklogTimer: Timer?
-    private var realtimeBacklogMonitor = RealtimeAnalysisBacklogMonitor()
-    private var wakeObserver: NSObjectProtocol?
-    private var screenshotSavedObserver: NSObjectProtocol?
-    private var runningTask: Task<Void, Never>?
-    private var activeAnalysisRun: ActiveAnalysisRun?
-    private var activeRunSettings: AppSettingsSnapshot?
-    private var lastLMStudioModelInstanceID: String?
-    private var runtimeState: AnalysisRuntimeState = .idle {
-        didSet {
-            NotificationCenter.default.post(name: .analysisStatusDidChange, object: nil)
-        }
-    }
 
     init(
         database: AppDatabase,
@@ -66,10 +48,12 @@ final class AnalysisService {
         self.dailyReportSummaryService = dailyReportSummaryService
         self.runCoordinator = runCoordinator ?? dailyReportSummaryService.runCoordinator
         self.notificationSender = notificationSender ?? NoOpAppNotificationService()
+
         let resolvedSession = session ?? Self.makeIsolatedSession()
         self.llmService = LLMService(session: resolvedSession)
         self.analysisWorker = AnalysisWorker(llmService: self.llmService)
-        self.lmStudioLifecycle = LMStudioModelLifecycle(session: resolvedSession) { [weak settingsStore, weak logStore] chinese, english in
+
+        let lmStudioLifecycle = LMStudioModelLifecycle(session: resolvedSession) { [weak settingsStore, weak logStore] chinese, english in
             Task { @MainActor in
                 guard let logStore else { return }
                 let language = settingsStore?.appLanguage ?? .current
@@ -77,92 +61,79 @@ final class AnalysisService {
                 logStore.add(level: .log, source: .lmStudio, message: message)
             }
         }
+
+        self.scheduler = AnalysisScheduler(
+            database: database,
+            settingsStore: settingsStore,
+            logStore: logStore,
+            notificationSender: self.notificationSender
+        )
+
+        self.executor = AnalysisRunExecutor(
+            database: database,
+            settingsStore: settingsStore,
+            logStore: logStore,
+            llmService: self.llmService,
+            analysisWorker: self.analysisWorker,
+            lmStudioLifecycle: lmStudioLifecycle,
+            notificationSender: self.notificationSender
+        )
+
         self.runCoordinator.startAnalysisHandler = { [weak self] trigger in
             self?.startAnalysisFromCoordinator(trigger: trigger)
         }
+
+        setupExecutorCallbacks()
     }
 
-    deinit {
-        timer?.invalidate()
-        realtimeAnalysisTimer?.invalidate()
-        realtimeBacklogTimer?.invalidate()
-        runningTask?.cancel()
-        if let wakeObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+    private func setupExecutorCallbacks() {
+        scheduler.onTrigger = { [weak self] trigger in
+            self?.triggerAnalysis(trigger: trigger)
         }
-        if let screenshotSavedObserver {
-            NotificationCenter.default.removeObserver(screenshotSavedObserver)
+
+        executor.onStateChange = { [weak self] _ in
+            NotificationCenter.default.post(name: .analysisStatusDidChange, object: nil)
+        }
+
+        executor.onRunResult = { [weak self] result in
+            guard let self else { return }
+            self.handleRunResult(result)
         }
     }
 
     func start() {
-        scheduleNextRun()
-        configureRealtimeBacklogMonitoring()
-        screenshotSavedObserver = NotificationCenter.default.addObserver(
-            forName: .screenshotFileSaved,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard notification.object is URL else {
-                return
-            }
-            Task { @MainActor [weak self] in
-                self?.scheduleRealtimeAnalysisAfterCapture()
-            }
-        }
-        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.scheduleNextRun()
-            }
-        }
+        scheduler.start()
     }
 
     func reschedule() {
-        scheduleNextRun()
-        configureRealtimeBacklogMonitoring()
-        if settingsStore.snapshot.analysisStartupMode != .realtime {
-            realtimeAnalysisTimer?.invalidate()
-            realtimeAnalysisTimer = nil
-        }
+        scheduler.reschedule()
+        // If rescheduled to non-realtime mode and executor hasn't started its own cleanup
     }
 
     func runNow() {
-        triggerAnalysis(scheduledFor: Date(), trigger: .manual)
+        let snapshot = settingsStore.snapshot
+        guard !snapshot.validCategoryRules.isEmpty else { return }
+        let pendingScreenshots = pendingScreenshotFiles()
+        guard !pendingScreenshots.isEmpty else { return }
+
+        let trigger = AnalysisTrigger.manual
+        let canMerge = executor.currentState.isRunning && executor.isAcceptingAppends
+        switch runCoordinator.requestAnalysis(trigger: trigger, canMergeWithActiveAnalysis: canMerge) {
+        case .startNow:
+            beginAnalysisRun(trigger: trigger, pendingScreenshots: pendingScreenshots)
+        case .mergeIntoCurrentRun:
+            executor.appendPendingScreenshots(pendingScreenshots)
+        case .queued:
+            break
+        }
     }
 
     func cancelCurrentRun() {
-        guard runtimeState.isRunning, !runtimeState.isStopping else { return }
-        activeAnalysisRun?.isAcceptingAppends = false
-        if activeRunSettings?.provider == .lmStudio {
-            recordLMStudioLog(
-                chinese: "用户点击了停止本次分析。",
-                english: "User requested to stop current analysis."
-            )
-        }
-        updateRuntimeState(
-            startedAt: runtimeState.startedAt,
-            modelName: runtimeState.modelName,
-            completedCount: runtimeState.completedCount,
-            totalCount: runtimeState.totalCount,
-            stoppingStage: .stoppingGeneration,
-            isLoadingModel: false
-        )
-        runningTask?.cancel()
-        llmService.cancelActiveRemoteRequest()
-        if activeRunSettings?.provider == .lmStudio {
-            recordLMStudioLog(
-                chinese: "已向当前 LM Studio 请求发送取消。",
-                english: "Sent cancellation to the active LM Studio request."
-            )
-        }
+        executor.cancelCurrentRun()
     }
 
     var currentState: AnalysisRuntimeState {
-        runtimeState
+        executor.currentState
     }
 
     func currentPrompt() -> String {
@@ -176,7 +147,6 @@ final class AnalysisService {
 
     func testCurrentSettings(with imageFileURL: URL) async throws -> ModelTestResult {
         let snapshot = settingsStore.snapshot
-        lastLMStudioModelInstanceID = nil
 
         guard !snapshot.validCategoryRules.isEmpty else {
             throw AnalysisServiceError.invalidConfiguration(localized(.analysisNeedsCategoryRule, language: snapshot.appLanguage))
@@ -186,7 +156,6 @@ final class AnalysisService {
             guard !snapshot.apiBaseURL.isEmpty else {
                 throw AnalysisServiceError.invalidConfiguration(localized(.analysisNeedsBaseURL, language: snapshot.appLanguage))
             }
-
             guard !snapshot.modelName.isEmpty else {
                 throw AnalysisServiceError.invalidConfiguration(localized(.analysisNeedsModelName, language: snapshot.appLanguage))
             }
@@ -198,18 +167,19 @@ final class AnalysisService {
             language: snapshot.appLanguage
         )
         var loadedModel: LMStudioLoadedModel?
+        let lmStudioLifecycleForTest = LMStudioModelLifecycle(session: Self.makeIsolatedSession())
         do {
-            loadedModel = try await loadScreenshotAnalysisModelIfNeeded(for: snapshot.screenshotAnalysisModelProfile)
-            let result = try await analysisWorker.analyzeImageDetailed(
-                at: imageFileURL,
-                settings: snapshot,
-                prompt: prompt
+            loadedModel = try await loadScreenshotAnalysisModelIfNeeded(
+                for: snapshot.screenshotAnalysisModelProfile,
+                lifecycle: lmStudioLifecycleForTest
             )
-            recordLMStudioModelInstanceIfNeeded(result.modelInstanceID, provider: snapshot.provider)
+            let result = try await analysisWorker.analyzeImageDetailed(at: imageFileURL, settings: snapshot, prompt: prompt)
+
             if let loadedModel {
                 await unloadModelAfterSettingsTest(
                     settings: snapshot.screenshotAnalysisModelProfile,
-                    instanceID: loadedModel.instanceID
+                    instanceID: loadedModel.instanceID,
+                    lifecycle: lmStudioLifecycleForTest
                 )
             }
             return ModelTestResult(
@@ -225,14 +195,160 @@ final class AnalysisService {
             if let loadedModel {
                 await unloadModelAfterSettingsTest(
                     settings: snapshot.screenshotAnalysisModelProfile,
-                    instanceID: loadedModel.instanceID
+                    instanceID: loadedModel.instanceID,
+                    lifecycle: lmStudioLifecycleForTest
                 )
             }
-            if Self.shouldRecordRuntimeError(error) {
+            if AnalysisRunExecutor.shouldRecordRuntimeError(error) {
                 logStore.addError(source: .analysis, context: "Failed to test screenshot analysis settings", error: error)
             }
             throw error
         }
+    }
+
+    func checkRealtimeAnalysisBacklogNow() async {
+        await scheduler.checkRealtimeAnalysisBacklogNow()
+    }
+
+    func forceUnloadManagedModel() async throws -> Bool {
+        try await executor.forceUnloadManagedModel()
+    }
+
+    private func triggerAnalysis(trigger: AnalysisTrigger) {
+        guard canRunAnalysisTrigger(trigger) else {
+            if trigger == .scheduled { scheduler.start() }
+            return
+        }
+
+        let canMerge = executor.currentState.isRunning && executor.isAcceptingAppends
+        switch runCoordinator.requestAnalysis(trigger: trigger, canMergeWithActiveAnalysis: canMerge) {
+        case .startNow:
+            beginAnalysisRun(trigger: trigger)
+        case .mergeIntoCurrentRun:
+            let pending = pendingScreenshotFiles()
+            executor.appendPendingScreenshots(pending)
+        case .queued:
+            break
+        }
+    }
+
+    private func startAnalysisFromCoordinator(trigger: AnalysisTrigger) {
+        guard canRunAnalysisTrigger(trigger) else {
+            if trigger == .scheduled { scheduler.start() }
+            runCoordinator.finishRun(.screenshotAnalysis)
+            return
+        }
+        beginAnalysisRun(trigger: trigger)
+    }
+
+    private func canRunAnalysisTrigger(_ trigger: AnalysisTrigger) -> Bool {
+        if AnalysisService.shouldSkipForChargerRequirement(
+            trigger: trigger,
+            requiresCharger: settingsStore.snapshot.autoAnalysisRequiresCharger,
+            devicePowerState: DevicePowerState.current()
+        ) {
+            return false
+        }
+        return true
+    }
+
+    private func beginAnalysisRun(trigger: AnalysisTrigger, pendingScreenshots: [ScreenshotFileRecord]? = nil) {
+        if executor.currentState.isRunning && executor.isAcceptingAppends {
+            let screenshots = pendingScreenshots ?? pendingScreenshotFiles()
+            executor.appendPendingScreenshots(screenshots)
+            return
+        }
+
+        let snapshot = settingsStore.snapshot
+        let screenshots = pendingScreenshots ?? pendingScreenshotFiles()
+        guard !screenshots.isEmpty else {
+            if trigger == .scheduled { scheduler.start() }
+            runCoordinator.finishRun(.screenshotAnalysis)
+            return
+        }
+
+        let prompt = currentPrompt()
+        executor.execute(trigger: trigger, pendingScreenshots: screenshots, prompt: prompt)
+    }
+
+    private func handleRunResult(_ result: AnalysisRunResult) {
+        scheduler.start()
+
+        let snapshot = settingsStore.snapshot
+        let analysisSettings = snapshot.screenshotAnalysisModelProfile
+        let summarySettings = snapshot.workContentSummaryModelProfile
+
+        let analysisLifecycleEnabled = analysisSettings.provider == .lmStudio && analysisSettings.explicitLoadUnloadModel
+        let summaryLifecycleEnabled = summarySettings.provider == .lmStudio && summarySettings.explicitLoadUnloadModel
+        let equivalentLoadConfiguration = LMStudioAPI.hasEquivalentLoadConfiguration(analysisSettings, summarySettings)
+        let canReuseAnalysisModel = analysisLifecycleEnabled
+            && summarySettings.provider == .lmStudio
+            && equivalentLoadConfiguration
+            && !result.wasCancelled
+
+        let notificationContext = AnalysisCompletionNotificationContext(
+            trigger: result.trigger,
+            successfulScreenshotCount: result.successCount,
+            failedScreenshotCount: result.failureCount
+        )
+        let notificationIntent: DailyReportSummaryNotificationIntent
+        if result.dailyReportCandidateDayStarts.isEmpty {
+            notificationIntent = .none
+            sendCompletionNotification(context: notificationContext, dailyReportDayStarts: [], language: snapshot.appLanguage)
+        } else {
+            notificationIntent = .analysisCompletion(notificationContext)
+        }
+
+        let lmStudioPolicy: DailyReportLMStudioLifecyclePolicy = (summaryLifecycleEnabled && !canReuseAnalysisModel)
+            ? .loadForSummaryThenUnload
+            : .reuseAlreadyLoadedModelAndKeepLoaded
+
+        dailyReportSummaryService.enqueueSummariesAfterAnalysis(
+            workBlockDayStarts: result.affectedDayStarts,
+            dailyReportCandidateDayStarts: result.dailyReportCandidateDayStarts,
+            lmStudioLifecyclePolicy: lmStudioPolicy,
+            notificationIntent: notificationIntent
+        )
+
+        runCoordinator.finishRun(.screenshotAnalysis)
+    }
+
+    private func sendCompletionNotification(
+        context: AnalysisCompletionNotificationContext,
+        dailyReportDayStarts: [Date],
+        summaryFailed: Bool = false,
+        language: AppLanguage
+    ) {
+        Task { @MainActor [weak self] in
+            guard let message = AppNotificationMessageBuilder.analysisCompletion(
+                context: context,
+                dailyReportDayStarts: dailyReportDayStarts,
+                summaryFailed: summaryFailed,
+                language: language
+            ) else { return }
+            await self?.notificationSender.send(message)
+        }
+    }
+
+    private var activeAnalysisRunIsAcceptingAppends: Bool {
+        executor.isAcceptingAppends
+    }
+
+    private func pendingScreenshotFiles() -> [ScreenshotFileRecord] {
+        do {
+            return try database.listScreenshotFiles(defaultDurationMinutes: settingsStore.snapshot.screenshotIntervalMinutes)
+        } catch {
+            logStore.addError(source: .analysis, context: "Failed to list pending screenshot files", error: error)
+            return []
+        }
+    }
+
+    private func buildPrompt(
+        with rules: [CategoryRule],
+        summaryInstruction: String,
+        language: AppLanguage
+    ) -> String {
+        L10n.analysisPrompt(with: rules, summaryInstruction: summaryInstruction, language: language)
     }
 
     private static func makeIsolatedSession() -> URLSession {
@@ -245,982 +361,126 @@ final class AnalysisService {
         return URLSession(configuration: configuration)
     }
 
-    private func scheduleNextRun() {
-        timer?.invalidate()
-        guard settingsStore.snapshot.analysisStartupMode == .scheduled else {
-            return
-        }
-        let nextDate = settingsStore.snapshot.nextAnalysisDate(after: Date())
-        timer = Timer(fire: nextDate, interval: 0, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.triggerAnalysis(scheduledFor: nextDate, trigger: .scheduled)
-            }
-        }
-
-        if let timer {
-            RunLoop.main.add(timer, forMode: .common)
-        }
-    }
-
-    private func scheduleRealtimeAnalysisAfterCapture() {
-        guard settingsStore.snapshot.analysisStartupMode == .realtime else {
-            return
-        }
-
-        realtimeAnalysisTimer?.invalidate()
-        let fireDate = Date().addingTimeInterval(1)
-        realtimeAnalysisTimer = Timer(fire: fireDate, interval: 0, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.triggerRealtimeAnalysis()
-            }
-        }
-
-        if let realtimeAnalysisTimer {
-            RunLoop.main.add(realtimeAnalysisTimer, forMode: .common)
-        }
-    }
-
-    private func triggerRealtimeAnalysis() {
-        realtimeAnalysisTimer?.invalidate()
-        realtimeAnalysisTimer = nil
-
-        guard settingsStore.snapshot.analysisStartupMode == .realtime else {
-            return
-        }
-
-        triggerAnalysis(scheduledFor: Date(), trigger: .realtime)
-    }
-
-    func checkRealtimeAnalysisBacklogNow() async {
-        guard settingsStore.snapshot.analysisStartupMode == .realtime else {
-            stopRealtimeBacklogMonitoring()
-            return
-        }
-
-        guard let pendingCount = pendingScreenshotCountForRealtimeBacklogMonitor() else {
-            return
-        }
-
-        guard let warning = realtimeBacklogMonitor.record(pendingScreenshotCount: pendingCount) else {
-            return
-        }
-
-        let message = AppNotificationMessageBuilder.realtimeAnalysisBacklogWarning(
-            warning: warning,
-            language: settingsStore.appLanguage
-        )
-        await notificationSender.send(message)
-    }
-
-    private func configureRealtimeBacklogMonitoring() {
-        if settingsStore.snapshot.analysisStartupMode == .realtime {
-            startRealtimeBacklogMonitoringIfNeeded()
-        } else {
-            stopRealtimeBacklogMonitoring()
-        }
-    }
-
-    private func startRealtimeBacklogMonitoringIfNeeded() {
-        guard realtimeBacklogTimer == nil else {
-            return
-        }
-
-        realtimeBacklogMonitor.reset(
-            baselinePendingScreenshotCount: pendingScreenshotCountForRealtimeBacklogMonitor()
-        )
-
-        let timer = Timer(
-            timeInterval: AppDefaults.realtimeBacklogCheckIntervalSeconds,
-            repeats: true
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                await self?.checkRealtimeAnalysisBacklogNow()
-            }
-        }
-        realtimeBacklogTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
-    }
-
-    private func stopRealtimeBacklogMonitoring() {
-        realtimeBacklogTimer?.invalidate()
-        realtimeBacklogTimer = nil
-        realtimeBacklogMonitor.reset()
-    }
-
-    private func pendingScreenshotCountForRealtimeBacklogMonitor() -> Int? {
-        do {
-            return try database.listScreenshotFiles(
-                defaultDurationMinutes: settingsStore.snapshot.screenshotIntervalMinutes
-            ).count
-        } catch {
-            logStore.addError(source: .analysis, context: "Failed to check realtime analysis backlog", error: error)
-            return nil
-        }
-    }
-
-    private func triggerAnalysis(scheduledFor _: Date, trigger: AnalysisTrigger) {
-        guard canRunAnalysisTrigger(trigger) else {
-            if trigger == .scheduled {
-                scheduleNextRun()
-            }
-            return
-        }
-
-        let canMergeWithActiveAnalysis = activeAnalysisRun?.isAcceptingAppends == true
-        switch runCoordinator.requestAnalysis(
-            trigger: trigger,
-            canMergeWithActiveAnalysis: canMergeWithActiveAnalysis
-        ) {
-        case .startNow:
-            beginAnalysisRun(trigger: trigger)
-        case .mergeIntoCurrentRun:
-            if let activeAnalysisRun {
-                appendPendingScreenshots(to: activeAnalysisRun, trigger: trigger)
-            }
-        case .queued:
-            break
-        }
-    }
-
-    private func startAnalysisFromCoordinator(trigger: AnalysisTrigger) {
-        guard canRunAnalysisTrigger(trigger) else {
-            if trigger == .scheduled {
-                scheduleNextRun()
-            }
-            runCoordinator.finishRun(.screenshotAnalysis)
-            return
-        }
-
-        beginAnalysisRun(trigger: trigger)
-    }
-
-    private func canRunAnalysisTrigger(_ trigger: AnalysisTrigger) -> Bool {
-        if Self.shouldSkipForChargerRequirement(
-            trigger: trigger,
-            requiresCharger: settingsStore.snapshot.autoAnalysisRequiresCharger,
-            devicePowerState: DevicePowerState.current()
-        ) {
-            return false
-        }
-        return true
-    }
-
-    private func beginAnalysisRun(trigger: AnalysisTrigger) {
-        if let activeAnalysisRun {
-            if activeAnalysisRun.isAcceptingAppends {
-                appendPendingScreenshots(to: activeAnalysisRun, trigger: trigger)
-            } else {
-                _ = runCoordinator.requestAnalysis(
-                    trigger: trigger,
-                    canMergeWithActiveAnalysis: false
-                )
-            }
-            return
-        }
-
-        let snapshot = settingsStore.snapshot
-        let pendingScreenshots = pendingScreenshotFiles(defaultDurationMinutes: snapshot.screenshotIntervalMinutes)
-        guard !pendingScreenshots.isEmpty else {
-            if trigger == .scheduled {
-                scheduleNextRun()
-            }
-            runCoordinator.finishRun(.screenshotAnalysis)
-            return
-        }
-
-        let prompt = buildPrompt(
-            with: snapshot.validCategoryRules,
-            summaryInstruction: snapshot.summaryInstruction,
-            language: snapshot.appLanguage
-        )
-        let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
-        let previousAnalysisResultDayStarts = previousAnalysisResultDayStarts(
-            before: pendingScreenshots.map(\.capturedAt).min(),
-            calendar: calendar
-        )
-
-        let runID: Int64
-        do {
-            runID = try database.createAnalysisRun(
-                modelName: snapshot.modelName,
-                totalItems: pendingScreenshots.count
-            )
-        } catch {
-            logStore.addError(source: .analysis, context: "Failed to create analysis run", error: error)
-            let notificationContext = AnalysisCompletionNotificationContext(
-                trigger: trigger,
-                successfulScreenshotCount: 0,
-                failedScreenshotCount: pendingScreenshots.count
-            )
-            Task { @MainActor [weak self] in
-                await self?.sendAnalysisCompletionNotificationIfNeeded(
-                    context: notificationContext,
-                    dailyReportDayStarts: [],
-                    language: snapshot.appLanguage
-                )
-            }
-            runCoordinator.finishRun(.screenshotAnalysis)
-            return
-        }
-
-        let run = ActiveAnalysisRun(
-            id: runID,
-            settings: snapshot,
-            prompt: prompt,
-            screenshots: pendingScreenshots,
-            trigger: trigger,
-            previousAnalysisResultDayStarts: previousAnalysisResultDayStarts
-        )
-        activeAnalysisRun = run
-        updateRuntimeState(
-            startedAt: run.startedAt,
-            modelName: snapshot.modelName,
-            completedCount: run.completedCount,
-            totalCount: run.totalCount,
-            stoppingStage: nil
-        )
-        runningTask = Task { [weak self] in
-            guard let self else { return }
-            await self.runAnalysis(for: run)
-            await MainActor.run {
-                self.runningTask = nil
-                self.scheduleNextRun()
-                self.runCoordinator.finishRun(.screenshotAnalysis)
-            }
-        }
-    }
-
-    private func runAnalysis(for run: ActiveAnalysisRun) async {
-        let snapshot = run.settings
-        let reportCalendar = Calendar.reportCalendar(language: snapshot.appLanguage)
-        lastLMStudioModelInstanceID = nil
-        activeRunSettings = snapshot
-        defer {
-            activeRunSettings = nil
-            activeAnalysisRun = nil
-            runtimeState = .idle
-        }
-
-        guard !snapshot.validCategoryRules.isEmpty else {
-            finishAnalysisRun(
-                id: run.id,
-                status: "failed",
-                successCount: 0,
-                failureCount: run.totalCount,
-                errorMessage: localized(.analysisNeedsCategoryRule, language: snapshot.appLanguage)
-            )
-            run.failureCount = run.totalCount
-            await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
-            return
-        }
-
-        if snapshot.provider.requiresRemoteConfiguration {
-            guard !snapshot.apiBaseURL.isEmpty else {
-                finishAnalysisRun(
-                    id: run.id,
-                    status: "failed",
-                    successCount: 0,
-                    failureCount: run.totalCount,
-                    errorMessage: localized(.analysisNeedsBaseURL, language: snapshot.appLanguage)
-                )
-                run.failureCount = run.totalCount
-                await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
-                return
-            }
-
-            guard !snapshot.modelName.isEmpty else {
-                finishAnalysisRun(
-                    id: run.id,
-                    status: "failed",
-                    successCount: 0,
-                    failureCount: run.totalCount,
-                    errorMessage: localized(.analysisNeedsModelName, language: snapshot.appLanguage)
-                )
-                run.failureCount = run.totalCount
-                await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
-                return
-            }
-        }
-
-        let loadedAnalysisModel: LMStudioLoadedModel?
-        do {
-            loadedAnalysisModel = try await loadScreenshotAnalysisModelIfNeeded(for: snapshot.screenshotAnalysisModelProfile)
-        } catch {
-            let memoryError = error as? ModelMemoryError
-            if memoryError == nil, Self.shouldRecordRuntimeError(error) {
-                logStore.addError(source: .analysis, context: "Failed to load screenshot analysis model", error: error)
-            }
-            finishAnalysisRun(
-                id: run.id,
-                status: "failed",
-                successCount: 0,
-                failureCount: run.totalCount,
-                errorMessage: error.localizedDescription
-            )
-            run.failureCount = run.totalCount
-            if let memoryError {
-                await notificationSender.send(
-                    AppNotificationMessageBuilder.modelMemoryInsufficient(
-                        runTypeName: L10n.string(.settingsTabScreenshotAnalysis, language: snapshot.appLanguage),
-                        thresholdGB: memoryError.thresholdGB,
-                        availableGB: memoryError.availableGB,
-                        language: snapshot.appLanguage
-                    )
-                )
-            } else {
-                await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
-            }
-            return
-        }
-
-        func recordLMStudioCancellationObservationIfNeeded() {
-            guard snapshot.screenshotAnalysisModelProfile.provider == .lmStudio,
-                  snapshot.screenshotAnalysisModelProfile.explicitLoadUnloadModel,
-                  !run.didLogLMStudioCancellationObservation else { return }
-            run.didLogLMStudioCancellationObservation = true
-            recordLMStudioLog(
-                chinese: "分析循环检测到取消，准备进入 LM Studio 清理阶段。",
-                english: "Analysis loop observed cancellation and is entering LM Studio cleanup."
-            )
-        }
-
-        while true {
-            while let screenshot = run.nextScreenshot() {
-                if Task.isCancelled {
-                    recordLMStudioCancellationObservationIfNeeded()
-                    run.wasCancelled = true
-                    break
-                }
-
-                let fileURL = screenshot.url
-                let capturedAt = screenshot.capturedAt
-                let durationMinutes = screenshot.durationMinutes
-
-                guard FileManager.default.fileExists(atPath: fileURL.path) else {
-                    logStore.add(
-                        level: .log,
-                        source: .analysis,
-                        message: "Pending screenshot no longer exists: \(fileURL.path)"
-                    )
-                    run.failureCount += 1
-                    run.consecutiveFailureCount += 1
-                    run.completedCount += 1
-                    updateRuntimeState(
-                        startedAt: run.startedAt,
-                        modelName: snapshot.modelName,
-                        completedCount: run.completedCount,
-                        totalCount: run.totalCount
-                    )
-                    if Self.shouldPauseAfterConsecutiveFailures(run.consecutiveFailureCount) {
-                        run.wasPausedAfterFailures = true
-                        break
-                    }
-                    continue
-                }
-
-                let shouldMeasureDuration = run.completedCount > 0
-                let itemStartTime = shouldMeasureDuration ? Date() : nil
-
-                do {
-                    let result = try await analysisWorker.analyzeImageDetailed(
-                        at: fileURL,
-                        settings: snapshot,
-                        prompt: run.prompt
-                    )
-                    recordLMStudioModelInstanceIfNeeded(result.modelInstanceID, provider: snapshot.provider)
-                    let response = result.response
-
-                    _ = try database.insertAnalysisResult(
-                        capturedAt: capturedAt,
-                        categoryName: response.category,
-                        summaryText: response.summary,
-                        durationMinutesSnapshot: durationMinutes
-                    )
-                    run.recordProcessedAnalysisResult(for: screenshot, calendar: reportCalendar)
-
-                    run.successCount += 1
-                    run.consecutiveFailureCount = 0
-                    run.recordTokenUsage(from: result.tokenUsage)
-                    removeProcessedScreenshot(at: fileURL)
-                    NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
-                } catch {
-                    if error is CancellationError || Task.isCancelled {
-                        recordLMStudioCancellationObservationIfNeeded()
-                        run.wasCancelled = true
-                        break
-                    }
-
-                    if Self.shouldRecordRuntimeError(error) {
-                        logStore.addError(source: .analysis, context: "Failed to analyze screenshot \(fileURL.lastPathComponent)", error: error)
-                    }
-                    if Self.shouldRemoveFailedScreenshot(after: error) {
-                        removeProcessedScreenshot(at: fileURL)
-                        NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
-                    }
-                    run.failureCount += 1
-                    run.consecutiveFailureCount += 1
-                }
-
-                if let itemStartTime {
-                    run.measuredDurationTotal += Date().timeIntervalSince(itemStartTime)
-                    run.measuredItemCount += 1
-                }
-
-                run.completedCount += 1
-                updateRuntimeState(
-                    startedAt: run.startedAt,
-                    modelName: snapshot.modelName,
-                    completedCount: run.completedCount,
-                    totalCount: run.totalCount
-                )
-
-                if Self.shouldPauseAfterConsecutiveFailures(run.consecutiveFailureCount) {
-                    run.wasPausedAfterFailures = true
-                    break
-                }
-
-                await Task.yield()
-            }
-
-            if run.wasCancelled || run.wasPausedAfterFailures {
-                break
-            }
-
-            if await waitForAdditionalScreenshots(to: run) {
-                continue
-            }
-
-            if Task.isCancelled {
-                recordLMStudioCancellationObservationIfNeeded()
-                run.wasCancelled = true
-                break
-            }
-            run.isAcceptingAppends = false
-            break
-        }
-
-        run.isAcceptingAppends = false
-
-        if run.wasCancelled {
-            finishAnalysisRun(
-                id: run.id,
-                status: "cancelled",
-                successCount: run.successCount,
-                failureCount: run.failureCount,
-                inputMeanTokens: run.inputMeanTokens,
-                inputMaxTokens: run.inputMaxTokens,
-                outputMeanTokens: run.outputMeanTokens,
-                outputMaxTokens: run.outputMaxTokens,
-                averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
-                errorMessage: localized(.analysisCancelledByUser, language: snapshot.appLanguage)
-            )
-            if let unloadingStage = Self.stoppingStageAfterGenerationStops(
-                for: snapshot.screenshotAnalysisModelProfile.provider,
-                lifecycleEnabled: snapshot.screenshotAnalysisModelProfile.explicitLoadUnloadModel
-            ) {
-                updateRuntimeState(
-                    startedAt: run.startedAt,
-                    modelName: snapshot.modelName,
-                    completedCount: run.completedCount,
-                    totalCount: run.totalCount,
-                    stoppingStage: unloadingStage
-                )
-            }
-            await unloadScreenshotAnalysisModelIfNeeded(
-                for: snapshot.screenshotAnalysisModelProfile,
-                loadedInstanceID: loadedAnalysisModel?.instanceID,
-                cancelActiveRequest: true
-            )
-            await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
-            return
-        }
-
-        if run.wasPausedAfterFailures {
-            let message = localized(.analysisPausedAfterFailures, language: snapshot.appLanguage)
-            let finalStatus = run.successCount > 0 ? "partial_failed" : "failed"
-            finishAnalysisRun(
-                id: run.id,
-                status: finalStatus,
-                successCount: run.successCount,
-                failureCount: run.failureCount,
-                inputMeanTokens: run.inputMeanTokens,
-                inputMaxTokens: run.inputMaxTokens,
-                outputMeanTokens: run.outputMeanTokens,
-                outputMaxTokens: run.outputMaxTokens,
-                averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
-                errorMessage: message
-            )
-            await unloadScreenshotAnalysisModelIfNeeded(
-                for: snapshot.screenshotAnalysisModelProfile,
-                loadedInstanceID: loadedAnalysisModel?.instanceID,
-                cancelActiveRequest: true
-            )
-            await sendAnalysisCompletionNotificationIfNeeded(for: run, dailyReportDayStarts: [])
-            return
-        }
-
-        let finalStatus: String
-        if run.successCount == 0 && run.failureCount > 0 {
-            finalStatus = "failed"
-        } else if run.failureCount > 0 {
-            finalStatus = "partial_failed"
-        } else {
-            finalStatus = "succeeded"
-        }
-
-        finishAnalysisRun(
-            id: run.id,
-            status: finalStatus,
-            successCount: run.successCount,
-            failureCount: run.failureCount,
-            inputMeanTokens: run.inputMeanTokens,
-            inputMaxTokens: run.inputMaxTokens,
-                outputMeanTokens: run.outputMeanTokens,
-                outputMaxTokens: run.outputMaxTokens,
-            averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
-            errorMessage: run.failureCount > 0 ? localized(.analysisPartialFailures, language: snapshot.appLanguage) : nil
-        )
-        let affectedDayStarts = Self.affectedDayStarts(
-            from: run.screenshots,
-            calendar: reportCalendar
-        )
-        let dailyReportCandidateDayStarts = run.dailyReportCandidateDayStarts(calendar: reportCalendar)
-        let notificationContext = analysisNotificationContext(for: run)
-        let notificationIntent: DailyReportSummaryNotificationIntent
-        if dailyReportCandidateDayStarts.isEmpty {
-            notificationIntent = .none
-            await sendAnalysisCompletionNotificationIfNeeded(
-                context: notificationContext,
-                dailyReportDayStarts: [],
-                language: snapshot.appLanguage
-            )
-        } else {
-            notificationIntent = .analysisCompletion(notificationContext)
-        }
-        await enqueueMissingReportsAfterAnalysis(
-            snapshot: snapshot,
-            loadedAnalysisModel: loadedAnalysisModel,
-            workBlockDayStarts: affectedDayStarts,
-            dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
-            notificationIntent: notificationIntent
-        )
-    }
-
-    private func loadScreenshotAnalysisModelIfNeeded(for settings: ModelProfileSettings) async throws -> LMStudioLoadedModel? {
-        guard settings.provider == .lmStudio,
-              settings.explicitLoadUnloadModel else {
-            return nil
-        }
-
-        if Task.isCancelled {
-            throw CancellationError()
-        }
-
-        if settings.memoryCheckEnabled,
-           settings.isLocalBaseURL,
-           !SystemMemoryInfo.isAboveThreshold(thresholdGB: settings.memoryThresholdGB) {
-            let available = SystemMemoryInfo.currentAvailableGB ?? 0
-            throw ModelMemoryError.insufficientMemory(
-                thresholdGB: settings.memoryThresholdGB,
-                availableGB: available
-            )
-        }
-
-        if runtimeState.isRunning, !runtimeState.isStopping {
-            updateRuntimeState(
-                startedAt: runtimeState.startedAt,
-                modelName: settings.modelName,
-                completedCount: runtimeState.completedCount,
-                totalCount: runtimeState.totalCount,
-                isLoadingModel: true
-            )
-        }
-
-        do {
-            let loadedModel = try await lmStudioLifecycle.load(settings: settings)
-            clearLoadingModelStateIfNeeded(modelName: settings.modelName)
-            return loadedModel
-        } catch {
-            clearLoadingModelStateIfNeeded(modelName: settings.modelName)
-            throw error
-        }
-    }
-
-    private func enqueueMissingReportsAfterAnalysis(
-        snapshot: AppSettingsSnapshot,
-        loadedAnalysisModel: LMStudioLoadedModel?,
-        workBlockDayStarts: Set<Date>,
-        dailyReportCandidateDayStarts: Set<Date>,
-        notificationIntent: DailyReportSummaryNotificationIntent
-    ) async {
-        let analysisSettings = snapshot.screenshotAnalysisModelProfile
-        let summarySettings = snapshot.workContentSummaryModelProfile
-
-        let analysisLifecycleEnabled = analysisSettings.provider == .lmStudio && analysisSettings.explicitLoadUnloadModel
-        let summaryLifecycleEnabled = summarySettings.provider == .lmStudio && summarySettings.explicitLoadUnloadModel
-        let equivalentLoadConfiguration = LMStudioAPI.hasEquivalentLoadConfiguration(analysisSettings, summarySettings)
-        let canReuseAnalysisModel = analysisLifecycleEnabled
-            && summarySettings.provider == .lmStudio
-            && equivalentLoadConfiguration
-            && loadedAnalysisModel != nil
-
-        if analysisLifecycleEnabled,
-           loadedAnalysisModel != nil,
-           (summarySettings.provider != .lmStudio || !equivalentLoadConfiguration) {
-            await unloadScreenshotAnalysisModelIfNeeded(
-                for: analysisSettings,
-                loadedInstanceID: loadedAnalysisModel?.instanceID,
-                cancelActiveRequest: false
-            )
-        }
-
-        dailyReportSummaryService.enqueueSummariesAfterAnalysis(
-            workBlockDayStarts: workBlockDayStarts,
-            dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
-            lmStudioLifecyclePolicy: (summaryLifecycleEnabled && !canReuseAnalysisModel)
-                ? .loadForSummaryThenUnload
-                : .reuseAlreadyLoadedModelAndKeepLoaded,
-            notificationIntent: notificationIntent
-        )
-    }
-
-    private func analysisNotificationContext(for run: ActiveAnalysisRun) -> AnalysisCompletionNotificationContext {
-        AnalysisCompletionNotificationContext(
-            trigger: run.notificationTrigger,
-            successfulScreenshotCount: run.successCount,
-            failedScreenshotCount: run.failureCount
-        )
-    }
-
-    private func sendAnalysisCompletionNotificationIfNeeded(
-        for run: ActiveAnalysisRun,
-        dailyReportDayStarts: [Date],
-        summaryFailed: Bool = false
-    ) async {
-        await sendAnalysisCompletionNotificationIfNeeded(
-            context: analysisNotificationContext(for: run),
-            dailyReportDayStarts: dailyReportDayStarts,
-            summaryFailed: summaryFailed,
-            language: run.settings.appLanguage
-        )
-    }
-
-    private func sendAnalysisCompletionNotificationIfNeeded(
-        context: AnalysisCompletionNotificationContext,
-        dailyReportDayStarts: [Date],
-        summaryFailed: Bool = false,
-        language: AppLanguage
-    ) async {
-        guard let message = AppNotificationMessageBuilder.analysisCompletion(
-            context: context,
-            dailyReportDayStarts: dailyReportDayStarts,
-            summaryFailed: summaryFailed,
-            language: language
-        ) else {
-            return
-        }
-        await notificationSender.send(message)
-    }
-
-    private func pendingScreenshotFiles(defaultDurationMinutes: Int) -> [ScreenshotFileRecord] {
-        do {
-            return try database.listScreenshotFiles(defaultDurationMinutes: defaultDurationMinutes)
-        } catch {
-            logStore.addError(source: .analysis, context: "Failed to list pending screenshot files", error: error)
-            return []
-        }
-    }
-
-    @discardableResult
-    private func appendPendingScreenshots(to run: ActiveAnalysisRun, trigger: AnalysisTrigger) -> Int {
-        run.updateDailyReportStrategyForMergedTrigger(trigger)
-        let screenshots = pendingScreenshotFiles(defaultDurationMinutes: run.settings.screenshotIntervalMinutes)
-        let appendedCount = run.appendMissingScreenshots(screenshots)
-        guard appendedCount > 0 else {
-            return 0
-        }
-
-        do {
-            try database.updateAnalysisRunTotalItems(id: run.id, totalItems: run.totalCount)
-        } catch {
-            logStore.addError(source: .analysis, context: "Failed to update analysis run total items", error: error)
-        }
-        updateRuntimeState(
-            startedAt: run.startedAt,
-            modelName: run.settings.modelName,
-            completedCount: run.completedCount,
-            totalCount: run.totalCount
-        )
-        return appendedCount
-    }
-
-    private func previousAnalysisResultDayStarts(before date: Date?, calendar: Calendar) -> Set<Date> {
-        guard let date else {
-            return []
-        }
-
-        do {
-            guard let previousResult = try database.fetchLatestReportActivityItem(before: date) else {
-                return []
-            }
-            return ActiveAnalysisRun.dayStarts(
-                from: previousResult.capturedAt,
-                endAt: previousResult.endAt,
-                calendar: calendar
-            )
-        } catch {
-            logStore.addError(source: .analysis, context: "Failed to fetch previous analysis result for realtime summary boundary", error: error)
-            return []
-        }
-    }
-
-    private func waitForAdditionalScreenshots(to run: ActiveAnalysisRun) async -> Bool {
-        guard realtimeAnalysisTimer != nil else {
-            return run.hasRemainingScreenshots
-        }
-
-        for _ in 0..<20 {
-            if Task.isCancelled {
-                return false
-            }
-            if run.hasRemainingScreenshots {
-                return true
-            }
-            if realtimeAnalysisTimer == nil {
-                return run.hasRemainingScreenshots
-            }
-            try? await Task.sleep(for: .milliseconds(100))
-        }
-        return run.hasRemainingScreenshots
-    }
-
-    private func buildPrompt(
-        with rules: [CategoryRule],
-        summaryInstruction: String,
-        language: AppLanguage
-    ) -> String {
-        L10n.analysisPrompt(with: rules, summaryInstruction: summaryInstruction, language: language)
-    }
-
-
-    private func updateRuntimeState(
-        startedAt: Date?,
-        modelName: String?,
-        completedCount: Int,
-        totalCount: Int,
-        stoppingStage: AnalysisStoppingStage? = nil,
-        isLoadingModel: Bool? = nil
-    ) {
-        runtimeState = AnalysisRuntimeState(
-            isRunning: true,
-            stoppingStage: stoppingStage ?? runtimeState.stoppingStage,
-            isLoadingModel: isLoadingModel ?? runtimeState.isLoadingModel,
-            startedAt: startedAt,
-            modelName: modelName ?? runtimeState.modelName,
-            completedCount: completedCount,
-            totalCount: totalCount
-        )
-    }
-
-    private func clearLoadingModelStateIfNeeded(modelName: String?) {
-        guard runtimeState.isRunning,
-              runtimeState.isLoadingModel,
-              !runtimeState.isStopping else {
-            return
-        }
-
-        updateRuntimeState(
-            startedAt: runtimeState.startedAt,
-            modelName: modelName,
-            completedCount: runtimeState.completedCount,
-            totalCount: runtimeState.totalCount,
-            isLoadingModel: false
-        )
-    }
-
-    func forceUnloadManagedModel() async throws -> Bool {
-        let snapshot = settingsStore.snapshot.screenshotAnalysisModelProfile
-        guard snapshot.provider == .lmStudio else {
-            return false
-        }
-
-        if runtimeState.isRunning {
-            cancelCurrentRun()
-            await waitForAnalysisToStop()
-        }
-
-        do {
-            try await lmStudioLifecycle.unload(settings: snapshot, instanceID: nil)
-            return true
-        } catch LMStudioModelLifecycleError.missingLoadedInstanceID {
-            logStore.add(
-                level: .log,
-                source: .lmStudio,
-                message: localized(.menuForceUnloadNoLoadedModel)
-            )
-            return false
-        } catch {
-            logStore.addError(source: .lmStudio, context: "Forced unload of screenshot analysis model failed", error: error)
-            throw error
-        }
-    }
-
-    private func finishAnalysisRun(
-        id: Int64,
-        status: String,
-        successCount: Int,
-        failureCount: Int,
-        inputMeanTokens: Double? = nil,
-        inputMaxTokens: Int? = nil,
-        outputMeanTokens: Double? = nil,
-        outputMaxTokens: Int? = nil,
-        averageItemDurationSeconds: Double? = nil,
-        errorMessage: String? = nil
-    ) {
-        do {
-            try database.finishAnalysisRun(
-                id: id,
-                status: status,
-                successCount: successCount,
-                failureCount: failureCount,
-                inputMeanTokens: inputMeanTokens,
-                inputMaxTokens: inputMaxTokens,
-                outputMeanTokens: outputMeanTokens,
-                outputMaxTokens: outputMaxTokens,
-                averageItemDurationSeconds: averageItemDurationSeconds,
-                errorMessage: errorMessage
-            )
-        } catch {
-            logStore.addError(source: .analysis, context: "Failed to finish analysis run \(id)", error: error)
-        }
-    }
-
-    private func removeProcessedScreenshot(at fileURL: URL) {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return
-        }
-
-        do {
-            try FileManager.default.removeItem(at: fileURL)
-        } catch {
-            logStore.addError(source: .analysis, context: "Failed to remove processed screenshot \(fileURL.lastPathComponent)", error: error)
-        }
+    private func loadScreenshotAnalysisModelIfNeeded(
+        for settings: ModelProfileSettings,
+        lifecycle: LMStudioModelLifecycle
+    ) async throws -> LMStudioLoadedModel? {
+        guard settings.provider == .lmStudio, settings.explicitLoadUnloadModel else { return nil }
+        if Task.isCancelled { throw CancellationError() }
+        return try await lifecycle.load(settings: settings)
     }
 
     private func unloadModelAfterSettingsTest(
         settings: ModelProfileSettings,
-        instanceID: String?
+        instanceID: String?,
+        lifecycle: LMStudioModelLifecycle
     ) async {
         do {
-            try await lmStudioLifecycle.unload(settings: settings, instanceID: instanceID)
+            try await lifecycle.unload(settings: settings, instanceID: instanceID)
         } catch {
             logStore.addError(source: .lmStudio, context: "Failed to unload LM Studio model after settings test", error: error)
         }
     }
 
-    private func unloadScreenshotAnalysisModelIfNeeded(
-        for settings: ModelProfileSettings,
-        loadedInstanceID: String?,
-        cancelActiveRequest: Bool
-    ) async {
-        if settings.provider == .lmStudio,
-           settings.explicitLoadUnloadModel {
-            let lastInstanceID = lastLMStudioModelInstanceID ?? "未记录"
-            recordLMStudioLog(
-                chinese: "进入 LM Studio 清理阶段，Task.isCancelled=\(Task.isCancelled)，最近一次 chat 的 model_instance_id=\(lastInstanceID)。",
-                english: "Entering LM Studio cleanup. Task.isCancelled=\(Task.isCancelled), last chat model_instance_id=\(lastInstanceID)."
-            )
-            if cancelActiveRequest {
-                recordLMStudioLog(
-                    chinese: "再次向当前 LM Studio 请求发送取消。",
-                    english: "Sending cancellation to the current LM Studio request again."
-                )
-            }
-        }
-
-        if cancelActiveRequest {
-            llmService.cancelActiveRemoteRequest()
-        }
-
-        guard settings.provider == .lmStudio,
-              settings.explicitLoadUnloadModel else {
-            return
-        }
-
-        do {
-            try await lmStudioLifecycle.unload(settings: settings, instanceID: loadedInstanceID)
-        } catch {
-            logStore.addError(source: .lmStudio, context: "LM Studio model unload failed", error: error)
-            return
-        }
-    }
-
-    private func waitForAnalysisToStop(timeoutSeconds: TimeInterval = 8) async {
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-        while runtimeState.isRunning && Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(100))
-        }
-    }
-
-
     private func localized(_ key: L10n.Key, language: AppLanguage? = nil) -> String {
         L10n.string(key, language: language ?? settingsStore.appLanguage)
     }
+}
 
-    private func localized(_ key: L10n.Key, arguments: [CVarArg], language: AppLanguage? = nil) -> String {
-        L10n.string(key, language: language ?? settingsStore.appLanguage, arguments: arguments)
-    }
-
-    private static func affectedDayStarts(
-        from screenshots: [ScreenshotFileRecord],
-        calendar: Calendar
-    ) -> Set<Date> {
-        var dayStarts = Set<Date>()
-
-        for screenshot in screenshots {
-            let start = screenshot.capturedAt
-            let end = screenshot.endAt
-            let lastInstant = end > start ? end.addingTimeInterval(-0.001) : start
-            let firstDayStart = calendar.startOfDay(for: start)
-            let lastDayStart = calendar.startOfDay(for: lastInstant)
-
-            var currentDayStart = firstDayStart
-            while currentDayStart <= lastDayStart {
-                dayStarts.insert(currentDayStart)
-                guard let nextDayStart = calendar.date(byAdding: .day, value: 1, to: currentDayStart) else {
-                    break
-                }
-                currentDayStart = nextDayStart
-            }
-        }
-
-        return dayStarts
-    }
-
-    private func recordLMStudioModelInstanceIfNeeded(_ modelInstanceID: String?, provider: ModelProvider) {
-        guard provider == .lmStudio,
-              let modelInstanceID,
-              !modelInstanceID.isEmpty else {
-            return
-        }
-
-        lastLMStudioModelInstanceID = modelInstanceID
-        recordLMStudioLog(
-            chinese: "LM Studio chat 返回 model_instance_id=\(modelInstanceID)。",
-            english: "LM Studio chat returned model_instance_id=\(modelInstanceID)."
+extension AnalysisService {
+    nonisolated static func shouldSkipForChargerRequirement(
+        trigger: AnalysisTrigger,
+        requiresCharger: Bool,
+        devicePowerState: DevicePowerState
+    ) -> Bool {
+        shouldSkipForChargerRequirement(
+            trigger: trigger,
+            requiresCharger: requiresCharger,
+            hasInternalBattery: devicePowerState.hasInternalBattery,
+            isConnectedToCharger: devicePowerState.isConnectedToCharger
         )
     }
 
-    private func recordLMStudioLog(chinese: String, english: String) {
-        let message: String
-        switch settingsStore.appLanguage {
-        case .simplifiedChinese:
-            message = chinese
-        case .english:
-            message = english
+    nonisolated static func shouldSkipForChargerRequirement(
+        trigger: AnalysisTrigger,
+        requiresCharger: Bool,
+        hasInternalBattery: Bool = true,
+        isConnectedToCharger: Bool
+    ) -> Bool {
+        let usesChargerRequirement: Bool
+        switch trigger {
+        case .manual: usesChargerRequirement = false
+        case .scheduled, .realtime: usesChargerRequirement = true
         }
-
-        logStore.add(level: .log, source: .lmStudio, message: message)
+        return usesChargerRequirement && requiresCharger && hasInternalBattery && !isConnectedToCharger
     }
 
+    nonisolated static func shouldRetryAnalysis(after error: Error, attempt: Int, maxAttempts: Int = 3) -> Bool {
+        guard attempt < maxAttempts else { return false }
+        switch error {
+        case is CancellationError: return false
+        case AnalysisServiceError.invalidConfiguration: return false
+        case AnalysisServiceError.lengthTruncated: return false
+        case AnalysisServiceError.invalidResponse: return true
+        case AnalysisServiceError.httpError(let statusCode, _): return statusCode >= 500
+        case is URLError: return true
+        default: return false
+        }
+    }
+
+    nonisolated static func extractAnalysisResponse(from rawText: String, validRules: [CategoryRule]) -> AnalysisResponse? {
+        let validCategories = Set(validRules.map(\.name))
+        let candidates = responseCandidates(from: rawText)
+        for candidate in candidates {
+            guard let data = candidate.data(using: .utf8),
+                  let payload = try? JSONDecoder().decode(ParsedAnalysisPayload.self, from: data) else { continue }
+            let category = payload.category.trimmingCharacters(in: .whitespacesAndNewlines)
+            let summary = payload.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !category.isEmpty, !summary.isEmpty, validCategories.contains(category) else { continue }
+            return AnalysisResponse(category: category, summary: summary)
+        }
+        return nil
+    }
+
+    nonisolated static func extractGuidedAnalysisResponse(
+        from generatedContent: GeneratedContent,
+        validRules: [CategoryRule]
+    ) -> AnalysisResponse? {
+        let validCategories = Set(validRules.map(\.name))
+        guard let category = try? generatedContent.value(String.self, forProperty: "category"),
+              let summary = try? generatedContent.value(String.self, forProperty: "summary") else { return nil }
+        let trimmedCategory = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard validCategories.contains(trimmedCategory), !trimmedSummary.isEmpty else { return nil }
+        return AnalysisResponse(category: trimmedCategory, summary: trimmedSummary)
+    }
+
+    nonisolated private static func responseCandidates(from rawText: String) -> [String] {
+        let formalReply = extractFormalReply(from: rawText)
+        let orderedCandidates = [formalReply, rawText]
+            .map { unwrapCodeFence(from: $0) }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        var deduplicated: [String] = []
+        for candidate in orderedCandidates where !deduplicated.contains(candidate) {
+            deduplicated.append(candidate)
+        }
+        return deduplicated
+    }
+
+    nonisolated private static func extractFormalReply(from rawText: String) -> String {
+        guard let startRange = rawText.range(of: "<think>") else { return rawText }
+        let contentStart = startRange.upperBound
+        guard let endRange = rawText.range(of: "</think>", range: contentStart..<rawText.endIndex) else { return "" }
+        return String(rawText[endRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    nonisolated private static func unwrapCodeFence(from text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("```"), trimmed.hasSuffix("```") else { return trimmed }
+        var lines = trimmed.components(separatedBy: .newlines)
+        if !lines.isEmpty { lines.removeFirst() }
+        if !lines.isEmpty { lines.removeLast() }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

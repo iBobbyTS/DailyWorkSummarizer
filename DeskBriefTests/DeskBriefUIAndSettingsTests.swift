@@ -147,15 +147,15 @@ extension DeskBriefTests {
     }
 
     @Test func pauseAfterFiveConsecutiveFailures() async throws {
-        #expect(!AnalysisService.shouldPauseAfterConsecutiveFailures(4))
-        #expect(AnalysisService.shouldPauseAfterConsecutiveFailures(5))
+        #expect(!AnalysisRunExecutor.shouldPauseAfterConsecutiveFailures(4))
+        #expect(AnalysisRunExecutor.shouldPauseAfterConsecutiveFailures(5))
     }
 
     @Test func lmStudioPauseTransitionsToUnloadStageAfterGenerationStops() async throws {
-        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .lmStudio) == .unloadingModel)
-        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .openAI) == nil)
-        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .anthropic) == nil)
-        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .appleIntelligence) == nil)
+        #expect(AnalysisRunExecutor.stoppingStageAfterGenerationStops(for: .lmStudio) == .unloadingModel)
+        #expect(AnalysisRunExecutor.stoppingStageAfterGenerationStops(for: .openAI) == nil)
+        #expect(AnalysisRunExecutor.stoppingStageAfterGenerationStops(for: .anthropic) == nil)
+        #expect(AnalysisRunExecutor.stoppingStageAfterGenerationStops(for: .appleIntelligence) == nil)
     }
 
     @Test func pausingStagesUseDistinctMenuLabels() async throws {
@@ -541,21 +541,21 @@ extension DeskBriefTests {
     }
 
     @Test func lmStudioPauseTransitionsRespectLifecycleToggle() async throws {
-        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .lmStudio) == .unloadingModel)
-        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .lmStudio, lifecycleEnabled: false) == nil)
-        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .openAI) == nil)
-        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .anthropic) == nil)
-        #expect(AnalysisService.stoppingStageAfterGenerationStops(for: .appleIntelligence) == nil)
+        #expect(AnalysisRunExecutor.stoppingStageAfterGenerationStops(for: .lmStudio) == .unloadingModel)
+        #expect(AnalysisRunExecutor.stoppingStageAfterGenerationStops(for: .lmStudio, lifecycleEnabled: false) == nil)
+        #expect(AnalysisRunExecutor.stoppingStageAfterGenerationStops(for: .openAI) == nil)
+        #expect(AnalysisRunExecutor.stoppingStageAfterGenerationStops(for: .anthropic) == nil)
+        #expect(AnalysisRunExecutor.stoppingStageAfterGenerationStops(for: .appleIntelligence) == nil)
     }
 
     @Test func runtimeErrorRecordingFiltersOutNonAPIErrors() async throws {
-        #expect(AnalysisService.shouldRecordRuntimeError(AnalysisServiceError.invalidResponse("empty output")))
-        #expect(AnalysisService.shouldRecordRuntimeError(AnalysisServiceError.httpError(statusCode: 500, body: "server error")))
-        #expect(AnalysisService.shouldRecordRuntimeError(AnalysisServiceError.invalidImageData("invalid image")))
-        #expect(AnalysisService.shouldRemoveFailedScreenshot(after: AnalysisServiceError.invalidImageData("invalid image")))
-        #expect(!AnalysisService.shouldRecordRuntimeError(AnalysisServiceError.invalidConfiguration("missing url")))
-        #expect(!AnalysisService.shouldRecordRuntimeError(CancellationError()))
-        #expect(!AnalysisService.shouldRemoveFailedScreenshot(after: AnalysisServiceError.invalidResponse("empty output")))
+        #expect(AnalysisRunExecutor.shouldRecordRuntimeError(AnalysisServiceError.invalidResponse("empty output")))
+        #expect(AnalysisRunExecutor.shouldRecordRuntimeError(AnalysisServiceError.httpError(statusCode: 500, body: "server error")))
+        #expect(AnalysisRunExecutor.shouldRecordRuntimeError(AnalysisServiceError.invalidImageData("invalid image")))
+        #expect(AnalysisRunExecutor.shouldRemoveFailedScreenshot(after: AnalysisServiceError.invalidImageData("invalid image")))
+        #expect(!AnalysisRunExecutor.shouldRecordRuntimeError(AnalysisServiceError.invalidConfiguration("missing url")))
+        #expect(!AnalysisRunExecutor.shouldRecordRuntimeError(CancellationError()))
+        #expect(!AnalysisRunExecutor.shouldRemoveFailedScreenshot(after: AnalysisServiceError.invalidResponse("empty output")))
     }
 
     @MainActor
