@@ -14,6 +14,7 @@ struct MenuBarApp: App {
 
 private struct AppLaunchConfiguration {
     let isUITesting: Bool
+    let isUnitTesting: Bool
     let disableBackgroundServices: Bool
     let openSettingsWindow: Bool
     let openReportsWindow: Bool
@@ -26,13 +27,19 @@ private struct AppLaunchConfiguration {
         let arguments = Set(processInfo.arguments)
         let environment = processInfo.environment
         let isUITesting = arguments.contains("--deskbrief-ui-testing")
+        let isUnitTesting = !isUITesting && (
+            environment["XCTestConfigurationFilePath"] != nil
+                || environment["XCTestSessionIdentifier"] != nil
+                || arguments.contains { $0.contains(".xctest") }
+        )
         let supportDirectory = environment["DESKBRIEF_UI_TEST_SUPPORT_DIR"].map {
             URL(fileURLWithPath: $0, isDirectory: true)
         }
 
         return AppLaunchConfiguration(
             isUITesting: isUITesting,
-            disableBackgroundServices: isUITesting || arguments.contains("--deskbrief-disable-background-services"),
+            isUnitTesting: isUnitTesting,
+            disableBackgroundServices: isUITesting || isUnitTesting || arguments.contains("--deskbrief-disable-background-services"),
             openSettingsWindow: arguments.contains("--deskbrief-open-settings"),
             openReportsWindow: arguments.contains("--deskbrief-open-reports"),
             openLogsWindow: arguments.contains("--deskbrief-open-logs"),
@@ -41,6 +48,16 @@ private struct AppLaunchConfiguration {
             keychainService: environment["DESKBRIEF_UI_TEST_KEYCHAIN_SERVICE"]
         )
     }
+}
+
+private enum DatabaseRecoveryCancellation: Error {
+    case cancelled
+}
+
+private enum DatabaseRecoveryChoice {
+    case enterPassphrase
+    case deleteDatabase
+    case quit
 }
 
 @MainActor
@@ -102,52 +119,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let launchConfiguration = AppLaunchConfiguration.current()
+        guard !launchConfiguration.isUnitTesting else {
+            return
+        }
+
+        let keychain = KeychainStore(service: launchConfiguration.keychainService ?? Bundle.main.bundleIdentifier ?? "DeskBrief")
         NSApp.setActivationPolicy(launchConfiguration.isUITesting ? .regular : .accessory)
         if !launchConfiguration.isUITesting {
             terminateOtherRunningInstances()
         }
 
         do {
-            let database = try makeDatabase(for: launchConfiguration)
-            let keychain = KeychainStore(service: launchConfiguration.keychainService ?? Bundle.main.bundleIdentifier ?? "DeskBrief")
-            let logStore = AppLogStore(database: database)
-            let userDefaults = launchConfiguration.userDefaultsSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
-            let settingsStore = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain, logStore: logStore)
-            let notificationService = SystemAppNotificationService(logStore: logStore)
-            let credentialProvider: CredentialProviding = KeychainCredentialProvider(keychain: keychain)
-
-            self.database = database
-            self.settingsStore = settingsStore
-            self.logStore = logStore
-            self.screenshotService = ScreenshotService(database: database, settingsStore: settingsStore, logStore: logStore)
-            let dailyReportSummaryService = DailyReportSummaryService(
-                database: database,
-                settingsStore: settingsStore,
-                logStore: logStore,
-                notificationSender: notificationService,
-                credentialProvider: credentialProvider
-            )
-            self.dailyReportSummaryService = dailyReportSummaryService
-            self.analysisService = AnalysisService(
-                database: database,
-                settingsStore: settingsStore,
-                logStore: logStore,
-                dailyReportSummaryService: dailyReportSummaryService,
-                notificationSender: notificationService,
-                credentialProvider: credentialProvider
-            )
-            self.reportsViewModel = ReportsViewModel(
-                database: database,
-                settingsStore: settingsStore,
-                dailyReportSummaryService: dailyReportSummaryService,
-                logStore: logStore
-            )
-            self.automaticScreenshotCleanupTimer = AutomaticScreenshotCleanupTimer(
-                database: database,
-                settingsStore: settingsStore,
-                logStore: logStore,
-                backgroundServicesEnabled: !launchConfiguration.disableBackgroundServices
-            )
+            let database = try makeDatabase(for: launchConfiguration, keychain: keychain)
+            initializeServices(database: database, launchConfiguration: launchConfiguration, keychain: keychain)
+        } catch let error as DatabaseError where error.isDatabaseRecoveryCandidate && !launchConfiguration.isUITesting {
+            do {
+                let database = try recoverEncryptedDatabase(for: launchConfiguration, keychain: keychain)
+                initializeServices(database: database, launchConfiguration: launchConfiguration, keychain: keychain)
+            } catch DatabaseRecoveryCancellation.cancelled {
+                NSApp.terminate(nil)
+                return
+            } catch {
+                presentFatalAlert(message: text(.alertDatabaseInitFailed, language: .current), detail: error.localizedDescription)
+                NSApp.terminate(nil)
+                return
+            }
         } catch {
             presentFatalAlert(message: text(.alertDatabaseInitFailed, language: .current), detail: error.localizedDescription)
             NSApp.terminate(nil)
@@ -186,6 +182,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
 
+    private func initializeServices(
+        database: AppDatabase,
+        launchConfiguration: AppLaunchConfiguration,
+        keychain: KeychainStore
+    ) {
+        let logStore = AppLogStore(database: database)
+        let userDefaults = launchConfiguration.userDefaultsSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+        let settingsStore = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain, logStore: logStore)
+        let notificationService = SystemAppNotificationService(logStore: logStore)
+        let credentialProvider: CredentialProviding = KeychainCredentialProvider(keychain: keychain)
+
+        self.database = database
+        self.settingsStore = settingsStore
+        self.logStore = logStore
+        self.screenshotService = ScreenshotService(database: database, settingsStore: settingsStore, logStore: logStore)
+        let dailyReportSummaryService = DailyReportSummaryService(
+            database: database,
+            settingsStore: settingsStore,
+            logStore: logStore,
+            notificationSender: notificationService,
+            credentialProvider: credentialProvider
+        )
+        self.dailyReportSummaryService = dailyReportSummaryService
+        self.analysisService = AnalysisService(
+            database: database,
+            settingsStore: settingsStore,
+            logStore: logStore,
+            dailyReportSummaryService: dailyReportSummaryService,
+            notificationSender: notificationService,
+            credentialProvider: credentialProvider
+        )
+        self.reportsViewModel = ReportsViewModel(
+            database: database,
+            settingsStore: settingsStore,
+            dailyReportSummaryService: dailyReportSummaryService,
+            logStore: logStore
+        )
+        self.automaticScreenshotCleanupTimer = AutomaticScreenshotCleanupTimer(
+            database: database,
+            settingsStore: settingsStore,
+            logStore: logStore,
+            backgroundServicesEnabled: !launchConfiguration.disableBackgroundServices
+        )
+    }
+
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         if window == settingsWindow {
@@ -199,16 +240,137 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
 
-    private func makeDatabase(for launchConfiguration: AppLaunchConfiguration) throws -> AppDatabase {
+    private func makeDatabase(for launchConfiguration: AppLaunchConfiguration, keychain: KeychainStoring) throws -> AppDatabase {
         guard let supportDirectory = launchConfiguration.supportDirectory else {
-            return try AppDatabase()
+            return try AppDatabase(keychain: keychain)
         }
 
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
         return try AppDatabase(
             databaseURL: supportDirectory.appendingPathComponent("desk-brief.sqlite", isDirectory: false),
-            applicationSupportDirectory: supportDirectory
+            applicationSupportDirectory: supportDirectory,
+            keychain: keychain
         )
+    }
+
+    private func databaseURL(for launchConfiguration: AppLaunchConfiguration) throws -> URL {
+        let supportDirectory = try launchConfiguration.supportDirectory ?? AppDatabase.applicationSupportDirectory()
+        return supportDirectory.appendingPathComponent("desk-brief.sqlite", isDirectory: false)
+    }
+
+    private func recoverEncryptedDatabase(
+        for launchConfiguration: AppLaunchConfiguration,
+        keychain: KeychainStore
+    ) throws -> AppDatabase {
+        let databaseURL = try databaseURL(for: launchConfiguration)
+        let passphraseStore = DatabasePassphraseStore(keychain: keychain)
+        var messageKey: L10n.Key = passphraseStore.load() == nil
+            ? .alertDatabasePassphraseMissingMessage
+            : .alertDatabasePassphraseInvalidMessage
+
+        while true {
+            switch presentDatabaseRecoveryAlert(messageKey: messageKey) {
+            case .enterPassphrase:
+                guard let passphrase = presentDatabasePassphraseInputAlert() else {
+                    messageKey = .alertDatabasePassphraseMissingMessage
+                    continue
+                }
+
+                do {
+                    let database = try AppDatabase(
+                        databaseURL: databaseURL,
+                        applicationSupportDirectory: launchConfiguration.supportDirectory,
+                        passphrase: passphrase
+                    )
+                    try passphraseStore.save(passphrase)
+                    presentDatabaseRecoveryNotice(
+                        title: text(.alertDatabasePassphraseSavedTitle, language: .current),
+                        message: text(.alertDatabasePassphraseSavedMessage, language: .current)
+                    )
+                    return database
+                } catch {
+                    presentDatabaseRecoveryNotice(
+                        title: text(.alertDatabasePassphraseInvalidTitle, language: .current),
+                        message: text(.alertDatabasePassphraseInvalidRetryMessage, language: .current)
+                    )
+                    messageKey = .alertDatabasePassphraseInvalidMessage
+                }
+
+            case .deleteDatabase:
+                guard confirmDatabaseDeletion() else {
+                    continue
+                }
+                try AppDatabase.removeDatabaseFiles(at: databaseURL)
+                let database = try makeDatabase(for: launchConfiguration, keychain: keychain)
+                presentDatabaseRecoveryNotice(
+                    title: text(.alertDatabaseDeletedTitle, language: .current),
+                    message: text(.alertDatabaseDeletedMessage, language: .current)
+                )
+                return database
+
+            case .quit:
+                throw DatabaseRecoveryCancellation.cancelled
+            }
+        }
+    }
+
+    private func presentDatabaseRecoveryAlert(messageKey: L10n.Key) -> DatabaseRecoveryChoice {
+        let language = AppLanguage.current
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = text(.alertDatabaseRecoveryTitle, language: language)
+        alert.informativeText = text(messageKey, language: language)
+        alert.addButton(withTitle: text(.alertDatabaseEnterPassphrase, language: language))
+        alert.addButton(withTitle: text(.alertDatabaseDeleteDatabase, language: language))
+        alert.addButton(withTitle: text(.alertDatabaseQuit, language: language))
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .enterPassphrase
+        case .alertSecondButtonReturn:
+            return .deleteDatabase
+        default:
+            return .quit
+        }
+    }
+
+    private func presentDatabasePassphraseInputAlert() -> DatabasePassphrase? {
+        let language = AppLanguage.current
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = text(.alertDatabaseEnterPassphraseTitle, language: language)
+        alert.informativeText = text(.alertDatabaseEnterPassphraseMessage, language: language)
+        alert.addButton(withTitle: text(.commonConfirm, language: language))
+        alert.addButton(withTitle: text(.commonCancel, language: language))
+
+        let input = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        input.placeholderString = text(.alertDatabasePassphrasePlaceholder, language: language)
+        alert.accessoryView = input
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return nil
+        }
+        return try? DatabasePassphrase(input.stringValue)
+    }
+
+    private func confirmDatabaseDeletion() -> Bool {
+        let language = AppLanguage.current
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = text(.alertDatabaseDeleteConfirmTitle, language: language)
+        alert.informativeText = text(.alertDatabaseDeleteConfirmMessage, language: language)
+        alert.addButton(withTitle: text(.alertDatabaseDeleteDatabase, language: language))
+        alert.addButton(withTitle: text(.commonCancel, language: language))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func presentDatabaseRecoveryNotice(title: String, message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: text(.commonConfirm, language: .current))
+        alert.runModal()
     }
 
     private func applyLaunchHooks(_ launchConfiguration: AppLaunchConfiguration) {

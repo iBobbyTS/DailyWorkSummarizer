@@ -175,6 +175,23 @@ nonisolated enum L10n {
         case windowLogs
         case windowErrors
         case alertDatabaseInitFailed
+        case alertDatabaseRecoveryTitle
+        case alertDatabasePassphraseMissingMessage
+        case alertDatabasePassphraseInvalidMessage
+        case alertDatabaseEnterPassphrase
+        case alertDatabaseDeleteDatabase
+        case alertDatabaseQuit
+        case alertDatabaseEnterPassphraseTitle
+        case alertDatabaseEnterPassphraseMessage
+        case alertDatabasePassphrasePlaceholder
+        case alertDatabasePassphraseInvalidTitle
+        case alertDatabasePassphraseInvalidRetryMessage
+        case alertDatabasePassphraseSavedTitle
+        case alertDatabasePassphraseSavedMessage
+        case alertDatabaseDeleteConfirmTitle
+        case alertDatabaseDeleteConfirmMessage
+        case alertDatabaseDeletedTitle
+        case alertDatabaseDeletedMessage
         case menuLastAverageDuration
         case menuSummaryPausingStoppingGeneration
         case menuSummaryPausingUnloadingModel
@@ -474,6 +491,23 @@ nonisolated enum L10n {
             .windowLogs: "查看日志",
             .windowErrors: "查看错误",
             .alertDatabaseInitFailed: "初始化数据库失败",
+            .alertDatabaseRecoveryTitle: "无法打开加密数据库",
+            .alertDatabasePassphraseMissingMessage: "数据库已经加密，但 Keychain 中没有找到数据库密钥。你可以手动输入密钥，或删除数据库并创建一个新的空数据库。",
+            .alertDatabasePassphraseInvalidMessage: "数据库密钥无效，或数据库文件无法解密。你可以重新输入密钥，或删除数据库并创建一个新的空数据库。",
+            .alertDatabaseEnterPassphrase: "输入密钥",
+            .alertDatabaseDeleteDatabase: "删除数据库",
+            .alertDatabaseQuit: "退出",
+            .alertDatabaseEnterPassphraseTitle: "输入数据库密钥",
+            .alertDatabaseEnterPassphraseMessage: "请输入用于打开 DeskBrief 加密数据库的密钥。密钥正确后会保存到 Keychain。",
+            .alertDatabasePassphrasePlaceholder: "数据库密钥",
+            .alertDatabasePassphraseInvalidTitle: "数据库密钥无效",
+            .alertDatabasePassphraseInvalidRetryMessage: "无法使用这个密钥打开数据库。请确认密钥是否完整，然后重试。",
+            .alertDatabasePassphraseSavedTitle: "数据库已解锁",
+            .alertDatabasePassphraseSavedMessage: "密钥已保存到 Keychain，DeskBrief 将继续启动。",
+            .alertDatabaseDeleteConfirmTitle: "确认删除数据库",
+            .alertDatabaseDeleteConfirmMessage: "将删除 DeskBrief 数据库文件并创建新的空数据库。截屏文件夹会保留，但已有报告、日志和分析记录会从应用中清空。此操作不可撤销。",
+            .alertDatabaseDeletedTitle: "数据库已删除",
+            .alertDatabaseDeletedMessage: "DeskBrief 已创建新的空加密数据库，截屏文件夹已保留。",
             .menuLastAverageDuration: "上次分析平均每张耗时%@秒",
             .menuSummaryPausingStoppingGeneration: "正在停止本次分析，从 %@ 开始的截屏分析（正在停止生成，%d/%d）",
             .menuSummaryPausingUnloadingModel: "正在停止本次分析，从 %@ 开始的截屏分析（正在卸载模型，%d/%d）",
@@ -766,6 +800,23 @@ nonisolated enum L10n {
             .windowLogs: "Logs",
             .windowErrors: "Errors",
             .alertDatabaseInitFailed: "Failed to initialize database",
+            .alertDatabaseRecoveryTitle: "Cannot Open Encrypted Database",
+            .alertDatabasePassphraseMissingMessage: "The database is encrypted, but DeskBrief could not find its database key in Keychain. You can enter the key manually, or delete the database and create a new empty one.",
+            .alertDatabasePassphraseInvalidMessage: "The database key is invalid, or the database file could not be decrypted. You can enter the key again, or delete the database and create a new empty one.",
+            .alertDatabaseEnterPassphrase: "Enter Key",
+            .alertDatabaseDeleteDatabase: "Delete Database",
+            .alertDatabaseQuit: "Quit",
+            .alertDatabaseEnterPassphraseTitle: "Enter Database Key",
+            .alertDatabaseEnterPassphraseMessage: "Enter the key used to open the encrypted DeskBrief database. If it is correct, DeskBrief will save it to Keychain.",
+            .alertDatabasePassphrasePlaceholder: "Database key",
+            .alertDatabasePassphraseInvalidTitle: "Invalid Database Key",
+            .alertDatabasePassphraseInvalidRetryMessage: "DeskBrief could not open the database with this key. Check that the full key was entered, then try again.",
+            .alertDatabasePassphraseSavedTitle: "Database Unlocked",
+            .alertDatabasePassphraseSavedMessage: "The key has been saved to Keychain. DeskBrief will continue starting.",
+            .alertDatabaseDeleteConfirmTitle: "Confirm Database Deletion",
+            .alertDatabaseDeleteConfirmMessage: "DeskBrief will delete the database file and create a new empty database. The screenshots folder will be kept, but existing reports, logs, and analysis records will be cleared from the app. This cannot be undone.",
+            .alertDatabaseDeletedTitle: "Database Deleted",
+            .alertDatabaseDeletedMessage: "DeskBrief created a new empty encrypted database. The screenshots folder was kept.",
             .menuLastAverageDuration: "Last run averaged %@ sec per screenshot",
             .menuSummaryPausingStoppingGeneration: "Stopping screenshot analysis started at %@ (stopping generation, %d/%d)",
             .menuSummaryPausingUnloadingModel: "Stopping screenshot analysis started at %@ (unloading model, %d/%d)",

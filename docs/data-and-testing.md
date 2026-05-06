@@ -6,6 +6,7 @@ The app stores runtime data under Application Support:
 
 - Database
   `~/Library/Application Support/DeskBrief/desk-brief.sqlite`
+  The SQLite file is encrypted with SQLCipher. The database passphrase is stored in Keychain under service `com.iBobby.DeskBrief` and account `database-passphrase.main`.
 - Screenshot directory
   `~/Library/Application Support/DeskBrief/screenshots/`
 - Preview screenshots
@@ -36,9 +37,10 @@ The app stores runtime data under Application Support:
 
 ## Persistence model
 
-### SQLite
+### SQLite / SQLCipher
 
-SQLite is the source of truth for captured work history, analysis outputs, and generated daily reports.
+SQLite is the source of truth for captured work history, analysis outputs, and generated daily reports. Runtime access goes through SQLCipher; a missing or invalid database passphrase blocks startup before services are created.
+The system `sqlite3` CLI is expected to fail against the encrypted runtime database unless it is pointed at a plaintext backup or an unencrypted test fixture. Runtime database inspection should use a SQLCipher-linked helper that loads the passphrase from Keychain.
 It also stores lightweight runtime logs in `app_logs`, capped to the latest 1000 entries.
 Away intervals caused by missing captures are not persisted; report views derive those display-only `离开` blocks from bounded gaps between adjacent successful analysis results. Fully dark screenshots can be persisted as `离开` results so their capture time is retained without sending the image to a model.
 Failed per-screenshot attempts are counted on `analysis_runs` but are not persisted as `analysis_results` rows.
@@ -82,8 +84,9 @@ When `ScreenshotStorageLocation` is set to `Memory`, scheduled screenshots are c
 
 ### Keychain
 
-Keychain stores API keys for the two model profiles:
+Keychain stores the database passphrase and API keys for the two model profiles:
 
+- encrypted database passphrase (`database-passphrase.main`)
 - screenshot analysis key
 - work-content summary key
 
@@ -162,6 +165,8 @@ xcodebuild build \
 - UI launch performance uses `XCTClockMetric` with explicit app termination between iterations to avoid flaky missing launch metrics for a menu-bar accessory app.
 
 ## Useful inspection commands
+
+The following `sqlite3` examples apply to plaintext backups or unencrypted test fixtures. They are intentionally not suitable for the encrypted runtime database.
 
 List tables:
 

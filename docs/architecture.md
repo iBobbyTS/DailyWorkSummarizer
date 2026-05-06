@@ -5,7 +5,7 @@
 The app is centered around a small set of long-lived services created at launch by `AppDelegate`:
 
 - `AppDatabase`
-  SQLite-backed persistence and current schema setup.
+  SQLCipher-backed SQLite persistence and current schema setup.
 - `SettingsStore`
   UserDefaults and Keychain-backed settings state exposed to SwiftUI.
 - `ScreenshotService`
@@ -46,7 +46,8 @@ The app is centered around a small set of long-lived services created at launch 
 ### 1. App startup
 
 - `MenuBarApp` boots through `AppDelegate`.
-- The app opens or creates the SQLite database.
+- The app loads or creates the database passphrase in Keychain, then opens or creates the SQLCipher database.
+- If an existing encrypted database cannot be opened because the passphrase is missing or invalid, startup presents a recovery alert that can accept a manual key, delete only the database files, or quit.
 - Settings are loaded from UserDefaults and Keychain.
 - Services are created and started.
 - The menu bar UI reflects pending screenshots, the single active run state, force-unload actions, and the log viewer entry point.

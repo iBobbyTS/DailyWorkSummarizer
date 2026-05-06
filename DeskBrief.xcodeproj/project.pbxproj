@@ -47,11 +47,18 @@
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
+/* Begin PBXBuildFile section */
+		B0DB00012EE6000000000001 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = B0DB00002EE6000000000001 /* GRDB */; };
+		B0DB00032EE6000000000001 /* SQLCipher in Frameworks */ = {isa = PBXBuildFile; productRef = B0DB00022EE6000000000001 /* SQLCipher */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFrameworksBuildPhase section */
 		B0CF567F2EDDF6CE002571D5 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B0DB00012EE6000000000001 /* GRDB in Frameworks */,
+				B0DB00032EE6000000000001 /* SQLCipher in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +119,8 @@
 			);
 			name = DeskBrief;
 			packageProductDependencies = (
+				B0DB00002EE6000000000001 /* GRDB */,
+				B0DB00022EE6000000000001 /* SQLCipher */,
 			);
 			productName = DeskBrief;
 			productReference = B0CF56822EDDF6CE002571D5 /* DeskBrief.app */;
@@ -195,6 +204,9 @@
 			);
 			mainGroup = B0CF56792EDDF6CE002571D5;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B0DB00042EE6000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B0CF56832EDDF6CE002571D5 /* Products */;
 			projectDirPath = "";
@@ -268,6 +280,30 @@
 		};
 /* End PBXTargetDependency section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		B0DB00042EE6000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "git@github.com:iBobbyTS/GRDB.swift.git";
+			requirement = {
+				branch = "deskbrief-sqlcipher";
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B0DB00002EE6000000000001 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0DB00042EE6000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+		B0DB00022EE6000000000001 /* SQLCipher */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0DB00042EE6000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = SQLCipher;
+		};
+/* End XCSwiftPackageProductDependency section */
+
 /* Begin XCBuildConfiguration section */
 		B0CF56A32EDDF6CF002571D5 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -314,6 +350,7 @@
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"DEBUG=1",
+					"SQLITE_HAS_CODEC=1",
 					"$(inherited)",
 				);
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -375,6 +412,10 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"SQLITE_HAS_CODEC=1",
+					"$(inherited)",
+				);
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
 				GCC_WARN_UNDECLARED_SELECTOR = YES;

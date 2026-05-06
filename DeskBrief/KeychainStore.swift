@@ -1,13 +1,13 @@
 import Foundation
 import Security
 
-enum KeychainWriteOperation: String, Equatable {
+nonisolated enum KeychainWriteOperation: String, Equatable {
     case add
     case update
     case delete
 }
 
-struct KeychainWriteResult: Equatable {
+nonisolated struct KeychainWriteResult: Equatable {
     let account: String
     let operation: KeychainWriteOperation
     let status: OSStatus
@@ -26,7 +26,7 @@ struct KeychainWriteResult: Equatable {
     }
 }
 
-struct KeychainWriteError: LocalizedError {
+nonisolated struct KeychainWriteError: LocalizedError {
     let result: KeychainWriteResult
 
     var errorDescription: String? {
@@ -34,12 +34,12 @@ struct KeychainWriteError: LocalizedError {
     }
 }
 
-protocol KeychainStoring {
+nonisolated protocol KeychainStoring {
     func string(for account: String) -> String
     @discardableResult func set(_ value: String, for account: String) -> KeychainWriteResult
 }
 
-final class KeychainStore: KeychainStoring {
+nonisolated final class KeychainStore: KeychainStoring {
     private let service: String
 
     init(service: String) {

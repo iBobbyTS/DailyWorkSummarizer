@@ -1,5 +1,5 @@
 import Foundation
-import SQLite3
+import SQLCipher
 
 final class LogDataStore: @unchecked Sendable {
     private let connection: DatabaseConnection

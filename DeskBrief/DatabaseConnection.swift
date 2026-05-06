@@ -1,12 +1,12 @@
 import Foundation
-import SQLite3
+import SQLCipher
 
 final class DatabaseConnection: @unchecked Sendable {
     let databaseURL: URL
     private let queue = DispatchQueue(label: "DeskBrief.Database")
     private(set) var handle: OpaquePointer?
 
-    init(databaseURL: URL) throws {
+    init(databaseURL: URL, passphrase: DatabasePassphrase) throws {
         self.databaseURL = databaseURL
         var opened: OpaquePointer?
         guard sqlite3_open(databaseURL.path, &opened) == SQLITE_OK else {
@@ -15,6 +15,7 @@ final class DatabaseConnection: @unchecked Sendable {
             throw DatabaseError.openDatabase(message)
         }
         self.handle = opened
+        try applyPassphrase(passphrase)
         try execute("PRAGMA foreign_keys = ON;")
     }
 
@@ -58,6 +59,22 @@ final class DatabaseConnection: @unchecked Sendable {
     func executeLocked(_ sql: String) throws {
         guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
             throw DatabaseError.execute(errorMessage)
+        }
+    }
+
+    private func applyPassphrase(_ passphrase: DatabasePassphrase) throws {
+        let bytes = Array(passphrase.value.utf8)
+        let rc = bytes.withUnsafeBufferPointer { buffer in
+            sqlite3_key(handle, buffer.baseAddress, Int32(buffer.count))
+        }
+        guard rc == SQLITE_OK else {
+            throw DatabaseError.invalidPassphrase(errorMessage)
+        }
+
+        do {
+            try execute("SELECT count(*) FROM sqlite_master;")
+        } catch {
+            throw DatabaseError.invalidPassphrase(errorMessage)
         }
     }
 

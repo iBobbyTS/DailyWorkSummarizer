@@ -1,5 +1,5 @@
 import Foundation
-import SQLite3
+import SQLCipher
 
 final class ReportDataStore: @unchecked Sendable {
     private let connection: DatabaseConnection

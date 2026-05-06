@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 import FoundationModels
-import SQLite3
+import SQLCipher
 import Testing
 @testable import DeskBrief
 

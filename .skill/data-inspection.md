@@ -10,8 +10,8 @@
 关键落盘位置：
 
 - Application Support 目录：`~/Library/Application Support/DeskBrief/`
-- SQLite 数据库：`~/Library/Application Support/DeskBrief/desk-brief.sqlite`
-- Sandboxed App SQLite 数据库：`~/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite`
+- SQLCipher 数据库：`~/Library/Application Support/DeskBrief/desk-brief.sqlite`
+- Sandboxed App SQLCipher 数据库：`~/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite`
 - 正式截屏目录：`~/Library/Application Support/DeskBrief/screenshots/`
 - 预览截屏目录：`~/Library/Application Support/DeskBrief/screenshots/preview/`
 - 模型测试临时截屏目录：`~/Library/Application Support/DeskBrief/screenshots/temp/`
@@ -34,11 +34,17 @@
 - `UserDefaults`
   保存定时、语言、provider、base URL、model name、imageAnalysisMethod 等普通设置。
 - `Keychain`
-  保存两套 API key：
+  保存数据库密钥和两套 API key：
+  - 数据库：service `com.iBobby.DeskBrief`，account `database-passphrase.main`
   - 截屏分析：`model-api-key.screenshot-analysis`
   - 工作内容总结：`model-api-key.work-content-summary`
 
-常用命令：
+数据库检查注意：
+
+- 运行库使用 SQLCipher 加密，系统 `sqlite3` 只能用于明文备份或测试临时库；直接读加密运行库预期会失败。
+- 检查加密运行库时，优先创建 `/private/tmp` 下的临时 Swift/SQLCipher 工具，通过 Keychain 读取 `database-passphrase.main` 后打开数据库。不要把这类一次性检查工具提交到仓库。
+
+明文备份或测试库常用命令：
 
 ```sh
 sqlite3 "$HOME/Library/Application Support/DeskBrief/desk-brief.sqlite" '.tables'

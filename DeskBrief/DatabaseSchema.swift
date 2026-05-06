@@ -1,5 +1,5 @@
 import Foundation
-import SQLite3
+import SQLCipher
 
 enum DatabaseSchema {
     static let currentVersion: Int32 = 1

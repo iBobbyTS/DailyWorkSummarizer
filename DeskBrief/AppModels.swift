@@ -19,6 +19,8 @@ nonisolated enum AppDefaults {
     static let screenshotFileExtension = "jpg"
     static let apiKeyAccount = "model-api-key.screenshot-analysis"
     static let workContentSummaryAPIKeyAccount = "model-api-key.work-content-summary"
+    static let databasePassphraseAccount = "database-passphrase.main"
+    static let databasePassphraseImportFilename = "desk-brief.sqlite.passphrase-import"
     static let defaultImageAnalysisMethod: ImageAnalysisMethod = .multimodal
     nonisolated static let screenshotAutoDeletionRetentionDays: ScreenshotAutoDeletionRetention = .twentyEightDays
     static let screenshotAutoDeletionCheckIntervalSeconds: TimeInterval = 3600

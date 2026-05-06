@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import FoundationModels
 import ImageIO
-import SQLite3
+import SQLCipher
 import Testing
 import UniformTypeIdentifiers
 @testable import DeskBrief
@@ -46,6 +46,10 @@ func makeTemporaryDatabaseURL() -> URL {
     FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString)
         .appendingPathExtension("sqlite")
+}
+
+func removeTemporaryDatabaseFiles(at databaseURL: URL) {
+    try? AppDatabase.removeDatabaseFiles(at: databaseURL)
 }
 
 func writeTestScreenshotPlaceholder(to url: URL) throws {
@@ -232,6 +236,16 @@ func openSQLite(at url: URL) throws -> OpaquePointer? {
         let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown sqlite error"
         sqlite3_close(handle)
         throw DatabaseError.openDatabase(message)
+    }
+    let passphrase = try DatabasePassphrase("DeskBrief.TestDatabase.Passphrase")
+    let bytes = Array(passphrase.value.utf8)
+    let rc = bytes.withUnsafeBufferPointer { buffer in
+        sqlite3_key(handle, buffer.baseAddress, Int32(buffer.count))
+    }
+    guard rc == SQLITE_OK else {
+        let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite key failed"
+        sqlite3_close(handle)
+        throw DatabaseError.invalidPassphrase(message)
     }
     return handle
 }

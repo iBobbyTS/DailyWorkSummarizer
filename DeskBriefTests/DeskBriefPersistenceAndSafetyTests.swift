@@ -1,5 +1,5 @@
 import Foundation
-import SQLite3
+import SQLCipher
 import Testing
 @testable import DeskBrief
 
@@ -135,9 +135,125 @@ extension DeskBriefTests {
     @Test func databaseErrorEquatable() async throws {
         #expect(DatabaseError.openDatabase("err") == DatabaseError.openDatabase("err"))
         #expect(DatabaseError.openDatabase("a") != DatabaseError.openDatabase("b"))
+        #expect(DatabaseError.missingPassphrase(URL(fileURLWithPath: "/tmp/a.sqlite")) == DatabaseError.missingPassphrase(URL(fileURLWithPath: "/tmp/a.sqlite")))
+        #expect(DatabaseError.invalidPassphrase("err") == DatabaseError.invalidPassphrase("err"))
+        #expect(DatabaseError.keychainWriteFailed(.failure(account: "a", operation: .update, status: -1)) == DatabaseError.keychainWriteFailed(.failure(account: "a", operation: .update, status: -1)))
         #expect(DatabaseError.prepareStatement("err") == DatabaseError.prepareStatement("err"))
         #expect(DatabaseError.execute("err") == DatabaseError.execute("err"))
         #expect(DatabaseError.openDatabase("err") != DatabaseError.execute("err"))
+    }
+
+    @Test func encryptedDatabaseCreatesAndReopensWithStoredPassphrase() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        let keychain = FakeKeychainStore()
+        let firstDatabase = try AppDatabase(databaseURL: databaseURL, keychain: keychain)
+        try firstDatabase.insertAppLog(AppLogEntry(level: .log, source: .app, message: "encrypted"))
+
+        let secondDatabase = try AppDatabase(databaseURL: databaseURL, keychain: keychain)
+        let logs = try secondDatabase.fetchAppLogs(limit: nil)
+
+        #expect(logs.map(\.message) == ["encrypted"])
+        #expect(!keychain.string(for: AppDefaults.databasePassphraseAccount).isEmpty)
+    }
+
+    @Test func encryptedDatabaseRequiresStoredPassphraseForExistingFile() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        let keychain = FakeKeychainStore()
+        _ = try AppDatabase(databaseURL: databaseURL, keychain: keychain)
+
+        do {
+            _ = try AppDatabase(databaseURL: databaseURL, keychain: FakeKeychainStore())
+            Issue.record("Expected missing database passphrase")
+        } catch DatabaseError.missingPassphrase(let url) {
+            #expect(url == databaseURL)
+        }
+    }
+
+    @Test func encryptedDatabaseImportsPassphraseFileWhenKeychainIsMissing() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        _ = try AppDatabase(
+            databaseURL: databaseURL,
+            passphrase: try DatabasePassphrase("imported-passphrase")
+        )
+
+        let importURL = AppDatabase.databasePassphraseImportURL(for: databaseURL)
+        try "imported-passphrase\n".write(to: importURL, atomically: true, encoding: .utf8)
+
+        let keychain = FakeKeychainStore()
+        _ = try AppDatabase(databaseURL: databaseURL, keychain: keychain)
+
+        #expect(keychain.string(for: AppDefaults.databasePassphraseAccount) == "imported-passphrase")
+        #expect(!FileManager.default.fileExists(atPath: importURL.path))
+    }
+
+    @Test func encryptedDatabaseKeepsImportFileWhenImportedPassphraseIsWrong() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        _ = try AppDatabase(
+            databaseURL: databaseURL,
+            passphrase: try DatabasePassphrase("correct-passphrase")
+        )
+
+        let importURL = AppDatabase.databasePassphraseImportURL(for: databaseURL)
+        try "wrong-passphrase\n".write(to: importURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try AppDatabase(databaseURL: databaseURL, keychain: FakeKeychainStore())
+            Issue.record("Expected invalid imported database passphrase")
+        } catch DatabaseError.invalidPassphrase {
+            #expect(FileManager.default.fileExists(atPath: importURL.path))
+        }
+    }
+
+    @Test func encryptedDatabaseRejectsWrongPassphrase() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        _ = try AppDatabase(
+            databaseURL: databaseURL,
+            passphrase: try DatabasePassphrase("correct-passphrase")
+        )
+
+        do {
+            _ = try AppDatabase(
+                databaseURL: databaseURL,
+                passphrase: try DatabasePassphrase("wrong-passphrase")
+            )
+            Issue.record("Expected invalid database passphrase")
+        } catch DatabaseError.invalidPassphrase {
+            #expect(true)
+        }
+    }
+
+    @Test func removeDatabaseFilesDeletesDatabaseAndSidecarsOnly() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let walURL = URL(fileURLWithPath: databaseURL.path + "-wal")
+        let shmURL = URL(fileURLWithPath: databaseURL.path + "-shm")
+        let importURL = AppDatabase.databasePassphraseImportURL(for: databaseURL)
+        let screenshotsURL = databaseURL.deletingLastPathComponent().appendingPathComponent("screenshots", isDirectory: true)
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+        defer { try? FileManager.default.removeItem(at: screenshotsURL) }
+
+        try "db".write(to: databaseURL, atomically: true, encoding: .utf8)
+        try "wal".write(to: walURL, atomically: true, encoding: .utf8)
+        try "shm".write(to: shmURL, atomically: true, encoding: .utf8)
+        try "passphrase".write(to: importURL, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: screenshotsURL, withIntermediateDirectories: true)
+
+        try AppDatabase.removeDatabaseFiles(at: databaseURL)
+
+        #expect(!FileManager.default.fileExists(atPath: databaseURL.path))
+        #expect(!FileManager.default.fileExists(atPath: walURL.path))
+        #expect(!FileManager.default.fileExists(atPath: shmURL.path))
+        #expect(!FileManager.default.fileExists(atPath: importURL.path))
+        #expect(FileManager.default.fileExists(atPath: screenshotsURL.path))
     }
 
     @Test func analysisServiceErrorEquatable() async throws {
