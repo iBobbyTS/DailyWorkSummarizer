@@ -106,6 +106,76 @@ func writeSolidTestScreenshot(
     }
 }
 
+func makeSolidTestScreenshotData(
+    gray: UInt8,
+    width: Int = 4,
+    height: Int = 4
+) throws -> Data {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString)
+        .appendingPathExtension("jpg")
+    defer { try? FileManager.default.removeItem(at: url) }
+    try writeSolidTestScreenshot(to: url, gray: gray, width: width, height: height)
+    return try Data(contentsOf: url)
+}
+
+func makeSolidTestCGImage(
+    gray: UInt8,
+    width: Int = 4,
+    height: Int = 4
+) throws -> CGImage {
+    let pixelCount = width * height
+    var pixels: [UInt8] = []
+    pixels.reserveCapacity(pixelCount * 4)
+    for _ in 0..<pixelCount {
+        pixels.append(gray)
+        pixels.append(gray)
+        pixels.append(gray)
+        pixels.append(UInt8.max)
+    }
+
+    let data = Data(pixels)
+    guard let provider = CGDataProvider(data: data as CFData),
+          let image = CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: false,
+            intent: .defaultIntent
+          ) else {
+        throw NSError(
+            domain: "DeskBriefTests",
+            code: 3,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to create solid test image"]
+        )
+    }
+
+    return image
+}
+
+final class LockedDoubleRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Double] = []
+
+    func append(_ value: Double) {
+        lock.lock()
+        values.append(value)
+        lock.unlock()
+    }
+
+    var snapshot: [Double] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
 func makeScreenshotDate(
     year: Int,
     month: Int,
@@ -268,6 +338,7 @@ func makeTestSettingsSnapshot(
 ) -> AppSettingsSnapshot {
     AppSettingsSnapshot(
         screenshotIntervalMinutes: screenshotIntervalMinutes,
+        screenshotStorageLocation: .disk,
         analysisTimeMinutes: 9 * 60,
         analysisStartupMode: analysisStartupMode,
         autoAnalysisRequiresCharger: false,
@@ -460,6 +531,20 @@ func requestBodyData(from request: URLRequest) -> Data? {
     }
 
     return data.isEmpty ? nil : data
+}
+
+func openAIImageData(from request: URLRequest) throws -> Data {
+    let requestBody = try #require(requestBodyData(from: request))
+    let body = try #require(JSONSerialization.jsonObject(with: requestBody) as? [String: Any])
+    let messages = try #require(body["messages"] as? [[String: Any]])
+    let firstMessage = try #require(messages.first)
+    let content = try #require(firstMessage["content"] as? [[String: Any]])
+    let imageBlock = try #require(content.first { $0["type"] as? String == "image_url" })
+    let imageURL = try #require(imageBlock["image_url"] as? [String: Any])
+    let dataURL = try #require(imageURL["url"] as? String)
+    let base64Prefix = "data:image/jpeg;base64,"
+    #expect(dataURL.hasPrefix(base64Prefix))
+    return try #require(Data(base64Encoded: String(dataURL.dropFirst(base64Prefix.count))))
 }
 
 final class MockURLProtocol: URLProtocol, @unchecked Sendable {

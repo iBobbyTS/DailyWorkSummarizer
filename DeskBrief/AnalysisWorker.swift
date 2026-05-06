@@ -63,6 +63,78 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         ).response
     }
 
+    /// Analyze image data directly, returning only the AnalysisResponse.
+    func analyzeImage(
+        from imageData: Data,
+        settings: AppSettingsSnapshot,
+        prompt: String,
+        allowLengthRetry: Bool = true,
+        maxAttempts: Int = 3
+    ) async throws -> AnalysisResponse {
+        try await analyzeImageDetailed(
+            from: imageData,
+            settings: settings,
+            prompt: prompt,
+            allowLengthRetry: allowLengthRetry,
+            maxAttempts: maxAttempts
+        ).response
+    }
+
+    /// Analyze a pending screenshot regardless of storage backing (disk or memory).
+    func analyzeImage(
+        from pending: PendingScreenshot,
+        settings: AppSettingsSnapshot,
+        prompt: String,
+        allowLengthRetry: Bool = true,
+        maxAttempts: Int = 3
+    ) async throws -> AnalysisResponse {
+        try await analyzeImageDetailed(
+            from: pending,
+            settings: settings,
+            prompt: prompt,
+            allowLengthRetry: allowLengthRetry,
+            maxAttempts: maxAttempts
+        ).response
+    }
+
+    /// Analyze a pending screenshot regardless of storage backing (disk or memory).
+    func analyzeImageDetailed(
+        from pending: PendingScreenshot,
+        settings: AppSettingsSnapshot,
+        prompt: String,
+        allowLengthRetry: Bool = true,
+        maxAttempts: Int = 3
+    ) async throws -> AnalysisExecutionResult {
+        switch pending.storageLocation {
+        case .disk:
+            guard let fileURL = pending.fileURL else {
+                throw AnalysisServiceError.invalidImageData(
+                    localized(.analysisInvalidImageData, language: settings.appLanguage)
+                )
+            }
+            return try await analyzeImageDetailed(
+                at: fileURL,
+                settings: settings,
+                prompt: prompt,
+                allowLengthRetry: allowLengthRetry,
+                maxAttempts: maxAttempts
+            )
+        case .memory:
+            guard let imageData = pending.imageData else {
+                throw AnalysisServiceError.invalidImageData(
+                    localized(.analysisInvalidImageData, language: settings.appLanguage)
+                )
+            }
+            return try await analyzeImageDetailed(
+                from: imageData,
+                settings: settings,
+                prompt: prompt,
+                allowLengthRetry: allowLengthRetry,
+                maxAttempts: maxAttempts
+            )
+        }
+    }
+
     func analyzeImageDetailed(
         at fileURL: URL,
         settings: AppSettingsSnapshot,
@@ -98,6 +170,43 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         throw lastError ?? AnalysisServiceError.invalidResponse(localized(.analysisInvalidCategory, language: settings.appLanguage))
     }
 
+    /// Analyze image data directly (for memory-backed screenshots).
+    func analyzeImageDetailed(
+        from imageData: Data,
+        settings: AppSettingsSnapshot,
+        prompt: String,
+        allowLengthRetry: Bool = true,
+        maxAttempts: Int = 3
+    ) async throws -> AnalysisExecutionResult {
+        var lastError: Error?
+
+        for attempt in 1...maxAttempts {
+            do {
+                return try await analyzeImageAttemptDetailed(
+                    from: imageData,
+                    settings: settings,
+                    prompt: prompt,
+                    allowLengthRetry: allowLengthRetry
+                )
+            } catch {
+                if error is CancellationError || Task.isCancelled {
+                    throw error
+                }
+
+                lastError = error
+
+                guard AnalysisService.shouldRetryAnalysis(after: error, attempt: attempt, maxAttempts: maxAttempts) else {
+                    throw error
+                }
+
+                try? await Task.sleep(for: .milliseconds(300 * attempt))
+            }
+        }
+
+        throw lastError ?? AnalysisServiceError.invalidResponse(localized(.analysisInvalidCategory, language: settings.appLanguage))
+    }
+
+    /// Core single-attempt analysis starting from in-memory image data.
     private func analyzeImageAttemptDetailed(
         at fileURL: URL,
         settings: AppSettingsSnapshot,
@@ -105,6 +214,28 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         allowLengthRetry: Bool
     ) async throws -> AnalysisExecutionResult {
         let imageData = try await imageData(from: fileURL)
+        return try await analyzeImageAttemptDetailed(
+            from: imageData,
+            settings: settings,
+            prompt: prompt,
+            allowLengthRetry: allowLengthRetry
+        ) { retryPrompt in
+            try await self.analyzeImageAttemptDetailed(
+                at: fileURL,
+                settings: settings,
+                prompt: retryPrompt,
+                allowLengthRetry: false
+            )
+        }
+    }
+
+    private func analyzeImageAttemptDetailed(
+        from imageData: Data,
+        settings: AppSettingsSnapshot,
+        prompt: String,
+        allowLengthRetry: Bool,
+        lengthRetry: ((String) async throws -> AnalysisExecutionResult)? = nil
+    ) async throws -> AnalysisExecutionResult {
         try await validateImageData(imageData, language: settings.appLanguage)
         if let brightnessSignal = await brightnessSignal(from: imageData),
            !brightnessSignal.isVisuallyActive {
@@ -187,8 +318,11 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         guard let response = AnalysisService.extractAnalysisResponse(from: text, validRules: settings.validCategoryRules) else {
             if llmResponse.finishReason == "length", allowLengthRetry {
                 let retryPrompt = prompt + "\n\n" + localized(.analysisRetrySupplement, language: settings.appLanguage)
+                if let lengthRetry {
+                    return try await lengthRetry(retryPrompt)
+                }
                 return try await analyzeImageAttemptDetailed(
-                    at: fileURL,
+                    from: imageData,
                     settings: settings,
                     prompt: retryPrompt,
                     allowLengthRetry: false

@@ -1144,4 +1144,439 @@ extension DeskBriefTests {
         #expect(monitor.previousPendingScreenshotCount == 24)
     }
 
+    // MARK: - Screenshot Storage Location
+
+    @Test func screenshotStorageLocationEnumHasDiskAndMemoryCases() async throws {
+        let allCases = ScreenshotStorageLocation.allCases
+        #expect(allCases.count == 2)
+        #expect(allCases.contains(.disk))
+        #expect(allCases.contains(.memory))
+
+        #expect(ScreenshotStorageLocation.disk.rawValue == "disk")
+        #expect(ScreenshotStorageLocation.memory.rawValue == "memory")
+        #expect(ScreenshotStorageLocation(rawValue: "disk") == .disk)
+        #expect(ScreenshotStorageLocation(rawValue: "memory") == .memory)
+        #expect(ScreenshotStorageLocation(rawValue: "") == nil)
+        #expect(ScreenshotStorageLocation(rawValue: "invalid") == nil)
+    }
+
+    @Test func screenshotStorageLocationDefaultIsDisk() async throws {
+        // Default is .disk per AppModels definition
+        #expect(ScreenshotStorageLocation(rawValue: "invalid") ?? .disk == .disk)
+    }
+
+    @Test func screenshotStorageLocationLocalizedTitles() async throws {
+        #expect(ScreenshotStorageLocation.disk.localizedTitle(language: .simplifiedChinese) == "硬盘")
+        #expect(ScreenshotStorageLocation.memory.localizedTitle(language: .simplifiedChinese) == "内存")
+        #expect(ScreenshotStorageLocation.disk.localizedTitle(language: .english) == "Disk")
+        #expect(ScreenshotStorageLocation.memory.localizedTitle(language: .english) == "Memory")
+    }
+
+    @MainActor
+    @Test func screenshotStorageLocationDefaultPersistsAndReadsBack() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        userDefaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.userDefaultsKey)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        // Default should be .disk
+        #expect(store.screenshotStorageLocation == .disk)
+        #expect(store.snapshot.screenshotStorageLocation == .disk)
+    }
+
+    @MainActor
+    @Test func screenshotStorageLocationChangePersistsAndPostsNotification() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        userDefaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.userDefaultsKey)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        store.screenshotStorageLocation = .memory
+
+        #expect(store.screenshotStorageLocation == .memory)
+        #expect(store.snapshot.screenshotStorageLocation == .memory)
+        #expect(userDefaults.string(forKey: "com.deskbrief.settings.screenshotStorageLocation") == "memory")
+
+        // Verify persistence across a reload
+        let reloadedStore = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        #expect(reloadedStore.screenshotStorageLocation == .memory)
+        #expect(reloadedStore.snapshot.screenshotStorageLocation == .memory)
+
+        // Change back to disk and verify notification
+        let semaphore = DispatchSemaphore(value: 0)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .appSettingsDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            semaphore.signal()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        store.screenshotStorageLocation = .disk
+        let received = await waitForSemaphore(semaphore, timeoutSeconds: 2)
+        #expect(received)
+        #expect(store.screenshotStorageLocation == .disk)
+    }
+
+    @Test func screenshotStorageLocationSettingsLabelAndTooltipAreLocalized() async throws {
+        let chineseLabel = L10n.string(.settingsScreenshotStorageLocation, language: .simplifiedChinese)
+        let englishLabel = L10n.string(.settingsScreenshotStorageLocation, language: .english)
+        let chineseTooltip = L10n.string(.settingsScreenshotStorageLocationTooltip, language: .simplifiedChinese)
+        let englishTooltip = L10n.string(.settingsScreenshotStorageLocationTooltip, language: .english)
+
+        #expect(!chineseLabel.isEmpty)
+        #expect(!englishLabel.isEmpty)
+        #expect(!chineseTooltip.isEmpty)
+        #expect(!englishTooltip.isEmpty)
+
+        #expect(chineseLabel == "截屏保存位置")
+        #expect(englishLabel == "Screenshot Storage")
+        #expect(chineseTooltip.contains("硬盘"))
+        #expect(englishTooltip.contains("Disk"))
+    }
+
+    @MainActor
+    @Test func scheduledCapturePermissionGateAppliesBeforeDiskAndMemoryBackends() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        var permissionChecks = 0
+        var targetResolutions = 0
+        var diskCaptures = 0
+        var memoryCaptures = 0
+        let runtime = ScreenshotCaptureRuntime(
+            hasScreenCaptureAccess: {
+                permissionChecks += 1
+                return false
+            },
+            mouseLocation: { CGPoint(x: 42, y: 24) },
+            frontmostAppIdentifier: { "com.example.Editor" },
+            preferredCaptureTarget: {
+                targetResolutions += 1
+                return ScreenshotCaptureTarget(displayIndex: 2, frame: CGRect(x: 10, y: 20, width: 30, height: 40))
+            },
+            runScreenCapture: { _ in
+                diskCaptures += 1
+            },
+            captureDisplayImage: { _ in
+                memoryCaptures += 1
+                return try makeSolidTestCGImage(gray: 3)
+            }
+        )
+        let service = ScreenshotService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            userDefaults: userDefaults,
+            captureRuntime: runtime
+        )
+        let scheduledAt = makeScreenshotDate(year: 2026, month: 4, day: 26, hour: 10, minute: 0)
+
+        store.screenshotStorageLocation = .disk
+        await service.captureScheduledScreenshotForTesting(scheduledAt: scheduledAt, settings: store.snapshot)
+        store.screenshotStorageLocation = .memory
+        await service.captureScheduledScreenshotForTesting(scheduledAt: scheduledAt, settings: store.snapshot)
+
+        #expect(permissionChecks == 2)
+        #expect(targetResolutions == 0)
+        #expect(diskCaptures == 0)
+        #expect(memoryCaptures == 0)
+        #expect(try database.pendingScreenshotStore.listPendingScreenshots(defaultDurationMinutes: 5).isEmpty)
+        #expect(try database.listScreenshotFiles(defaultDurationMinutes: 5).isEmpty)
+    }
+
+    @MainActor
+    @Test func scheduledCaptureSkipPolicyAppliesBeforeDiskAndMemoryBackends() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+        }
+
+        userDefaults.set(true, forKey: "screenshot.lastMouseLocation.exists")
+        userDefaults.set(42.0, forKey: "screenshot.lastMouseLocation.x")
+        userDefaults.set(24.0, forKey: "screenshot.lastMouseLocation.y")
+        userDefaults.set("com.example.Editor", forKey: "screenshot.lastFrontmostAppIdentifier")
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        var permissionChecks = 0
+        var targetResolutions = 0
+        var diskCaptures = 0
+        var memoryCaptures = 0
+        let runtime = ScreenshotCaptureRuntime(
+            hasScreenCaptureAccess: {
+                permissionChecks += 1
+                return true
+            },
+            mouseLocation: { CGPoint(x: 42, y: 24) },
+            frontmostAppIdentifier: { "com.example.Editor" },
+            preferredCaptureTarget: {
+                targetResolutions += 1
+                return ScreenshotCaptureTarget(displayIndex: 2, frame: CGRect(x: 10, y: 20, width: 30, height: 40))
+            },
+            runScreenCapture: { _ in
+                diskCaptures += 1
+            },
+            captureDisplayImage: { _ in
+                memoryCaptures += 1
+                return try makeSolidTestCGImage(gray: 3)
+            }
+        )
+        let service = ScreenshotService(
+            database: database,
+            settingsStore: store,
+            userDefaults: userDefaults,
+            captureRuntime: runtime
+        )
+        let scheduledAt = makeScreenshotDate(year: 2026, month: 4, day: 26, hour: 10, minute: 0)
+
+        store.screenshotStorageLocation = .disk
+        await service.captureScheduledScreenshotForTesting(scheduledAt: scheduledAt, settings: store.snapshot)
+        store.screenshotStorageLocation = .memory
+        await service.captureScheduledScreenshotForTesting(scheduledAt: scheduledAt, settings: store.snapshot)
+
+        #expect(permissionChecks == 0)
+        #expect(targetResolutions == 0)
+        #expect(diskCaptures == 0)
+        #expect(memoryCaptures == 0)
+    }
+
+    @MainActor
+    @Test func scheduledDiskCaptureUsesPreferredTargetAndPublishesPendingFile() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.screenshotIntervalMinutes = 5
+        store.screenshotStorageLocation = .disk
+        let target = ScreenshotCaptureTarget(displayIndex: 2, frame: CGRect(x: 10, y: 20, width: 30, height: 40))
+        var targetResolutions = 0
+        var screenCaptureArguments: [[String]] = []
+        let runtime = ScreenshotCaptureRuntime(
+            hasScreenCaptureAccess: { true },
+            mouseLocation: { CGPoint(x: 42, y: 24) },
+            frontmostAppIdentifier: { "com.example.Editor" },
+            preferredCaptureTarget: {
+                targetResolutions += 1
+                return target
+            },
+            runScreenCapture: { arguments in
+                screenCaptureArguments.append(arguments)
+                guard let destination = arguments.last else { return }
+                try writeSolidTestScreenshot(to: URL(fileURLWithPath: destination), gray: 3)
+            },
+            captureDisplayImage: { _ in
+                Issue.record("Disk capture should not invoke the memory capture backend")
+                return try makeSolidTestCGImage(gray: 3)
+            }
+        )
+        let service = ScreenshotService(
+            database: database,
+            settingsStore: store,
+            userDefaults: userDefaults,
+            captureRuntime: runtime
+        )
+        let savedSemaphore = DispatchSemaphore(value: 0)
+        let changedSemaphore = DispatchSemaphore(value: 0)
+        var savedObject: Any?
+        let savedObserver = NotificationCenter.default.addObserver(
+            forName: .screenshotFileSaved,
+            object: nil,
+            queue: nil
+        ) { notification in
+            savedObject = notification.object
+            savedSemaphore.signal()
+        }
+        let changedObserver = NotificationCenter.default.addObserver(
+            forName: .screenshotFilesDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            changedSemaphore.signal()
+        }
+        defer {
+            NotificationCenter.default.removeObserver(savedObserver)
+            NotificationCenter.default.removeObserver(changedObserver)
+        }
+        let scheduledAt = makeScreenshotDate(year: 2026, month: 4, day: 26, hour: 10, minute: 0)
+
+        await service.captureScheduledScreenshotForTesting(scheduledAt: scheduledAt, settings: store.snapshot)
+
+        let didSave = await waitForSemaphore(savedSemaphore, timeoutSeconds: 2)
+        let didChange = await waitForSemaphore(changedSemaphore, timeoutSeconds: 2)
+        let pending = try database.pendingScreenshotStore.listPendingScreenshots(defaultDurationMinutes: 5)
+        let savedURL = try #require(savedObject as? URL)
+
+        #expect(didSave)
+        #expect(didChange)
+        #expect(targetResolutions == 1)
+        #expect(screenCaptureArguments.count == 1)
+        #expect(screenCaptureArguments.first.map { Array($0.prefix(4)) } == ["-x", "-D", "2", "-t"])
+        #expect(savedURL.lastPathComponent == "20260426-1000-i5.jpg")
+        #expect(pending.count == 1)
+        #expect(pending.first?.storageLocation == .disk)
+        #expect(pending.first?.fileURL?.standardizedFileURL == savedURL.standardizedFileURL)
+        #expect(userDefaults.bool(forKey: "screenshot.lastMouseLocation.exists"))
+        #expect(userDefaults.double(forKey: "screenshot.lastMouseLocation.x") == 42)
+        #expect(userDefaults.double(forKey: "screenshot.lastMouseLocation.y") == 24)
+        #expect(userDefaults.string(forKey: "screenshot.lastFrontmostAppIdentifier") == "com.example.Editor")
+    }
+
+    @MainActor
+    @Test func scheduledMemoryCaptureUsesPreferredTargetAndPublishesPendingMemoryScreenshot() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.screenshotIntervalMinutes = 5
+        store.screenshotStorageLocation = .memory
+        let targetFrame = CGRect(x: 10, y: 20, width: 30, height: 40)
+        let target = ScreenshotCaptureTarget(displayIndex: 2, frame: targetFrame)
+        var targetResolutions = 0
+        var capturedRects: [CGRect] = []
+        var diskCaptures = 0
+        let runtime = ScreenshotCaptureRuntime(
+            hasScreenCaptureAccess: { true },
+            mouseLocation: { CGPoint(x: 42, y: 24) },
+            frontmostAppIdentifier: { "com.example.Editor" },
+            preferredCaptureTarget: {
+                targetResolutions += 1
+                return target
+            },
+            runScreenCapture: { _ in
+                diskCaptures += 1
+            },
+            captureDisplayImage: { rect in
+                capturedRects.append(rect)
+                return try makeSolidTestCGImage(gray: 3)
+            }
+        )
+        let service = ScreenshotService(
+            database: database,
+            settingsStore: store,
+            userDefaults: userDefaults,
+            captureRuntime: runtime
+        )
+        let savedSemaphore = DispatchSemaphore(value: 0)
+        let changedSemaphore = DispatchSemaphore(value: 0)
+        var savedObject: Any?
+        let savedObserver = NotificationCenter.default.addObserver(
+            forName: .screenshotFileSaved,
+            object: nil,
+            queue: nil
+        ) { notification in
+            savedObject = notification.object
+            savedSemaphore.signal()
+        }
+        let changedObserver = NotificationCenter.default.addObserver(
+            forName: .screenshotFilesDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            changedSemaphore.signal()
+        }
+        defer {
+            NotificationCenter.default.removeObserver(savedObserver)
+            NotificationCenter.default.removeObserver(changedObserver)
+        }
+        let scheduledAt = makeScreenshotDate(year: 2026, month: 4, day: 26, hour: 10, minute: 0)
+
+        await service.captureScheduledScreenshotForTesting(scheduledAt: scheduledAt, settings: store.snapshot)
+
+        let didSave = await waitForSemaphore(savedSemaphore, timeoutSeconds: 2)
+        let didChange = await waitForSemaphore(changedSemaphore, timeoutSeconds: 2)
+        let pending = try database.pendingScreenshotStore.listPendingScreenshots(defaultDurationMinutes: 5)
+        let savedPending = try #require(savedObject as? PendingScreenshot)
+
+        #expect(didSave)
+        #expect(didChange)
+        #expect(targetResolutions == 1)
+        #expect(capturedRects == [targetFrame])
+        #expect(diskCaptures == 0)
+        #expect(try database.listScreenshotFiles(defaultDurationMinutes: 5).isEmpty)
+        #expect(pending.count == 1)
+        #expect(pending.first?.storageLocation == .memory)
+        #expect(pending.first?.fileURL == nil)
+        #expect(pending.first?.imageData?.isEmpty == false)
+        #expect(savedPending.storageLocation == .memory)
+        #expect(savedPending.capturedAt == scheduledAt)
+        #expect(savedPending.durationMinutes == 5)
+        #expect(userDefaults.bool(forKey: "screenshot.lastMouseLocation.exists"))
+        #expect(userDefaults.double(forKey: "screenshot.lastMouseLocation.x") == 42)
+        #expect(userDefaults.double(forKey: "screenshot.lastMouseLocation.y") == 24)
+        #expect(userDefaults.string(forKey: "screenshot.lastFrontmostAppIdentifier") == "com.example.Editor")
+    }
 }
