@@ -259,45 +259,62 @@ final class SettingsStore: ObservableObject {
         self.keychain = keychain
         self.logStore = logStore
 
-        let savedInterval = userDefaults.object(forKey: Keys.screenshotIntervalMinutes) as? Int ?? AppDefaults.screenshotIntervalMinutes
-        let savedAnalysisTime = userDefaults.object(forKey: Keys.analysisTimeMinutes) as? Int ?? AppDefaults.analysisTimeMinutes
-        let savedAnalysisStartupMode = AnalysisStartupMode(rawValue: userDefaults.string(forKey: Keys.analysisStartupMode) ?? "")
+        func read<T>(key: String, fallback: @autoclosure () -> T) -> T {
+            (userDefaults.objectWithFallback(newKey: key, oldKey: Keys.legacyKey(for: key)) as? T) ?? fallback()
+        }
+
+        func readString(key: String) -> String? {
+            userDefaults.objectWithFallback(newKey: key, oldKey: Keys.legacyKey(for: key)) as? String
+        }
+
+        let savedInterval: Int = read(key: Keys.screenshotIntervalMinutes, fallback: AppDefaults.screenshotIntervalMinutes)
+        let savedAnalysisTime: Int = read(key: Keys.analysisTimeMinutes, fallback: AppDefaults.analysisTimeMinutes)
+        let savedAnalysisStartupMode = AnalysisStartupMode(rawValue: readString(key: Keys.analysisStartupMode) ?? "")
             ?? AppDefaults.analysisStartupMode
-        let savedReportWeekStart = ReportWeekStart(rawValue: userDefaults.string(forKey: Keys.reportWeekStart) ?? "") ?? .sunday
-        let savedAutoAnalysisRequiresCharger = userDefaults.object(forKey: Keys.autoAnalysisRequiresCharger) as? Bool ?? AppDefaults.autoAnalysisRequiresCharger
-        let savedAppLanguage = AppLanguage(rawValue: userDefaults.string(forKey: AppLanguage.userDefaultsKey) ?? "") ?? .defaultValue
-        let savedSummaryInstruction = userDefaults.string(forKey: Keys.summaryInstruction)
+        let savedReportWeekStart = ReportWeekStart(rawValue: readString(key: Keys.reportWeekStart) ?? "") ?? .sunday
+        let savedAutoAnalysisRequiresCharger: Bool = read(key: Keys.autoAnalysisRequiresCharger, fallback: AppDefaults.autoAnalysisRequiresCharger)
+
+        let savedAppLanguageRaw: String? = userDefaults.objectWithFallback(
+            newKey: AppLanguage.userDefaultsKey,
+            oldKey: AppLanguage.legacyUserDefaultsKey
+        ) as? String
+        let savedAppLanguage = AppLanguage(rawValue: savedAppLanguageRaw ?? "") ?? .defaultValue
+        if savedAppLanguageRaw != nil && userDefaults.object(forKey: AppLanguage.userDefaultsKey) == nil {
+            userDefaults.set(savedAppLanguage.rawValue, forKey: AppLanguage.userDefaultsKey)
+        }
+
+        let savedSummaryInstruction = readString(key: Keys.summaryInstruction)
             ?? AppDefaults.defaultSummaryInstruction(language: savedAppLanguage)
         let savedProvider = Self.resolvedProvider(
-            ModelProvider(rawValue: userDefaults.string(forKey: Keys.provider) ?? "") ?? .openAI,
+            ModelProvider(rawValue: readString(key: Keys.provider) ?? "") ?? .openAI,
             language: savedAppLanguage
         )
-        let savedBaseURL = userDefaults.string(forKey: Keys.apiBaseURL) ?? ""
-        let savedModelName = userDefaults.string(forKey: Keys.modelName) ?? ""
+        let savedBaseURL = readString(key: Keys.apiBaseURL) ?? ""
+        let savedModelName = readString(key: Keys.modelName) ?? ""
         let savedAPIKey = keychain.string(for: AppDefaults.apiKeyAccount)
-        let savedLMStudioContextLength = userDefaults.object(forKey: Keys.lmStudioContextLength) as? Int ?? AppDefaults.lmStudioContextLength
+        let savedLMStudioContextLength: Int = read(key: Keys.lmStudioContextLength, fallback: AppDefaults.lmStudioContextLength)
 
-        let savedScreenshotAnalysisLMStudioExplicitLoadUnloadModel = userDefaults.object(forKey: Keys.screenshotAnalysisLMStudioExplicitLoadUnloadModel) as? Bool ?? AppDefaults.lmStudioExplicitLoadUnloadModel
-        let savedScreenshotAnalysisMemoryCheckEnabled = userDefaults.object(forKey: Keys.screenshotAnalysisMemoryCheckEnabled) as? Bool ?? AppDefaults.memoryCheckEnabled
-        let savedScreenshotAnalysisMemoryThresholdGB = userDefaults.object(forKey: Keys.screenshotAnalysisMemoryThresholdGB) as? Double ?? AppDefaults.memoryThresholdGB
+        let savedScreenshotAnalysisLMStudioExplicitLoadUnloadModel: Bool = read(key: Keys.screenshotAnalysisLMStudioExplicitLoadUnloadModel, fallback: AppDefaults.lmStudioExplicitLoadUnloadModel)
+        let savedScreenshotAnalysisMemoryCheckEnabled: Bool = read(key: Keys.screenshotAnalysisMemoryCheckEnabled, fallback: AppDefaults.memoryCheckEnabled)
+        let savedScreenshotAnalysisMemoryThresholdGB: Double = read(key: Keys.screenshotAnalysisMemoryThresholdGB, fallback: AppDefaults.memoryThresholdGB)
         let savedImageAnalysisMethod = Self.resolvedImageAnalysisMethod(
-            ImageAnalysisMethod(rawValue: userDefaults.string(forKey: Keys.imageAnalysisMethod) ?? "")
+            ImageAnalysisMethod(rawValue: readString(key: Keys.imageAnalysisMethod) ?? "")
                 ?? AppDefaults.defaultImageAnalysisMethod,
             for: savedProvider
         )
         let savedWorkContentSummaryProvider = Self.resolvedProvider(
-            ModelProvider(rawValue: userDefaults.string(forKey: Keys.workContentSummaryProvider) ?? "") ?? savedProvider,
+            ModelProvider(rawValue: readString(key: Keys.workContentSummaryProvider) ?? "") ?? savedProvider,
             language: savedAppLanguage
         )
-        let savedWorkContentSummaryBaseURL = userDefaults.string(forKey: Keys.workContentSummaryAPIBaseURL) ?? savedBaseURL
-        let savedWorkContentSummaryModelName = userDefaults.string(forKey: Keys.workContentSummaryModelName) ?? savedModelName
+        let savedWorkContentSummaryBaseURL = readString(key: Keys.workContentSummaryAPIBaseURL) ?? savedBaseURL
+        let savedWorkContentSummaryModelName = readString(key: Keys.workContentSummaryModelName) ?? savedModelName
         let savedWorkContentSummaryAPIKey = keychain.string(for: AppDefaults.workContentSummaryAPIKeyAccount).isEmpty
             ? savedAPIKey
             : keychain.string(for: AppDefaults.workContentSummaryAPIKeyAccount)
-        let savedWorkContentSummaryLMStudioContextLength = userDefaults.object(forKey: Keys.workContentSummaryLMStudioContextLength) as? Int ?? savedLMStudioContextLength
-        let savedWorkContentSummaryLMStudioExplicitLoadUnloadModel = userDefaults.object(forKey: Keys.workContentSummaryLMStudioExplicitLoadUnloadModel) as? Bool ?? AppDefaults.lmStudioExplicitLoadUnloadModel
-        let savedWorkContentSummaryMemoryCheckEnabled = userDefaults.object(forKey: Keys.workContentSummaryMemoryCheckEnabled) as? Bool ?? AppDefaults.memoryCheckEnabled
-        let savedWorkContentSummaryMemoryThresholdGB = userDefaults.object(forKey: Keys.workContentSummaryMemoryThresholdGB) as? Double ?? AppDefaults.memoryThresholdGB
+        let savedWorkContentSummaryLMStudioContextLength: Int = read(key: Keys.workContentSummaryLMStudioContextLength, fallback: savedLMStudioContextLength)
+        let savedWorkContentSummaryLMStudioExplicitLoadUnloadModel: Bool = read(key: Keys.workContentSummaryLMStudioExplicitLoadUnloadModel, fallback: AppDefaults.lmStudioExplicitLoadUnloadModel)
+        let savedWorkContentSummaryMemoryCheckEnabled: Bool = read(key: Keys.workContentSummaryMemoryCheckEnabled, fallback: AppDefaults.memoryCheckEnabled)
+        let savedWorkContentSummaryMemoryThresholdGB: Double = read(key: Keys.workContentSummaryMemoryThresholdGB, fallback: AppDefaults.memoryThresholdGB)
         let savedRules: [CategoryRule]
         do {
             savedRules = try database.fetchCategoryRules()
@@ -558,26 +575,33 @@ final class SettingsStore: ObservableObject {
     }
 
     private enum Keys {
-        static let screenshotIntervalMinutes = "settings.screenshotIntervalMinutes"
-        static let analysisTimeMinutes = "settings.analysisTimeMinutes"
-        static let analysisStartupMode = "settings.analysisStartupMode"
-        static let reportWeekStart = "settings.reportWeekStart"
-        static let autoAnalysisRequiresCharger = "settings.autoAnalysisRequiresCharger"
-        static let summaryInstruction = "settings.summaryInstruction"
-        static let provider = "settings.provider"
-        static let apiBaseURL = "settings.apiBaseURL"
-        static let modelName = "settings.modelName"
-        static let lmStudioContextLength = "settings.lmStudioContextLength"
-        static let screenshotAnalysisLMStudioExplicitLoadUnloadModel = "settings.screenshotAnalysis.lmStudioExplicitLoadUnloadModel"
-        static let screenshotAnalysisMemoryCheckEnabled = "settings.screenshotAnalysis.memoryCheckEnabled"
-        static let screenshotAnalysisMemoryThresholdGB = "settings.screenshotAnalysis.memoryThresholdGB"
-        static let imageAnalysisMethod = "settings.imageAnalysisMethod"
-        static let workContentSummaryProvider = "settings.workContentSummary.provider"
-        static let workContentSummaryAPIBaseURL = "settings.workContentSummary.apiBaseURL"
-        static let workContentSummaryModelName = "settings.workContentSummary.modelName"
-        static let workContentSummaryLMStudioContextLength = "settings.workContentSummary.lmStudioContextLength"
-        static let workContentSummaryLMStudioExplicitLoadUnloadModel = "settings.workContentSummary.lmStudioExplicitLoadUnloadModel"
-        static let workContentSummaryMemoryCheckEnabled = "settings.workContentSummary.memoryCheckEnabled"
-        static let workContentSummaryMemoryThresholdGB = "settings.workContentSummary.memoryThresholdGB"
+        private static let prefix = "com.deskbrief.settings."
+        private static let legacyPrefix = "settings."
+
+        static let screenshotIntervalMinutes = prefix + "screenshotIntervalMinutes"
+        static let analysisTimeMinutes = prefix + "analysisTimeMinutes"
+        static let analysisStartupMode = prefix + "analysisStartupMode"
+        static let reportWeekStart = prefix + "reportWeekStart"
+        static let autoAnalysisRequiresCharger = prefix + "autoAnalysisRequiresCharger"
+        static let summaryInstruction = prefix + "summaryInstruction"
+        static let provider = prefix + "provider"
+        static let apiBaseURL = prefix + "apiBaseURL"
+        static let modelName = prefix + "modelName"
+        static let lmStudioContextLength = prefix + "lmStudioContextLength"
+        static let screenshotAnalysisLMStudioExplicitLoadUnloadModel = prefix + "screenshotAnalysis.lmStudioExplicitLoadUnloadModel"
+        static let screenshotAnalysisMemoryCheckEnabled = prefix + "screenshotAnalysis.memoryCheckEnabled"
+        static let screenshotAnalysisMemoryThresholdGB = prefix + "screenshotAnalysis.memoryThresholdGB"
+        static let imageAnalysisMethod = prefix + "imageAnalysisMethod"
+        static let workContentSummaryProvider = prefix + "workContentSummary.provider"
+        static let workContentSummaryAPIBaseURL = prefix + "workContentSummary.apiBaseURL"
+        static let workContentSummaryModelName = prefix + "workContentSummary.modelName"
+        static let workContentSummaryLMStudioContextLength = prefix + "workContentSummary.lmStudioContextLength"
+        static let workContentSummaryLMStudioExplicitLoadUnloadModel = prefix + "workContentSummary.lmStudioExplicitLoadUnloadModel"
+        static let workContentSummaryMemoryCheckEnabled = prefix + "workContentSummary.memoryCheckEnabled"
+        static let workContentSummaryMemoryThresholdGB = prefix + "workContentSummary.memoryThresholdGB"
+
+        static func legacyKey(for newKey: String) -> String {
+            legacyPrefix + newKey.dropFirst(prefix.count)
+        }
     }
 }

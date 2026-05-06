@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import FoundationModels
 
-enum AnalysisServiceError: LocalizedError {
+enum AnalysisServiceError: LocalizedError, Equatable {
     case invalidConfiguration(String)
     case invalidResponse(String)
     case httpError(statusCode: Int, body: String)
@@ -33,6 +33,7 @@ final class AnalysisService {
     private let analysisWorker: AnalysisWorker
     private let notificationSender: AppNotificationSending
     private let credentialProvider: CredentialProviding
+    private let session: URLSession
 
     init(
         database: AppDatabase,
@@ -53,6 +54,7 @@ final class AnalysisService {
         self.credentialProvider = credentialProvider ?? NoOpCredentialProvider()
 
         let resolvedSession = session ?? Self.makeIsolatedSession()
+        self.session = resolvedSession
         self.llmService = LLMService(session: resolvedSession, credentialProvider: self.credentialProvider)
         self.analysisWorker = AnalysisWorker(llmService: self.llmService)
 
@@ -94,7 +96,7 @@ final class AnalysisService {
             self?.triggerAnalysis(trigger: trigger)
         }
 
-        executor.onStateChange = { [weak self] _ in
+        executor.onStateChange = { _ in
             NotificationCenter.default.post(name: .analysisStatusDidChange, object: nil)
         }
 
@@ -170,7 +172,7 @@ final class AnalysisService {
             language: snapshot.appLanguage
         )
         var loadedModel: LMStudioLoadedModel?
-        let lmStudioLifecycleForTest = LMStudioModelLifecycle(session: Self.makeIsolatedSession(), credentialProvider: credentialProvider)
+        let lmStudioLifecycleForTest = LMStudioModelLifecycle(session: session, credentialProvider: credentialProvider)
         do {
             loadedModel = try await loadScreenshotAnalysisModelIfNeeded(
                 for: snapshot.screenshotAnalysisModelProfile,
@@ -262,7 +264,6 @@ final class AnalysisService {
             return
         }
 
-        let snapshot = settingsStore.snapshot
         let screenshots = pendingScreenshots ?? pendingScreenshotFiles()
         guard !screenshots.isEmpty else {
             if trigger == .scheduled { scheduler.start() }

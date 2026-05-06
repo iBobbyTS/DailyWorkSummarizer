@@ -805,7 +805,7 @@ extension DeskBriefTests {
 
         #expect(reloadedStore.analysisStartupMode == .realtime)
         #expect(reloadedStore.snapshot.analysisStartupMode == .realtime)
-        #expect(userDefaults.string(forKey: "settings.analysisStartupMode") == AnalysisStartupMode.realtime.rawValue)
+        #expect(userDefaults.string(forKey: "com.deskbrief.settings.analysisStartupMode") == AnalysisStartupMode.realtime.rawValue)
     }
 
     @Test func analysisStartupModeTitlesAreLocalized() async throws {

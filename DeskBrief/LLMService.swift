@@ -64,7 +64,7 @@ struct LLMServiceResponse {
     let tokenUsage: LLMTokenUsage?
 }
 
-enum LLMServiceError: Error {
+enum LLMServiceError: Error, Equatable {
     case invalidRemoteConfiguration
     case invalidHTTPResponse
     case missingResponseData
@@ -73,6 +73,27 @@ enum LLMServiceError: Error {
     case missingText(ModelProvider)
     case appleIntelligenceUnavailable(SystemLanguageModel.Availability.UnavailableReason)
     case appleStructuredDecodingFailure(details: String, rawText: String?)
+
+    static func == (lhs: LLMServiceError, rhs: LLMServiceError) -> Bool {
+        switch (lhs, rhs) {
+        case (.invalidRemoteConfiguration, .invalidRemoteConfiguration),
+             (.invalidHTTPResponse, .invalidHTTPResponse),
+             (.missingResponseData, .missingResponseData):
+            return true
+        case (.httpError(let lCode, let lBody), .httpError(let rCode, let rBody)):
+            return lCode == rCode && lBody == rBody
+        case (.invalidResponseFormat(let l), .invalidResponseFormat(let r)):
+            return l == r
+        case (.missingText(let l), .missingText(let r)):
+            return l == r
+        case (.appleIntelligenceUnavailable(let l), .appleIntelligenceUnavailable(let r)):
+            return String(reflecting: l) == String(reflecting: r)
+        case (.appleStructuredDecodingFailure(let lDet, let lRaw), .appleStructuredDecodingFailure(let rDet, let rRaw)):
+            return lDet == rDet && lRaw == rRaw
+        default:
+            return false
+        }
+    }
 }
 
 private final class LLMURLSessionDataTaskBox: @unchecked Sendable {

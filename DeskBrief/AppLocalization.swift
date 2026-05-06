@@ -4,7 +4,8 @@ nonisolated enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     case simplifiedChinese = "zh-Hans"
     case english = "en"
 
-    static let userDefaultsKey = "settings.appLanguage"
+    static let legacyUserDefaultsKey = "settings.appLanguage"
+    static let userDefaultsKey = "com.deskbrief.settings.appLanguage"
 
     var id: String { rawValue }
 
@@ -26,11 +27,20 @@ nonisolated enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     }
 
     static var current: AppLanguage {
-        if let rawValue = UserDefaults.standard.string(forKey: userDefaultsKey),
+        if let rawValue = UserDefaults.standard.objectWithFallback(
+            newKey: userDefaultsKey,
+            oldKey: legacyUserDefaultsKey
+        ) as? String,
            let language = AppLanguage(rawValue: rawValue) {
+            migrateLanguageIfNeeded(language)
             return language
         }
         return defaultValue
+    }
+
+    private static func migrateLanguageIfNeeded(_ language: AppLanguage) {
+        guard UserDefaults.standard.object(forKey: userDefaultsKey) == nil else { return }
+        UserDefaults.standard.set(language.rawValue, forKey: userDefaultsKey)
     }
 
     static var defaultValue: AppLanguage {
@@ -1336,5 +1346,18 @@ nonisolated enum L10n {
 
     private static func hourUnit(_ value: Int) -> String {
         value == 1 ? "1 hr" : "\(value) hrs"
+    }
+}
+
+extension UserDefaults {
+    func objectWithFallback(newKey: String, oldKey: String) -> Any? {
+        if let value = object(forKey: newKey) {
+            return value
+        }
+        let legacyValue = object(forKey: oldKey)
+        if legacyValue != nil {
+            set(legacyValue, forKey: newKey)
+        }
+        return legacyValue
     }
 }

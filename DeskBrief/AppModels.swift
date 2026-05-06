@@ -429,7 +429,7 @@ nonisolated struct ModelProfileSettings: Equatable {
     }
 }
 
-enum ModelMemoryError: LocalizedError {
+enum ModelMemoryError: LocalizedError, Equatable {
     case insufficientMemory(thresholdGB: Double, availableGB: Double)
 
     var thresholdGB: Double {

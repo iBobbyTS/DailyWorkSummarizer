@@ -1,7 +1,7 @@
 import Foundation
 import SQLite3
 
-enum DatabaseError: Error {
+enum DatabaseError: Error, Equatable {
     case openDatabase(String)
     case prepareStatement(String)
     case execute(String)

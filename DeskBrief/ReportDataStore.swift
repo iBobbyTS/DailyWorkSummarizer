@@ -44,10 +44,10 @@ final class ReportDataStore: @unchecked Sendable {
                 for (index, rule) in rules.enumerated() {
                     sqlite3_reset(stmt)
                     sqlite3_clear_bindings(stmt)
-                    lock.bind(rule.id.uuidString, at: 1, to: stmt)
-                    lock.bind(rule.name, at: 2, to: stmt)
-                    lock.bind(rule.description, at: 3, to: stmt)
-                    lock.bind(rule.colorHex, at: 4, to: stmt)
+                    try lock.bind(rule.id.uuidString, at: 1, to: stmt)
+                    try lock.bind(rule.name, at: 2, to: stmt)
+                    try lock.bind(rule.description, at: 3, to: stmt)
+                    try lock.bind(rule.colorHex, at: 4, to: stmt)
                     sqlite3_bind_int64(stmt, 5, Int64(index))
 
                     guard sqlite3_step(stmt) == SQLITE_DONE else {
@@ -107,8 +107,8 @@ final class ReportDataStore: @unchecked Sendable {
             defer { sqlite3_finalize(stmt) }
 
             sqlite3_bind_double(stmt, 1, dayStart.timeIntervalSince1970)
-            lock.bind(dailySummaryText, at: 2, to: stmt)
-            lock.bind(try encodeCategorySummaries(categorySummaries), at: 3, to: stmt)
+            try lock.bind(dailySummaryText, at: 2, to: stmt)
+            try lock.bind(try encodeCategorySummaries(categorySummaries), at: 3, to: stmt)
             sqlite3_bind_int64(stmt, 4, isTemporary ? 1 : 0)
 
             guard sqlite3_step(stmt) == SQLITE_DONE else {
@@ -186,10 +186,10 @@ final class ReportDataStore: @unchecked Sendable {
             """)
             defer { sqlite3_finalize(stmt) }
 
-            lock.bind(categoryName, at: 1, to: stmt)
+            try lock.bind(categoryName, at: 1, to: stmt)
             sqlite3_bind_double(stmt, 2, startAt.timeIntervalSince1970)
             sqlite3_bind_double(stmt, 3, endAt.timeIntervalSince1970)
-            lock.bind(summaryText, at: 4, to: stmt)
+            try lock.bind(summaryText, at: 4, to: stmt)
 
             guard sqlite3_step(stmt) == SQLITE_DONE else {
                 throw DatabaseError.execute("upsert daily_work_block_summary failed")

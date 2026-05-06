@@ -55,6 +55,11 @@ final class AnalysisRunExecutor {
         guard let run = activeAnalysisRun else { return 0 }
         let appendedCount = run.appendMissingScreenshots(screenshots)
         guard appendedCount > 0 else { return 0 }
+        do {
+            try database.updateAnalysisRunTotalItems(id: run.id, totalItems: run.totalCount)
+        } catch {
+            logStore.addError(source: .analysis, context: "Failed to update analysis run total after appending screenshots", error: error)
+        }
         updateRuntimeState(startedAt: run.startedAt, modelName: run.settings.modelName,
                            completedCount: run.completedCount, totalCount: run.totalCount)
         return appendedCount
@@ -337,7 +342,9 @@ final class AnalysisRunExecutor {
         let result = finalizeRun(run: run, snapshot: snapshot, loadedAnalysisModel: loadedAnalysisModel, reportCalendar: reportCalendar,
                                  affectedDayStarts: affectedDayStarts, dailyReportCandidateDayStarts: dailyReportCandidateDayStarts)
 
-        await unloadModelIfNeeded(for: snapshot.screenshotAnalysisModelProfile, loadedInstanceID: loadedAnalysisModel?.instanceID, cancelActiveRequest: run.wasCancelled)
+        if !shouldKeepLMStudioModelLoadedForFollowUpSummary(snapshot: snapshot, result: result) {
+            await unloadModelIfNeeded(for: snapshot.screenshotAnalysisModelProfile, loadedInstanceID: loadedAnalysisModel?.instanceID, cancelActiveRequest: run.wasCancelled)
+        }
         return result
     }
 
@@ -442,6 +449,21 @@ final class AnalysisRunExecutor {
         } catch {
             logStore.addError(source: .lmStudio, context: "LM Studio model unload failed", error: error)
         }
+    }
+
+    private func shouldKeepLMStudioModelLoadedForFollowUpSummary(snapshot: AppSettingsSnapshot, result: AnalysisRunResult) -> Bool {
+        guard !result.wasCancelled,
+              !result.affectedDayStarts.isEmpty || !result.dailyReportCandidateDayStarts.isEmpty,
+              snapshot.screenshotAnalysisModelProfile.provider == .lmStudio,
+              snapshot.screenshotAnalysisModelProfile.explicitLoadUnloadModel,
+              snapshot.workContentSummaryModelProfile.provider == .lmStudio,
+              LMStudioAPI.hasEquivalentLoadConfiguration(
+                snapshot.screenshotAnalysisModelProfile,
+                snapshot.workContentSummaryModelProfile
+              ) else {
+            return false
+        }
+        return true
     }
 
     private func previousAnalysisResultDayStarts(before date: Date?, calendar: Calendar) -> Set<Date> {

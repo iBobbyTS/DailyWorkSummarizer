@@ -21,8 +21,8 @@ final class AnalysisDataStore: @unchecked Sendable {
             defer { sqlite3_finalize(stmt) }
 
             let now = Date().timeIntervalSince1970
-            lock.bind(status, at: 1, to: stmt)
-            lock.bind(modelName, at: 2, to: stmt)
+            try lock.bind(status, at: 1, to: stmt)
+            try lock.bind(modelName, at: 2, to: stmt)
             sqlite3_bind_int64(stmt, 3, Int64(totalItems))
             sqlite3_bind_double(stmt, 4, now)
 
@@ -69,7 +69,7 @@ final class AnalysisDataStore: @unchecked Sendable {
             """)
             defer { sqlite3_finalize(stmt) }
 
-            lock.bind(status, at: 1, to: stmt)
+            try lock.bind(status, at: 1, to: stmt)
             sqlite3_bind_int64(stmt, 2, Int64(successCount))
             sqlite3_bind_int64(stmt, 3, Int64(failureCount))
             if let inputMeanTokens { sqlite3_bind_double(stmt, 4, inputMeanTokens) } else { sqlite3_bind_null(stmt, 4) }
@@ -77,7 +77,7 @@ final class AnalysisDataStore: @unchecked Sendable {
             if let outputMeanTokens { sqlite3_bind_double(stmt, 6, outputMeanTokens) } else { sqlite3_bind_null(stmt, 6) }
             if let outputMaxTokens { sqlite3_bind_int64(stmt, 7, Int64(outputMaxTokens)) } else { sqlite3_bind_null(stmt, 7) }
             if let averageItemDurationSeconds { sqlite3_bind_double(stmt, 8, averageItemDurationSeconds) } else { sqlite3_bind_null(stmt, 8) }
-            lock.bind(errorMessage, at: 9, to: stmt)
+            try lock.bind(errorMessage, at: 9, to: stmt)
             sqlite3_bind_int64(stmt, 10, id)
 
             guard sqlite3_step(stmt) == SQLITE_DONE else {
@@ -155,8 +155,8 @@ final class AnalysisDataStore: @unchecked Sendable {
 
             let now = Date().timeIntervalSince1970
             if let analysisRunID { sqlite3_bind_int64(stmt, 1, analysisRunID) } else { sqlite3_bind_null(stmt, 1) }
-            lock.bind(status, at: 2, to: stmt)
-            lock.bind(modelName, at: 3, to: stmt)
+            try lock.bind(status, at: 2, to: stmt)
+            try lock.bind(modelName, at: 3, to: stmt)
             sqlite3_bind_int64(stmt, 4, Int64(totalItems))
             sqlite3_bind_double(stmt, 5, now)
 
@@ -190,7 +190,7 @@ final class AnalysisDataStore: @unchecked Sendable {
             """)
             defer { sqlite3_finalize(stmt) }
 
-            lock.bind(status, at: 1, to: stmt)
+            try lock.bind(status, at: 1, to: stmt)
             sqlite3_bind_int64(stmt, 2, Int64(successCount))
             sqlite3_bind_int64(stmt, 3, Int64(failureCount))
             if let inputMeanTokens { sqlite3_bind_double(stmt, 4, inputMeanTokens) } else { sqlite3_bind_null(stmt, 4) }
@@ -198,7 +198,7 @@ final class AnalysisDataStore: @unchecked Sendable {
             if let outputMeanTokens { sqlite3_bind_double(stmt, 6, outputMeanTokens) } else { sqlite3_bind_null(stmt, 6) }
             if let outputMaxTokens { sqlite3_bind_int64(stmt, 7, Int64(outputMaxTokens)) } else { sqlite3_bind_null(stmt, 7) }
             if let averageItemDurationSeconds { sqlite3_bind_double(stmt, 8, averageItemDurationSeconds) } else { sqlite3_bind_null(stmt, 8) }
-            lock.bind(errorMessage, at: 9, to: stmt)
+            try lock.bind(errorMessage, at: 9, to: stmt)
             sqlite3_bind_int64(stmt, 10, id)
 
             guard sqlite3_step(stmt) == SQLITE_DONE else {
@@ -259,8 +259,8 @@ final class AnalysisDataStore: @unchecked Sendable {
             defer { sqlite3_finalize(stmt) }
 
             sqlite3_bind_double(stmt, 1, capturedAt.timeIntervalSince1970)
-            lock.bind(categoryName, at: 2, to: stmt)
-            lock.bind(summaryText, at: 3, to: stmt)
+            try lock.bind(categoryName, at: 2, to: stmt)
+            try lock.bind(summaryText, at: 3, to: stmt)
             sqlite3_bind_int64(stmt, 4, Int64(durationMinutesSnapshot))
 
             guard sqlite3_step(stmt) == SQLITE_DONE else {

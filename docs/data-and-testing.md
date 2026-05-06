@@ -211,3 +211,33 @@ Recent screenshots:
 ```sh
 ls -lah "$HOME/Library/Application Support/DeskBrief/screenshots" | tail
 ```
+
+## Persistence safety changes (2026-05-05)
+
+### F9: Parameterized LIMIT in log queries
+`fetchAppLogs(limit:)` uses `LIMIT ?` with `sqlite3_bind_int64` instead of string interpolation. `limit <= 0` returns an empty array; `nil` omits the LIMIT clause.
+`pruneAppLogsIfNeeded(lock:maxEntries:)` uses the same pattern. `maxEntries <= 0` still deletes all entries.
+
+### F14: SQLite text binding with sqlite3_malloc64 + sqlite3_free
+`DatabaseConnection.bind(_:at:to:)` allocates a buffer with `sqlite3_malloc64`, copies the Swift string's UTF-8 bytes, and passes `sqlite3_free` as the `sqlite3_bind_text` destructor. On allocation or bind failure it throws `DatabaseError.execute(...)`. Callers use `try lock.bind(...)`.
+
+### F16: Error enum Equatable conformance
+All custom error enums now conform to `Equatable`:
+- `DatabaseError`
+- `AnalysisServiceError`
+- `DailyReportSummaryServiceError`
+- `ModelMemoryError`
+- `LMStudioModelLifecycleError`
+- `LLMServiceError` (manual implementation uses `String(reflecting:)` for the `appleIntelligenceUnavailable` case's `SystemLanguageModel.Availability.UnavailableReason`)
+
+`LocalizedError` conformance and message formatting are unchanged.
+
+### UserDefaults key namespacing
+All `SettingsStore.Keys` and `AppLanguage.userDefaultsKey` now use the `com.deskbrief.settings.` prefix:
+
+| Scope | Old key | New key |
+|-------|---------|---------|
+| Settings keys | `settings.*` | `com.deskbrief.settings.*` |
+| App language | `settings.appLanguage` | `com.deskbrief.settings.appLanguage` |
+
+Reading uses `UserDefaults.objectWithFallback(newKey:oldKey:)` which checks the new key first, falls back to the old key, and migrates the value to the new key. Writing only updates the new key. Old keys are not removed.

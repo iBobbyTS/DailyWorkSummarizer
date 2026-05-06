@@ -1,8 +1,6 @@
 import Foundation
 import SQLite3
 
-private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
-
 final class DatabaseConnection: @unchecked Sendable {
     let databaseURL: URL
     private let queue = DispatchQueue(label: "DeskBrief.Database")
@@ -63,12 +61,30 @@ final class DatabaseConnection: @unchecked Sendable {
         }
     }
 
-    func bind(_ value: String?, at index: Int32, to statement: OpaquePointer?) {
+    func bind(_ value: String?, at index: Int32, to statement: OpaquePointer?) throws {
         guard let value else {
-            sqlite3_bind_null(statement, index)
+            guard sqlite3_bind_null(statement, index) == SQLITE_OK else {
+                throw DatabaseError.execute("failed to bind null at index \(index)")
+            }
             return
         }
-        sqlite3_bind_text(statement, index, (value as NSString).utf8String, -1, SQLITE_TRANSIENT)
+
+        let utf8 = value.utf8CString
+        let byteCount = utf8.count * MemoryLayout<CChar>.stride
+        guard let buffer = sqlite3_malloc64(sqlite3_uint64(byteCount)) else {
+            throw DatabaseError.execute("failed to allocate memory for text binding at index \(index)")
+        }
+
+        let dest = UnsafeMutableRawPointer(buffer).assumingMemoryBound(to: CChar.self)
+        utf8.withUnsafeBufferPointer { src in
+            dest.initialize(from: src.baseAddress!, count: utf8.count)
+        }
+
+        let rc = sqlite3_bind_text(statement, index, dest, -1, sqlite3_free)
+        guard rc == SQLITE_OK else {
+            sqlite3_free(buffer)
+            throw DatabaseError.execute("failed to bind text at index \(index): \(rc)")
+        }
     }
 
     func string(at index: Int32, from statement: OpaquePointer?) -> String {
@@ -83,7 +99,7 @@ final class DatabaseConnection: @unchecked Sendable {
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1;"
         )
         defer { sqlite3_finalize(stmt) }
-        bind(tableName, at: 1, to: stmt)
+        try bind(tableName, at: 1, to: stmt)
         guard sqlite3_step(stmt) == SQLITE_ROW else {
             throw DatabaseError.prepareStatement("missing table \(tableName)")
         }
@@ -111,8 +127,8 @@ struct DatabaseLock {
         try connection.executeLocked(sql)
     }
 
-    func bind(_ value: String?, at index: Int32, to statement: OpaquePointer?) {
-        connection.bind(value, at: index, to: statement)
+    func bind(_ value: String?, at index: Int32, to statement: OpaquePointer?) throws {
+        try connection.bind(value, at: index, to: statement)
     }
 
     func string(at index: Int32, from statement: OpaquePointer?) -> String {

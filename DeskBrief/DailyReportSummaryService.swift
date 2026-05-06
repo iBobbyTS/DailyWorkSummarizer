@@ -42,7 +42,7 @@ private struct WorkBlockSummaryWorkResult {
     var failureCount = 0
 }
 
-enum DailyReportSummaryServiceError: LocalizedError {
+enum DailyReportSummaryServiceError: LocalizedError, Equatable {
     case invalidConfiguration(String)
     case invalidResponse(String)
     case httpError(statusCode: Int, body: String)

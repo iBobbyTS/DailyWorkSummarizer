@@ -37,7 +37,7 @@ struct LMStudioLoadedModel: Equatable {
     let instanceID: String
 }
 
-enum LMStudioModelLifecycleError: LocalizedError {
+enum LMStudioModelLifecycleError: LocalizedError, Equatable {
     case invalidRemoteConfiguration
     case invalidHTTPResponse
     case missingResponseData
