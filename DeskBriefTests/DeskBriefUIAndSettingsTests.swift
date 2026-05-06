@@ -827,6 +827,136 @@ extension DeskBriefTests {
         #expect(!SettingsAnalysisControlsPolicy.showsChargerRequirement(for: .realtime, hasInternalBattery: false))
     }
 
+    // MARK: - Screenshot Auto-Deletion Settings Persistence
+
+    @MainActor
+    @Test func screenshotAutoDeletionRetentionDefaultIs28Days() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        userDefaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.userDefaultsKey)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        #expect(store.screenshotAutoDeletionRetention == .twentyEightDays)
+    }
+
+    @MainActor
+    @Test func screenshotAutoDeletionRetentionAllOptionsPersistAndReadBack() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        userDefaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.userDefaultsKey)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+
+        for retention in ScreenshotAutoDeletionRetention.allCases {
+            let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+            store.screenshotAutoDeletionRetention = retention
+            #expect(store.screenshotAutoDeletionRetention == retention)
+
+            let reloadedStore = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+            #expect(reloadedStore.screenshotAutoDeletionRetention == retention)
+            #expect(userDefaults.string(forKey: "com.deskbrief.settings.screenshotAutoDeletionRetention") == retention.rawValue)
+        }
+    }
+
+    @MainActor
+    @Test func screenshotAutoDeletionRetentionChangePostsSettingsNotification() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        userDefaults.set(AppLanguage.simplifiedChinese.rawValue, forKey: AppLanguage.userDefaultsKey)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.screenshotAutoDeletionRetention = .off
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .appSettingsDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            semaphore.signal()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        store.screenshotAutoDeletionRetention = .sevenDays
+
+        let received = await waitForSemaphore(semaphore, timeoutSeconds: 2)
+        #expect(received)
+    }
+
+    // MARK: - Screenshot Auto-Deletion Localization
+
+    @Test func screenshotAutoDeletionRetentionAllOptionsHaveNonEmptyLocalizedTitles() async throws {
+        for retention in ScreenshotAutoDeletionRetention.allCases {
+            let chineseTitle = retention.title(in: .simplifiedChinese)
+            let englishTitle = retention.title(in: .english)
+
+            #expect(!chineseTitle.isEmpty, "ScreenshotAutoDeletionRetention.\(retention.rawValue) should have non-empty Chinese title")
+            #expect(!englishTitle.isEmpty, "ScreenshotAutoDeletionRetention.\(retention.rawValue) should have non-empty English title")
+
+            switch retention {
+            case .off:
+                #expect(chineseTitle == "关闭")
+                #expect(englishTitle == "Off")
+            case .sevenDays:
+                #expect(chineseTitle == "7 天")
+                #expect(englishTitle == "7 Days")
+            case .fourteenDays:
+                #expect(chineseTitle == "14 天")
+                #expect(englishTitle == "14 Days")
+            case .twentyEightDays:
+                #expect(chineseTitle == "28 天")
+                #expect(englishTitle == "28 Days")
+            }
+        }
+    }
+
+    @Test func screenshotAutoDeletionSettingsLabelAndTooltipAreLocalized() async throws {
+        let chineseLabel = L10n.string(.settingsAutoDeletionRetention, language: .simplifiedChinese)
+        let englishLabel = L10n.string(.settingsAutoDeletionRetention, language: .english)
+        let chineseTooltip = L10n.string(.settingsAutoDeletionRetentionTooltip, language: .simplifiedChinese)
+        let englishTooltip = L10n.string(.settingsAutoDeletionRetentionTooltip, language: .english)
+
+        #expect(!chineseLabel.isEmpty)
+        #expect(!englishLabel.isEmpty)
+        #expect(!chineseTooltip.isEmpty)
+        #expect(!englishTooltip.isEmpty)
+
+        #expect(chineseLabel == "自动删除截屏")
+        #expect(englishLabel == "Auto-Delete Screenshots")
+        #expect(chineseTooltip.contains("保留期限"))
+        #expect(englishTooltip.contains("retention period"))
+    }
+
     @Test func chargerRequirementAppliesOnlyToAutomaticAnalysisTriggers() async throws {
         #expect(
             !AnalysisService.shouldSkipForChargerRequirement(

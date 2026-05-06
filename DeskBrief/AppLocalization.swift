@@ -133,6 +133,11 @@ nonisolated enum L10n {
         case settingsModelReasoningProcess
         case settingsGeneralTitle
         case settingsLanguage
+        case settingsAutoDeletionRetention
+        case autoDeletionRetentionOff
+        case autoDeletionRetention7Days
+        case autoDeletionRetention14Days
+        case autoDeletionRetention28Days
         case settingsReportTitle
         case settingsReportWeekStart
         case settingsCountdown
@@ -334,6 +339,7 @@ nonisolated enum L10n {
         case settingsModelLMStudioExplicitLoadUnloadModelTooltip
         case settingsIntervalTooltip
         case settingsLanguageTooltip
+        case settingsAutoDeletionRetentionTooltip
         case settingsReportWeekStartTooltip
         case modelMemoryError
         case lmStudioEndpointInvalid
@@ -419,6 +425,11 @@ nonisolated enum L10n {
             .settingsModelReasoningProcess: "思考过程",
             .settingsGeneralTitle: "通用设置",
             .settingsLanguage: "语言",
+            .settingsAutoDeletionRetention: "自动删除截屏",
+            .autoDeletionRetentionOff: "关闭",
+            .autoDeletionRetention7Days: "7 天",
+            .autoDeletionRetention14Days: "14 天",
+            .autoDeletionRetention28Days: "28 天",
             .settingsReportTitle: "报告设置",
             .settingsReportWeekStart: "一周的第一天",
             .settingsCountdown: "倒计时：%d秒",
@@ -620,6 +631,7 @@ nonisolated enum L10n {
             .settingsModelLMStudioExplicitLoadUnloadModelTooltip: "目前仅支持LM Studio，打开后App会在截屏分析、工作内容总结前后发起加载、卸载请求。通常打开此选项配合*定时启动*，适合运行在工作电脑上；关闭此选项配合*截屏后立即启动*，适合专门的大模型电脑/服务器。",
             .settingsIntervalTooltip: "建议**10分钟**。\n启动软件时开始计时，退出软件暂停，软件本身不提供暂停功能。",
             .settingsLanguageTooltip: "建议选择和截屏分析、工作内容总结填入的信息相同的语言",
+            .settingsAutoDeletionRetentionTooltip: "自动删除超过保留期限的待分析截屏文件。仅删除 screenshots 根目录下的 JPEG 文件，不影响 preview/ 和 temp/ 子目录。",
             .settingsReportWeekStartTooltip: "仅用于周报。",
             .modelMemoryError: "可用内存不足：已要求 %.0f GiB，当前可用 %.1f GiB",
             .lmStudioEndpointInvalid: "LM Studio 模型管理接口地址无效。",
@@ -703,6 +715,11 @@ nonisolated enum L10n {
             .settingsModelReasoningProcess: "Reasoning",
             .settingsGeneralTitle: "General Settings",
             .settingsLanguage: "Language",
+            .settingsAutoDeletionRetention: "Auto-Delete Screenshots",
+            .autoDeletionRetentionOff: "Off",
+            .autoDeletionRetention7Days: "7 Days",
+            .autoDeletionRetention14Days: "14 Days",
+            .autoDeletionRetention28Days: "28 Days",
             .settingsReportTitle: "Report Settings",
             .settingsReportWeekStart: "First day of the week",
             .settingsCountdown: "Countdown: %d sec",
@@ -904,6 +921,7 @@ nonisolated enum L10n {
             .settingsModelLMStudioExplicitLoadUnloadModelTooltip: "Currently only supports LM Studio. When enabled, the app sends load/unload requests around screenshot analysis and work content summary. Usually paired with *Scheduled* mode. Disable for *On capture* mode on a dedicated AI server.",
             .settingsIntervalTooltip: "Recommended: **10 minutes**.\nTiming starts when the app launches and pauses when the app exits. The app does not have a built-in pause feature.",
             .settingsLanguageTooltip: "It is recommended to use the same language as the information entered for screenshot analysis and work content summary.",
+            .settingsAutoDeletionRetentionTooltip: "Automatically delete pending screenshot files older than the selected retention period. Only deletes JPEG files in the root screenshots directory; preview/ and temp/ subdirectories are not affected.",
             .settingsReportWeekStartTooltip: "Only used for weekly reports.",
             .modelMemoryError: "Insufficient available memory: requested %.0f GiB, available %.1f GiB",
             .lmStudioEndpointInvalid: "LM Studio model management endpoint is invalid.",

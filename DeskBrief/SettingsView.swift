@@ -900,6 +900,24 @@ struct SettingsView: View {
                     }
                     .frame(width: fieldWidth, alignment: .trailing)
                 }
+
+                Divider()
+
+                proportionalFieldRow(text(.settingsAutoDeletionRetention), tooltip: text(.settingsAutoDeletionRetentionTooltip)) { fieldWidth in
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        Picker("", selection: $settingsStore.screenshotAutoDeletionRetention) {
+                            ForEach(ScreenshotAutoDeletionRetention.allCases) { option in
+                                Text(option.title(in: language)).tag(option)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .fixedSize()
+                        .frame(width: Layout.reportPickerWidth, alignment: .trailing)
+                    }
+                    .frame(width: fieldWidth, alignment: .trailing)
+                }
             }
             .background(
                 RoundedRectangle(cornerRadius: 20)

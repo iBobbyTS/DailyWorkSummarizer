@@ -20,6 +20,8 @@ nonisolated enum AppDefaults {
     static let apiKeyAccount = "model-api-key.screenshot-analysis"
     static let workContentSummaryAPIKeyAccount = "model-api-key.work-content-summary"
     static let defaultImageAnalysisMethod: ImageAnalysisMethod = .multimodal
+    nonisolated static let screenshotAutoDeletionRetentionDays: ScreenshotAutoDeletionRetention = .twentyEightDays
+    static let screenshotAutoDeletionCheckIntervalSeconds: TimeInterval = 3600
     nonisolated static let absenceCategoryName = "离开"
     // Internal stable category key; UI renders it as localized "Other" text.
     static let preservedOtherCategoryName = "PRESERVED_OTHER"
@@ -178,6 +180,41 @@ nonisolated enum ImageAnalysisMethod: String, CaseIterable, Codable, Identifiabl
             return L10n.string(.imageAnalysisMethodOCR, language: language)
         case .multimodal:
             return L10n.string(.imageAnalysisMethodMultimodal, language: language)
+        }
+    }
+}
+
+nonisolated enum ScreenshotAutoDeletionRetention: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
+    case off
+    case sevenDays = "7"
+    case fourteenDays = "14"
+    case twentyEightDays = "28"
+
+    var id: String { rawValue }
+
+    var retentionDays: Int? {
+        switch self {
+        case .off: return nil
+        case .sevenDays: return 7
+        case .fourteenDays: return 14
+        case .twentyEightDays: return 28
+        }
+    }
+
+    var title: String {
+        title(in: .current)
+    }
+
+    func title(in language: AppLanguage) -> String {
+        switch self {
+        case .off:
+            return L10n.string(.autoDeletionRetentionOff, language: language)
+        case .sevenDays:
+            return L10n.string(.autoDeletionRetention7Days, language: language)
+        case .fourteenDays:
+            return L10n.string(.autoDeletionRetention14Days, language: language)
+        case .twentyEightDays:
+            return L10n.string(.autoDeletionRetention28Days, language: language)
         }
     }
 }
@@ -644,7 +681,7 @@ struct SummaryRunRecord: Identifiable {
     }
 }
 
-struct ScreenshotFileRecord: Identifiable {
+nonisolated struct ScreenshotFileRecord: Identifiable, Sendable {
     let url: URL
     let capturedAt: Date
     let durationMinutes: Int

@@ -73,6 +73,7 @@ UserDefaults stores lightweight preferences such as:
 - model names
 - LM Studio auto load/unload toggles for the screenshot-analysis and work-content-summary profiles
 - image analysis methods
+- screenshot auto-deletion retention (off, 7 days, 14 days, 28 days; default 28 days)
 
 ### Keychain
 
@@ -92,6 +93,8 @@ Keychain writes and deletes are not silent. If saving or deleting either API key
 
 The filename is not just cosmetic: the app derives capture time and duration metadata from it when loading pending screenshot files.
 The Clear Early Screenshots menu only scans and deletes pending JPEG files in the screenshot directory root. It does not inspect or remove files from the `preview/` or `temp/` subdirectories, and its count cache is in memory only.
+
+The Automatic Screenshot Deletion setting also only scans and deletes pending JPEG files in the screenshot directory root. It never touches `preview/` or `temp/` subdirectories. The retention period is measured from the parsed screenshot capture timestamp (`capturedAt`), not filesystem modification time. The timer checks once per hour.
 
 ## Recommended test command
 

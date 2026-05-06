@@ -67,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var dailyReportSummaryService: DailyReportSummaryService?
     private var reportsViewModel: ReportsViewModel?
     private var logStore: AppLogStore?
+    private var automaticScreenshotCleanupTimer: AutomaticScreenshotCleanupTimer?
     private let statusSummaryItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let statusAverageDurationItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let statusAnalysisTitleItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -141,6 +142,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 dailyReportSummaryService: dailyReportSummaryService,
                 logStore: logStore
             )
+            self.automaticScreenshotCleanupTimer = AutomaticScreenshotCleanupTimer(
+                database: database,
+                settingsStore: settingsStore,
+                logStore: logStore,
+                backgroundServicesEnabled: !launchConfiguration.disableBackgroundServices
+            )
         } catch {
             presentFatalAlert(message: text(.alertDatabaseInitFailed, language: .current), detail: error.localizedDescription)
             NSApp.terminate(nil)
@@ -152,11 +159,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if !launchConfiguration.disableBackgroundServices {
             screenshotService?.start()
             analysisService?.start()
+            automaticScreenshotCleanupTimer?.start()
         }
         applyLaunchHooks(launchConfiguration)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        automaticScreenshotCleanupTimer?.stop()
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
         }
@@ -238,6 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             Task { @MainActor [weak self] in
                 self?.screenshotService?.reschedule()
                 self?.analysisService?.reschedule()
+                self?.automaticScreenshotCleanupTimer?.reschedule()
                 self?.refreshLocalizedUI()
                 self?.refreshStatusMenu()
             }

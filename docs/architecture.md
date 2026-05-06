@@ -10,6 +10,8 @@ The app is centered around a small set of long-lived services created at launch 
   UserDefaults and Keychain-backed settings state exposed to SwiftUI.
 - `ScreenshotService`
   Periodic capture scheduling, permission checks, and idle detection.
+- `AutomaticScreenshotCleanupTimer`
+  Hourly timer that deletes root screenshot JPEG files older than the configured retention period. Started alongside ScreenshotService and AnalysisService when background services are enabled; respects the Off retention setting.
 - `AppRunCoordinator`
   Main-actor run gate that keeps screenshot analysis and work-content summary runs mutually exclusive, with one coalesced pending bucket per run kind.
 - `AnalysisService`

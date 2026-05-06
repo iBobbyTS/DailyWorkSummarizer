@@ -47,6 +47,13 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var screenshotAutoDeletionRetention: ScreenshotAutoDeletionRetention {
+        didSet {
+            userDefaults.set(screenshotAutoDeletionRetention.rawValue, forKey: Keys.screenshotAutoDeletionRetention)
+            notifySettingsChanged()
+        }
+    }
+
     @Published var autoAnalysisRequiresCharger: Bool {
         didSet {
             userDefaults.set(autoAnalysisRequiresCharger, forKey: Keys.autoAnalysisRequiresCharger)
@@ -272,6 +279,8 @@ final class SettingsStore: ObservableObject {
         let savedAnalysisStartupMode = AnalysisStartupMode(rawValue: readString(key: Keys.analysisStartupMode) ?? "")
             ?? AppDefaults.analysisStartupMode
         let savedReportWeekStart = ReportWeekStart(rawValue: readString(key: Keys.reportWeekStart) ?? "") ?? .sunday
+        let savedAutoDeletionRetention = ScreenshotAutoDeletionRetention(rawValue: readString(key: Keys.screenshotAutoDeletionRetention) ?? "")
+            ?? AppDefaults.screenshotAutoDeletionRetentionDays
         let savedAutoAnalysisRequiresCharger: Bool = read(key: Keys.autoAnalysisRequiresCharger, fallback: AppDefaults.autoAnalysisRequiresCharger)
 
         let savedAppLanguageRaw: String? = userDefaults.objectWithFallback(
@@ -327,6 +336,7 @@ final class SettingsStore: ObservableObject {
         analysisTimeMinutes = max(0, min(23 * 60 + 59, savedAnalysisTime))
         analysisStartupMode = savedAnalysisStartupMode
         reportWeekStart = savedReportWeekStart
+        screenshotAutoDeletionRetention = savedAutoDeletionRetention
         autoAnalysisRequiresCharger = savedAutoAnalysisRequiresCharger
         appLanguage = savedAppLanguage
         summaryInstruction = savedSummaryInstruction
@@ -582,6 +592,7 @@ final class SettingsStore: ObservableObject {
         static let analysisTimeMinutes = prefix + "analysisTimeMinutes"
         static let analysisStartupMode = prefix + "analysisStartupMode"
         static let reportWeekStart = prefix + "reportWeekStart"
+        static let screenshotAutoDeletionRetention = prefix + "screenshotAutoDeletionRetention"
         static let autoAnalysisRequiresCharger = prefix + "autoAnalysisRequiresCharger"
         static let summaryInstruction = prefix + "summaryInstruction"
         static let provider = prefix + "provider"

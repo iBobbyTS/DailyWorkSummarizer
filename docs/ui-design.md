@@ -22,6 +22,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - Dividers that separate major sections should have equal visual spacing above and below. If a section owns the divider, the content before it should include bottom spacing matching the parent section spacing after it.
 - Do not add extra explanatory text inside settings unless the user needs a persistent warning, provider limitation, or validation message.
 - API key persistence failures should be blocking and explicit: keep the affected field rolled back to the last saved value, log the failure, and show the localized `SettingsPersistenceAlert` instead of relying on inline text that could be missed.
+- The General tab includes a Language picker and an automatic screenshot deletion retention picker (Off, 7 Days, 14 Days, 28 Days). The deletion picker sits below Language with a divider, and its tooltip explains that only root JPEG files are affected.
 
 ## Screenshot Analysis Settings
 
