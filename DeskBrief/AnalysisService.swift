@@ -118,7 +118,7 @@ final class AnalysisService {
     func runNow() {
         let snapshot = settingsStore.snapshot
         guard !snapshot.validCategoryRules.isEmpty else { return }
-        let pendingScreenshots = pendingScreenshotFiles()
+        let pendingScreenshots = pendingScreenshots()
         guard !pendingScreenshots.isEmpty else { return }
 
         let trigger = AnalysisTrigger.manual
@@ -230,7 +230,7 @@ final class AnalysisService {
         case .startNow:
             beginAnalysisRun(trigger: trigger)
         case .mergeIntoCurrentRun:
-            let pending = pendingScreenshotFiles()
+            let pending = pendingScreenshots()
             executor.appendPendingScreenshots(pending)
         case .queued:
             break
@@ -257,14 +257,14 @@ final class AnalysisService {
         return true
     }
 
-    private func beginAnalysisRun(trigger: AnalysisTrigger, pendingScreenshots: [ScreenshotFileRecord]? = nil) {
+    private func beginAnalysisRun(trigger: AnalysisTrigger, pendingScreenshots: [PendingScreenshot]? = nil) {
         if executor.currentState.isRunning && executor.isAcceptingAppends {
-            let screenshots = pendingScreenshots ?? pendingScreenshotFiles()
+            let screenshots = pendingScreenshots ?? self.pendingScreenshots()
             executor.appendPendingScreenshots(screenshots)
             return
         }
 
-        let screenshots = pendingScreenshots ?? pendingScreenshotFiles()
+        let screenshots = pendingScreenshots ?? self.pendingScreenshots()
         guard !screenshots.isEmpty else {
             if trigger == .scheduled { scheduler.start() }
             runCoordinator.finishRun(.screenshotAnalysis)
@@ -338,11 +338,13 @@ final class AnalysisService {
         executor.isAcceptingAppends
     }
 
-    private func pendingScreenshotFiles() -> [ScreenshotFileRecord] {
+    private func pendingScreenshots() -> [PendingScreenshot] {
         do {
-            return try database.listScreenshotFiles(defaultDurationMinutes: settingsStore.snapshot.screenshotIntervalMinutes)
+            return try database.pendingScreenshotStore.listPendingScreenshots(
+                defaultDurationMinutes: settingsStore.snapshot.screenshotIntervalMinutes
+            )
         } catch {
-            logStore.addError(source: .analysis, context: "Failed to list pending screenshot files", error: error)
+            logStore.addError(source: .analysis, context: "Failed to list pending screenshots", error: error)
             return []
         }
     }

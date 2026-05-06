@@ -39,7 +39,7 @@ private final class RunLoopAutomaticScreenshotCleanupScheduler: AutomaticScreens
 @MainActor
 final class AutomaticScreenshotCleanupTimer {
     typealias CleanupOperation = @Sendable (
-        _ fileURLs: [URL]
+        _ screenshots: [PendingScreenshot]
     ) throws -> AutomaticScreenshotCleanupResult
 
     private let database: AppDatabase
@@ -155,27 +155,38 @@ final class AutomaticScreenshotCleanupTimer {
         let cleanupOperation = cleanupOperation
 
         do {
-            let screenshots = try database.listScreenshotFiles(defaultDurationMinutes: defaultDuration)
-            let filesToDelete = Self.filesEligibleForDeletion(
+            let screenshots = try database.pendingScreenshotStore.listPendingScreenshots(defaultDurationMinutes: defaultDuration)
+            let eligible = Self.filesEligibleForDeletion(
                 screenshots: screenshots,
                 retentionDays: retentionDays,
                 now: now
             )
-            guard !filesToDelete.isEmpty else { return }
+            guard !eligible.isEmpty else { return }
 
-            let result = try await Task.detached(priority: .utility) {
-                try cleanupOperation(filesToDelete)
+            let cleanupResult = try await Task.detached(priority: .utility) {
+                try cleanupOperation(eligible)
             }.value
 
-            if !result.failures.isEmpty {
+            var deletedCount = cleanupResult.deletedCount
+            var failures = cleanupResult.failures
+            for screenshot in eligible where screenshot.storageLocation == .memory {
+                do {
+                    try database.pendingScreenshotStore.remove(screenshot)
+                    deletedCount += 1
+                } catch {
+                    failures.append("\(screenshot.displayName): \(error.localizedDescription)")
+                }
+            }
+
+            if !failures.isEmpty {
                 logStore.add(
                     level: .error,
                     source: .screenshot,
-                    message: "Failed to delete some screenshots during automatic cleanup: \(result.failures.joined(separator: "; "))"
+                    message: "Failed to delete some screenshots during automatic cleanup: \(failures.joined(separator: "; "))"
                 )
             }
 
-            if result.deletedCount > 0 {
+            if deletedCount > 0 {
                 NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
             }
         } catch {
@@ -184,26 +195,36 @@ final class AutomaticScreenshotCleanupTimer {
     }
 
     nonisolated static func filesEligibleForDeletion(
-        screenshots: [ScreenshotFileRecord],
+        screenshots: [PendingScreenshot],
         retentionDays: Int,
         now: Date
-    ) -> [URL] {
+    ) -> [PendingScreenshot] {
         let cutoff = now.addingTimeInterval(-Double(retentionDays) * 86400)
         return screenshots
             .filter { $0.capturedAt < cutoff }
-            .map(\.url)
     }
 
-    nonisolated static func deleteFiles(_ filesToDelete: [URL]) throws -> AutomaticScreenshotCleanupResult {
+    nonisolated static func deleteFiles(_ screenshots: [PendingScreenshot]) throws -> AutomaticScreenshotCleanupResult {
         var deletedCount = 0
         var failures: [String] = []
-        for fileURL in filesToDelete {
-            guard FileManager.default.fileExists(atPath: fileURL.path) else { continue }
-            do {
-                try FileManager.default.removeItem(at: fileURL)
-                deletedCount += 1
-            } catch {
-                failures.append("\(fileURL.lastPathComponent): \(error.localizedDescription)")
+        for screenshot in screenshots {
+            switch screenshot.storageLocation {
+            case .disk:
+                guard let fileURL = screenshot.fileURL else {
+                    failures.append("\(screenshot.displayName): missing file URL for disk screenshot")
+                    continue
+                }
+                guard FileManager.default.fileExists(atPath: fileURL.path) else { continue }
+                do {
+                    try FileManager.default.removeItem(at: fileURL)
+                    deletedCount += 1
+                } catch {
+                    failures.append("\(fileURL.lastPathComponent): \(error.localizedDescription)")
+                }
+            case .memory:
+                // Memory screenshots must be removed via PendingScreenshotStore.remove()
+                // which requires MainActor context. Skip here; caller handles separately.
+                continue
             }
         }
 

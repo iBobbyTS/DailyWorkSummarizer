@@ -56,20 +56,25 @@ The app is centered around a small set of long-lived services created at launch 
 - `ScreenshotService` schedules screenshot captures using the configured screenshot interval.
 - Before writing a screenshot, it checks whether the mouse location and frontmost app remain unchanged from the previous interval.
 - If the user appears away, the app skips that capture without writing a screenshot or database record.
-- Otherwise it saves a JPEG for the preferred display into Application Support.
-- A successful saved screenshot emits a capture-saved notification. When the analysis startup mode is realtime, `AnalysisService` waits one second and triggers a pending-screenshot scan.
+- Otherwise the capture path depends on `ScreenshotStorageLocation`:
+  - **Disk** (default): saves a JPEG for the preferred display into Application Support, same as the original behavior.
+  - **Memory**: encodes the screenshot as in-memory JPEG data and adds a `PendingScreenshot` value to `PendingScreenshotStore` without writing any file to the screenshots directory.
+- A `PendingScreenshot` is the unified representation of a pending screenshot regardless of its backing storage. The rest of the pipeline — idle detection, analysis scanning, and cleanup — treats disk-backed and memory-backed `PendingScreenshot` values identically.
+- `PendingScreenshotStore` is the combined manager that lists, removes, and counts both disk-backed and memory-backed pending screenshots. Analysis triggers, Clear Early Screenshots, and the automatic deletion timer all query the store instead of scanning the filesystem directly.
+- Memory-backed screenshots exist only during the current process lifetime. They are discarded on app exit or system restart and are never written to the filesystem, SQLite, or Keychain.
+- A successful capture (disk or memory) emits a capture-saved notification. When the analysis startup mode is realtime, `AnalysisService` waits one second and triggers a pending-screenshot scan.
 
 ### 3. Screenshot analysis flow
 
 - `AnalysisService` can be started manually, by the configured scheduled time, or by realtime capture-saved notifications.
-- Manual, scheduled, and realtime analysis all scan the pending screenshot folder. Realtime analysis is triggered by the capture-saved notification, but the notification URL is only a timing signal.
+- Manual, scheduled, and realtime analysis all scan for pending screenshots through `PendingScreenshotStore`, which unifies the disk screenshot folder and in-memory pending screenshots into a single listing. Realtime analysis is triggered by the capture-saved notification, but the notification itself is only a timing signal.
 - Every analysis trigger first passes through `AppRunCoordinator`. A trigger starts immediately only when no summary run is active; if a summary is running, the trigger is coalesced into the pending analysis bucket and is scanned after the summary finishes.
 - If no pending screenshots exist, a trigger returns without creating an `analysis_runs` record.
 - If a new analysis request arrives while a run is already active, the service scans pending screenshots and appends newly discovered files to the current queue instead of cancelling, pausing, or restarting the run.
 - When the user cancels a run, the active queue stops accepting appends immediately; later triggers are coalesced into one follow-up pending scan instead of being merged into the cancelling run.
 - The charger requirement applies to automatic triggers on devices with an internal battery: scheduled and realtime analysis honor it on MacBooks, while manual "Analyze Now" always starts when selected. Desktop Macs have no internal battery, so automatic triggers are treated as allowed even if an old stored preference still requires a charger.
-- It creates a compact `analysis_runs` record for run-level status/counts and processes screenshots one by one.
-- `analysis_runs.total_items` is updated when the active queue grows so the run progress stays aligned with the appended screenshots.
+- It creates a compact `analysis_runs` record for run-level status/counts and processes screenshots one by one. Each screenshot — whether file-backed or memory-backed — is loaded through `PendingScreenshotStore` and decoded by the same `AnalysisWorker` code path, so the storage mode is transparent to analysis.
+- `analysis_runs.total_items` is updated when the active queue grows so the run progress stays aligned with the appended screenshots. Appended screenshots are sourced from `PendingScreenshotStore`, which includes both disk and memory entries.
 - `AnalysisService` keeps run state on the main actor, but delegates each screenshot's long-running image load, OCR, model request, and response parsing to `AnalysisWorker` so UI state updates and cancellation stay responsive.
 - `MenuBarApp` subscribes to both analysis and summary runtime notifications so the Current Status submenu can show the active analysis or summary run and manual LM Studio force-unload actions without relying on internal loaded-instance caches.
 - Runtime state marks explicit LM Studio load phases separately, so the Current Status submenu can distinguish "Loading model" from a model that has already been loaded for active work.
@@ -82,7 +87,7 @@ The app is centered around a small set of long-lived services created at launch 
 - If the screenshot-analysis profile disables LM Studio lifecycle management, the service skips explicit load/unload calls and sends chat requests directly.
 - `LLMService` translates the request into the provider-specific wire format and normalizes the response back into a shared result model.
 - When the user pauses analysis while LM Studio is active, `AnalysisService` first waits for the in-flight generation request to stop and then issues the unload request for the loaded instance.
-- Successful parsed results are written to `analysis_results`; duplicate capture times are ignored and the already-processed screenshot file is removed without overwriting the existing result.
+- Successful parsed results are written to `analysis_results`; duplicate capture times are ignored and the already-processed screenshot (file or memory) is removed from `PendingScreenshotStore` without overwriting the existing result.
 - Failed per-screenshot attempts update run-level counts and also write actionable runtime errors to `app_logs`.
 - After a run completes, the service updates run status and submits one unified summary request to the coordinator. That request has separate scopes for daily work-block summaries and daily report generation, but both pieces run inside the same work-content summary run. The summary run starts only after the analysis runtime state is idle. If LM Studio is involved, the analysis-to-summary handoff still decides whether to reuse, unload, switch, or temporarily load a summary model based on the two model profiles and their lifecycle toggles.
 - Manual analysis sends a completion notification after the run result is known. If daily reports are candidates, the notification is deferred until the unified summary run finishes so the message can include generated daily reports or summary failures. Scheduled and realtime runs stay quiet when they only succeed at screenshot analysis, but they notify when daily reports are generated or when the run fails.

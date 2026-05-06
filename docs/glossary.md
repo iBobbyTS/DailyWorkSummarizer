@@ -112,3 +112,11 @@ This glossary keeps DeskBrief's common Simplified Chinese and English product te
 | 全部复制 | Copy All | Logs command. |
 | 底层错误详情 | Underlying error details | Error detail header. |
 | 模型返回无法解析为有效的 JSON 分析结果 | The model response could not be parsed into a valid JSON analysis result | Common analysis parse failure. |
+
+## Internal Architecture Terms
+
+| Term | Description |
+| --- | --- |
+| `ScreenshotStorageLocation` | Setting that controls whether scheduled screenshots are saved to disk (persist across restarts) or kept in process memory only (lost on exit). |
+| `PendingScreenshot` | Unified representation of a pending screenshot, wrapping either a file URL or in-memory JPEG data. The analysis pipeline and cleanup mechanisms operate on this abstraction without needing to know the backing storage type. |
+| `PendingScreenshotStore` | Combined manager that lists, removes, and counts all pending screenshots from both disk and memory sources. Used by analysis triggers, Clear Early Screenshots, and the automatic deletion timer. |

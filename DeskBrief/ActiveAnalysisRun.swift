@@ -21,8 +21,8 @@ final class ActiveAnalysisRun {
     let id: Int64
     let settings: AppSettingsSnapshot
     let prompt: String
-    var screenshots: [ScreenshotFileRecord]
-    var screenshotPaths: Set<String>
+    var screenshots: [PendingScreenshot]
+    var queuedScreenshotIDs: Set<String>
     var currentIndex = 0
     var successCount = 0
     var failureCount = 0
@@ -45,7 +45,7 @@ final class ActiveAnalysisRun {
         id: Int64,
         settings: AppSettingsSnapshot,
         prompt: String,
-        screenshots: [ScreenshotFileRecord],
+        screenshots: [PendingScreenshot],
         trigger: AnalysisTrigger,
         previousAnalysisResultDayStarts: Set<Date>
     ) {
@@ -53,7 +53,7 @@ final class ActiveAnalysisRun {
         self.settings = settings
         self.prompt = prompt
         self.screenshots = screenshots
-        self.screenshotPaths = Set(screenshots.map { $0.url.path })
+        self.queuedScreenshotIDs = Set(screenshots.map { $0.id })
         self.dailyReportStrategy = AnalysisRunDailyReportStrategy(trigger: trigger)
         self.notificationTrigger = trigger
         self.previousAnalysisResultDayStarts = previousAnalysisResultDayStarts
@@ -71,7 +71,7 @@ final class ActiveAnalysisRun {
         currentIndex < screenshots.count
     }
 
-    func nextScreenshot() -> ScreenshotFileRecord? {
+    func nextScreenshot() -> PendingScreenshot? {
         guard currentIndex < screenshots.count else {
             return nil
         }
@@ -80,8 +80,8 @@ final class ActiveAnalysisRun {
     }
 
     @discardableResult
-    func appendMissingScreenshots(_ pendingScreenshots: [ScreenshotFileRecord]) -> Int {
-        let newScreenshots = pendingScreenshots.filter { screenshotPaths.insert($0.url.path).inserted }
+    func appendMissingScreenshots(_ pendingScreenshots: [PendingScreenshot]) -> Int {
+        let newScreenshots = pendingScreenshots.filter { queuedScreenshotIDs.insert($0.id).inserted }
         guard !newScreenshots.isEmpty else {
             return 0
         }
@@ -129,7 +129,7 @@ final class ActiveAnalysisRun {
         outputTokenValues.max()
     }
 
-    func recordProcessedAnalysisResult(for screenshot: ScreenshotFileRecord, calendar: Calendar) {
+    func recordProcessedAnalysisResult(for screenshot: PendingScreenshot, calendar: Calendar) {
         processedAnalysisDayStarts.formUnion(
             Self.dayStarts(from: screenshot.capturedAt, endAt: screenshot.endAt, calendar: calendar)
         )

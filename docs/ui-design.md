@@ -26,7 +26,8 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 
 ## Screenshot Analysis Settings
 
-- The capture section keeps the screenshot interval and automatic-analysis controls in one settings surface.
+- The capture section keeps the screenshot interval, screenshot storage location, and automatic-analysis controls in one settings surface.
+- A screenshot storage location picker sits directly below the screenshot interval row in the same capture settings surface. The picker offers two options: Disk (硬盘) and Memory (内存). Its tooltip explains that disk storage persists screenshots across app restarts and is the default, while memory storage keeps screenshots only during the current process lifetime and discards them when the app exits, which may be preferred for privacy-sensitive environments.
 - Analysis startup mode is the primary control for automatic startup behavior and should leave enough picker width for the longest localized option.
 - Scheduled analysis time is only visible when the startup mode is scheduled analysis.
 - The charger requirement is visible only when analysis can auto-start on hardware with an internal battery, and it does not apply to the manual Analyze Now action. Desktop Macs hide the row.

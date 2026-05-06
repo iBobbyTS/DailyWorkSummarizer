@@ -20,6 +20,9 @@ final class AppDatabase: @unchecked Sendable {
     let logStore: LogDataStore
     let screenshotStore: ScreenshotFileStore
 
+    /// Unified pending screenshot store that combines disk and memory screenshots.
+    lazy var pendingScreenshotStore = PendingScreenshotStore(database: self)
+
     convenience init() throws {
         let supportURL = try ScreenshotFileStore.applicationSupportDirectory()
         try self.init(

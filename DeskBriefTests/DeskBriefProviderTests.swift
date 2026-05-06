@@ -588,6 +588,7 @@ extension DeskBriefTests {
         let now = calendar.date(from: DateComponents(year: 2026, month: 3, day: 13, hour: 20, minute: 10))!
         let snapshot = AppSettingsSnapshot(
             screenshotIntervalMinutes: 5,
+            screenshotStorageLocation: .disk,
             analysisTimeMinutes: 18 * 60 + 30,
             analysisStartupMode: .scheduled,
             autoAnalysisRequiresCharger: false,

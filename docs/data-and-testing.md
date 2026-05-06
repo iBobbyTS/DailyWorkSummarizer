@@ -74,6 +74,11 @@ UserDefaults stores lightweight preferences such as:
 - LM Studio auto load/unload toggles for the screenshot-analysis and work-content-summary profiles
 - image analysis methods
 - screenshot auto-deletion retention (off, 7 days, 14 days, 28 days; default 28 days)
+- screenshot storage location (com.deskbrief.settings.screenshotStorageLocation, raw values "disk" / "memory", default "disk")
+
+### Memory screenshot storage
+
+When `ScreenshotStorageLocation` is set to `Memory`, scheduled screenshots are captured as in-memory JPEG data and held in `PendingScreenshotStore` without writing files to the screenshot directory. Memory-backed screenshots exist only during the current process lifetime — there is no file persistence and no SQLite entry for the raw screenshot image. The analysis pipeline treats memory-backed `PendingScreenshot` values identically to disk-backed ones: the storage difference is transparent to OCR, model analysis, duplicate detection, and result persistence.
 
 ### Keychain
 
@@ -92,9 +97,11 @@ Keychain writes and deletes are not silent. If saving or deleting either API key
 - Model-test screenshots add a `-model-test` suffix.
 
 The filename is not just cosmetic: the app derives capture time and duration metadata from it when loading pending screenshot files.
-The Clear Early Screenshots menu only scans and deletes pending JPEG files in the screenshot directory root. It does not inspect or remove files from the `preview/` or `temp/` subdirectories, and its count cache is in memory only.
+The Clear Early Screenshots menu scans and deletes pending JPEG files in the screenshot directory root, and also clears memory-backed pending screenshots from `PendingScreenshotStore`. It does not inspect or remove files from the `preview/` or `temp/` subdirectories, and its count cache is in memory only.
 
-The Automatic Screenshot Deletion setting also only scans and deletes pending JPEG files in the screenshot directory root. It never touches `preview/` or `temp/` subdirectories. The retention period is measured from the parsed screenshot capture timestamp (`capturedAt`), not filesystem modification time. The timer checks once per hour.
+The Automatic Screenshot Deletion setting scans and deletes pending JPEG files in the screenshot directory root, and also clears memory-backed pending screenshots from `PendingScreenshotStore` (memory screenshots are always older than the retention threshold if any real time has passed, since they cannot survive an app restart). It never touches `preview/` or `temp/` subdirectories. The retention period is measured from the parsed screenshot capture timestamp (`capturedAt`), not filesystem modification time. The timer checks once per hour.
+
+When storage location is `Disk`, all pending screenshots are files in the screenshot directory and the store mirrors the filesystem. When storage location is `Memory`, pending screenshots exist only in the store and the filesystem directory is not involved.
 
 ## Recommended test command
 
@@ -150,6 +157,7 @@ xcodebuild build \
 - Distributed-notification warnings from `xcodebuild` are common in restricted environments and do not automatically indicate a product bug.
 - When settings-model fields change, hand-written test initializers are a common failure point.
 - `DeskBriefTests` is one serialized Swift Testing suite split across themed `extension DeskBriefTests` files. Shared fixtures, mock sessions, SQLite helpers, and `MockURLProtocol` live in `TestSupport.swift`.
+- Memory-backed pending screenshots exist only during process lifetime, so tests that exercise the memory storage path must create `PendingScreenshot` values directly in `PendingScreenshotStore` rather than writing files to the screenshots directory. On tear-down, the store is cleared and no cleanup of the filesystem screenshot directory is needed for the memory path.
 - `DeskBriefUITests` uses `--deskbrief-ui-testing` plus isolated support directory, UserDefaults suite, and Keychain service environment variables. That launch mode disables background services and supports hooks for opening settings, reports, and logs windows, so smoke tests do not touch real user data.
 - UI launch performance uses `XCTClockMetric` with explicit app termination between iterations to avoid flaky missing launch metrics for a menu-bar accessory app.
 

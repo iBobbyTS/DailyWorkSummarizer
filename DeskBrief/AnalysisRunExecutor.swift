@@ -51,7 +51,7 @@ final class AnalysisRunExecutor {
     }
 
     @discardableResult
-    func appendPendingScreenshots(_ screenshots: [ScreenshotFileRecord]) -> Int {
+    func appendPendingScreenshots(_ screenshots: [PendingScreenshot]) -> Int {
         guard let run = activeAnalysisRun else { return 0 }
         let appendedCount = run.appendMissingScreenshots(screenshots)
         guard appendedCount > 0 else { return 0 }
@@ -67,7 +67,7 @@ final class AnalysisRunExecutor {
 
     func execute(
         trigger: AnalysisTrigger,
-        pendingScreenshots: [ScreenshotFileRecord],
+        pendingScreenshots: [PendingScreenshot],
         prompt: String
     ) {
         guard !pendingScreenshots.isEmpty else { return }
@@ -259,25 +259,47 @@ final class AnalysisRunExecutor {
                     break
                 }
 
-                if !FileManager.default.fileExists(atPath: screenshot.url.path) {
-                    logStore.add(level: .log, source: .analysis, message: "Pending screenshot no longer exists: \(screenshot.url.path)")
-                    run.failureCount += 1
-                    run.consecutiveFailureCount += 1
-                    run.completedCount += 1
-                    updateRuntimeState(startedAt: run.startedAt, modelName: snapshot.modelName,
-                                       completedCount: run.completedCount, totalCount: run.totalCount)
-                    if Self.shouldPauseAfterConsecutiveFailures(run.consecutiveFailureCount) {
-                        run.wasPausedAfterFailures = true
-                        break
+                // Pre-check: ensure image data is accessible before calling the worker
+                switch screenshot.storageLocation {
+                case .disk:
+                    guard let url = screenshot.fileURL, FileManager.default.fileExists(atPath: url.path) else {
+                        logStore.add(level: .log, source: .analysis, message: "Pending screenshot no longer exists: \(screenshot.displayName)")
+                        run.failureCount += 1
+                        run.consecutiveFailureCount += 1
+                        run.completedCount += 1
+                        updateRuntimeState(startedAt: run.startedAt, modelName: snapshot.modelName,
+                                           completedCount: run.completedCount, totalCount: run.totalCount)
+                        removeProcessedScreenshot(screenshot)
+                        NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
+                        if Self.shouldPauseAfterConsecutiveFailures(run.consecutiveFailureCount) {
+                            run.wasPausedAfterFailures = true
+                            break
+                        }
+                        continue
                     }
-                    continue
+                case .memory:
+                    guard screenshot.imageData != nil else {
+                        logStore.add(level: .log, source: .analysis, message: "Pending screenshot has no image data: \(screenshot.displayName)")
+                        run.failureCount += 1
+                        run.consecutiveFailureCount += 1
+                        run.completedCount += 1
+                        updateRuntimeState(startedAt: run.startedAt, modelName: snapshot.modelName,
+                                           completedCount: run.completedCount, totalCount: run.totalCount)
+                        removeProcessedScreenshot(screenshot)
+                        NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
+                        if Self.shouldPauseAfterConsecutiveFailures(run.consecutiveFailureCount) {
+                            run.wasPausedAfterFailures = true
+                            break
+                        }
+                        continue
+                    }
                 }
 
                 let shouldMeasureDuration = run.completedCount > 0
                 let itemStartTime = shouldMeasureDuration ? Date() : nil
 
                 do {
-                    let result = try await analysisWorker.analyzeImageDetailed(at: screenshot.url, settings: snapshot, prompt: run.prompt)
+                    let result = try await analysisWorker.analyzeImageDetailed(from: screenshot, settings: snapshot, prompt: run.prompt)
                     recordLMStudioModelInstanceIfNeeded(result.modelInstanceID, provider: snapshot.provider)
                     let response = result.response
 
@@ -291,7 +313,7 @@ final class AnalysisRunExecutor {
                     run.successCount += 1
                     run.consecutiveFailureCount = 0
                     run.recordTokenUsage(from: result.tokenUsage)
-                    removeProcessedScreenshot(at: screenshot.url)
+                    removeProcessedScreenshot(screenshot)
                     NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
                 } catch {
                     if error is CancellationError || Task.isCancelled {
@@ -300,10 +322,10 @@ final class AnalysisRunExecutor {
                         break
                     }
                     if Self.shouldRecordRuntimeError(error) {
-                        logStore.addError(source: .analysis, context: "Failed to analyze screenshot \(screenshot.url.lastPathComponent)", error: error)
+                        logStore.addError(source: .analysis, context: "Failed to analyze screenshot \(screenshot.displayName)", error: error)
                     }
                     if Self.shouldRemoveFailedScreenshot(after: error) {
-                        removeProcessedScreenshot(at: screenshot.url)
+                        removeProcessedScreenshot(screenshot)
                         NotificationCenter.default.post(name: .screenshotFilesDidChange, object: nil)
                     }
                     run.failureCount += 1
@@ -508,12 +530,15 @@ final class AnalysisRunExecutor {
         }
     }
 
-    private func removeProcessedScreenshot(at fileURL: URL) {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+    private func removeProcessedScreenshot(_ screenshot: PendingScreenshot) {
         do {
-            try FileManager.default.removeItem(at: fileURL)
+            try database.pendingScreenshotStore.remove(screenshot)
         } catch {
-            logStore.addError(source: .analysis, context: "Failed to remove processed screenshot \(fileURL.lastPathComponent)", error: error)
+            logStore.addError(
+                source: .analysis,
+                context: "Failed to remove processed screenshot \(screenshot.displayName)",
+                error: error
+            )
         }
     }
 
@@ -572,7 +597,7 @@ final class AnalysisRunExecutor {
         L10n.string(key, language: language ?? settingsStore.appLanguage)
     }
 
-    private static func affectedDayStarts(from screenshots: [ScreenshotFileRecord], calendar: Calendar) -> Set<Date> {
+    private static func affectedDayStarts(from screenshots: [PendingScreenshot], calendar: Calendar) -> Set<Date> {
         var dayStarts = Set<Date>()
         for screenshot in screenshots {
             let start = screenshot.capturedAt

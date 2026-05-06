@@ -48,7 +48,7 @@ final class AnalysisScheduler {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard notification.object is URL else { return }
+            guard notification.object != nil else { return }
             Task { @MainActor [weak self] in
                 self?.scheduleRealtimeAnalysisAfterCapture()
             }
@@ -164,7 +164,7 @@ final class AnalysisScheduler {
 
     private func pendingScreenshotCountForRealtimeBacklogMonitor() -> Int? {
         do {
-            return try database.listScreenshotFiles(
+            return try database.pendingScreenshotStore.listPendingScreenshots(
                 defaultDurationMinutes: settingsStore.snapshot.screenshotIntervalMinutes
             ).count
         } catch {

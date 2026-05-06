@@ -54,6 +54,13 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    @Published var screenshotStorageLocation: ScreenshotStorageLocation {
+        didSet {
+            userDefaults.set(screenshotStorageLocation.rawValue, forKey: Keys.screenshotStorageLocation)
+            notifySettingsChanged()
+        }
+    }
+
     @Published var autoAnalysisRequiresCharger: Bool {
         didSet {
             userDefaults.set(autoAnalysisRequiresCharger, forKey: Keys.autoAnalysisRequiresCharger)
@@ -281,6 +288,8 @@ final class SettingsStore: ObservableObject {
         let savedReportWeekStart = ReportWeekStart(rawValue: readString(key: Keys.reportWeekStart) ?? "") ?? .sunday
         let savedAutoDeletionRetention = ScreenshotAutoDeletionRetention(rawValue: readString(key: Keys.screenshotAutoDeletionRetention) ?? "")
             ?? AppDefaults.screenshotAutoDeletionRetentionDays
+        let savedScreenshotStorageLocation = ScreenshotStorageLocation(rawValue: readString(key: Keys.screenshotStorageLocation) ?? "")
+            ?? .disk
         let savedAutoAnalysisRequiresCharger: Bool = read(key: Keys.autoAnalysisRequiresCharger, fallback: AppDefaults.autoAnalysisRequiresCharger)
 
         let savedAppLanguageRaw: String? = userDefaults.objectWithFallback(
@@ -337,6 +346,7 @@ final class SettingsStore: ObservableObject {
         analysisStartupMode = savedAnalysisStartupMode
         reportWeekStart = savedReportWeekStart
         screenshotAutoDeletionRetention = savedAutoDeletionRetention
+        screenshotStorageLocation = savedScreenshotStorageLocation
         autoAnalysisRequiresCharger = savedAutoAnalysisRequiresCharger
         appLanguage = savedAppLanguage
         summaryInstruction = savedSummaryInstruction
@@ -372,6 +382,7 @@ final class SettingsStore: ObservableObject {
     var snapshot: AppSettingsSnapshot {
         AppSettingsSnapshot(
             screenshotIntervalMinutes: screenshotIntervalMinutes,
+            screenshotStorageLocation: screenshotStorageLocation,
             analysisTimeMinutes: analysisTimeMinutes,
             analysisStartupMode: analysisStartupMode,
             autoAnalysisRequiresCharger: autoAnalysisRequiresCharger,
@@ -593,6 +604,7 @@ final class SettingsStore: ObservableObject {
         static let analysisStartupMode = prefix + "analysisStartupMode"
         static let reportWeekStart = prefix + "reportWeekStart"
         static let screenshotAutoDeletionRetention = prefix + "screenshotAutoDeletionRetention"
+        static let screenshotStorageLocation = prefix + "screenshotStorageLocation"
         static let autoAnalysisRequiresCharger = prefix + "autoAnalysisRequiresCharger"
         static let summaryInstruction = prefix + "summaryInstruction"
         static let provider = prefix + "provider"

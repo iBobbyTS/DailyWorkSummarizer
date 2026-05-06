@@ -8,11 +8,12 @@ extension DeskBriefTests {
         let calendar = makeTestCalendar()
         let previousDayStart = calendar.date(from: DateComponents(year: 2026, month: 4, day: 27))!
         let currentDayStart = calendar.date(from: DateComponents(year: 2026, month: 4, day: 30))!
-        let currentScreenshot = ScreenshotFileRecord(
+        let fileRecord = ScreenshotFileRecord(
             url: URL(fileURLWithPath: "/tmp/20260430-1000-i10.jpg"),
             capturedAt: calendar.date(byAdding: .hour, value: 10, to: currentDayStart)!,
             durationMinutes: 10
         )
+        let currentScreenshot = PendingScreenshot(disk: fileRecord)
         let run = ActiveAnalysisRun(
             id: 1,
             settings: makeTestSettingsSnapshot(),
@@ -30,11 +31,12 @@ extension DeskBriefTests {
     @Test func realtimeAnalysisRunDoesNotSummarizeWhenPreviousAndProcessedResultsAreSameDay() {
         let calendar = makeTestCalendar()
         let dayStart = calendar.date(from: DateComponents(year: 2026, month: 4, day: 27))!
-        let screenshot = ScreenshotFileRecord(
+        let fileRecord = ScreenshotFileRecord(
             url: URL(fileURLWithPath: "/tmp/20260427-1000-i10.jpg"),
             capturedAt: calendar.date(byAdding: .hour, value: 10, to: dayStart)!,
             durationMinutes: 10
         )
+        let screenshot = PendingScreenshot(disk: fileRecord)
         let run = ActiveAnalysisRun(
             id: 1,
             settings: makeTestSettingsSnapshot(),
@@ -55,16 +57,18 @@ extension DeskBriefTests {
         let dayTwo = calendar.date(byAdding: .day, value: 1, to: dayOne)!
         let dayThree = calendar.date(byAdding: .day, value: 1, to: dayTwo)!
         let dayFour = calendar.date(byAdding: .day, value: 1, to: dayThree)!
-        let firstScreenshot = ScreenshotFileRecord(
+        let firstFileRecord = ScreenshotFileRecord(
             url: URL(fileURLWithPath: "/tmp/20260427-1000-i10.jpg"),
             capturedAt: calendar.date(byAdding: .hour, value: 10, to: dayOne)!,
             durationMinutes: 10
         )
-        let secondScreenshot = ScreenshotFileRecord(
+        let secondFileRecord = ScreenshotFileRecord(
             url: URL(fileURLWithPath: "/tmp/20260430-1000-i10.jpg"),
             capturedAt: calendar.date(byAdding: .hour, value: 10, to: dayFour)!,
             durationMinutes: 10
         )
+        let firstScreenshot = PendingScreenshot(disk: firstFileRecord)
+        let secondScreenshot = PendingScreenshot(disk: secondFileRecord)
         let run = ActiveAnalysisRun(
             id: 1,
             settings: makeTestSettingsSnapshot(),
@@ -85,16 +89,18 @@ extension DeskBriefTests {
         let dayOne = calendar.date(from: DateComponents(year: 2026, month: 4, day: 27))!
         let dayTwo = calendar.date(byAdding: .day, value: 1, to: dayOne)!
         let dayThree = calendar.date(byAdding: .day, value: 1, to: dayTwo)!
-        let firstScreenshot = ScreenshotFileRecord(
+        let firstFileRecord = ScreenshotFileRecord(
             url: URL(fileURLWithPath: "/tmp/20260427-1000-i10.jpg"),
             capturedAt: calendar.date(byAdding: .hour, value: 10, to: dayOne)!,
             durationMinutes: 10
         )
-        let secondScreenshot = ScreenshotFileRecord(
+        let secondFileRecord = ScreenshotFileRecord(
             url: URL(fileURLWithPath: "/tmp/20260429-1000-i10.jpg"),
             capturedAt: calendar.date(byAdding: .hour, value: 10, to: dayThree)!,
             durationMinutes: 10
         )
+        let firstScreenshot = PendingScreenshot(disk: firstFileRecord)
+        let secondScreenshot = PendingScreenshot(disk: secondFileRecord)
         let run = ActiveAnalysisRun(
             id: 1,
             settings: makeTestSettingsSnapshot(),
@@ -106,9 +112,9 @@ extension DeskBriefTests {
 
         run.recordProcessedAnalysisResult(for: firstScreenshot, calendar: calendar)
         run.recordProcessedAnalysisResult(for: secondScreenshot, calendar: calendar)
-        run.updateDailyReportStrategyForMergedTrigger(.manual)
+        run.updateDailyReportStrategyForMergedTrigger(AnalysisTrigger.manual)
 
-        #expect(run.dailyReportStrategy == .boundedRunDays)
+        #expect(run.dailyReportStrategy == AnalysisRunDailyReportStrategy.boundedRunDays)
         #expect(run.dailyReportCandidateDayStarts(calendar: calendar) == Set([dayOne, dayTwo, dayThree]))
     }
 }

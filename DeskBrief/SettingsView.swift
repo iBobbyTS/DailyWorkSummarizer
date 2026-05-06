@@ -221,6 +221,8 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 0) {
                 intervalRow
 
+                storageLocationRow
+
                 Divider()
 
                 HStack(spacing: 12) {
@@ -877,6 +879,24 @@ struct SettingsView: View {
             .padding(.vertical, Layout.cardRowVerticalPadding)
         }
         .frame(height: 52)
+    }
+
+    private var storageLocationRow: some View {
+        HStack(spacing: 12) {
+            Text(text(.settingsScreenshotStorageLocation))
+            Spacer()
+            Picker("", selection: $settingsStore.screenshotStorageLocation) {
+                ForEach(ScreenshotStorageLocation.allCases) { location in
+                    Text(location.localizedTitle(language: language))
+                        .tag(location)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 120)
+            InfoTooltipButton(text: text(.settingsScreenshotStorageLocationTooltip))
+        }
+        .padding(.horizontal, Layout.cardRowHorizontalPadding)
+        .padding(.vertical, Layout.cardRowVerticalPadding)
     }
 
     private var generalTab: some View {

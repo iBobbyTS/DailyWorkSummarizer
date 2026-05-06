@@ -44,8 +44,10 @@ extension DeskBriefTests {
         try writeTestScreenshotPlaceholder(to: newFileURL)
         try writeTestScreenshotPlaceholder(to: boundaryFileURL)
 
-        let screenshots = try database.listScreenshotFiles(defaultDurationMinutes: 5)
+        let screenshots = try database.pendingScreenshotStore.listPendingScreenshots(defaultDurationMinutes: 5)
+        let screenshotRecords = try database.listScreenshotFiles(defaultDurationMinutes: 5)
 
+        #expect(screenshotRecords.count == 3)
         #expect(screenshots.count == 3)
 
         let filesToDelete = AutomaticScreenshotCleanupTimer.filesEligibleForDeletion(
@@ -53,7 +55,7 @@ extension DeskBriefTests {
             retentionDays: retentionDays,
             now: now
         )
-            .map { $0.lastPathComponent }
+            .compactMap { $0.fileURL?.lastPathComponent }
             .sorted()
 
         #expect(filesToDelete == ["20260407-1200-i5.jpg"])
@@ -84,7 +86,9 @@ extension DeskBriefTests {
         try writeTestScreenshotPlaceholder(to: oldFileURL)
         try writeTestScreenshotPlaceholder(to: newFileURL)
 
-        let screenshots = try database.listScreenshotFiles(defaultDurationMinutes: 5)
+        let screenshots = try database.pendingScreenshotStore.listPendingScreenshots(defaultDurationMinutes: 5)
+        let screenshotRecords = try database.listScreenshotFiles(defaultDurationMinutes: 5)
+        #expect(screenshotRecords.count == 2)
         #expect(screenshots.count == 2)
 
         let filesToDelete = AutomaticScreenshotCleanupTimer.filesEligibleForDeletion(
@@ -92,7 +96,7 @@ extension DeskBriefTests {
             retentionDays: retentionDays,
             now: now
         )
-            .map { $0.lastPathComponent }
+            .compactMap { $0.fileURL?.lastPathComponent }
             .sorted()
 
         #expect(filesToDelete == ["20260428-1200-i5.jpg"])
@@ -120,7 +124,9 @@ extension DeskBriefTests {
         try writeTestScreenshotPlaceholder(to: oldFileURL)
         try writeTestScreenshotPlaceholder(to: newFileURL)
 
-        let screenshots = try database.listScreenshotFiles(defaultDurationMinutes: 5)
+        let screenshots = try database.pendingScreenshotStore.listPendingScreenshots(defaultDurationMinutes: 5)
+        let screenshotRecords = try database.listScreenshotFiles(defaultDurationMinutes: 5)
+        #expect(screenshotRecords.count == 2)
         #expect(screenshots.count == 2)
 
         let filesToDelete = AutomaticScreenshotCleanupTimer.filesEligibleForDeletion(
@@ -128,7 +134,7 @@ extension DeskBriefTests {
             retentionDays: retentionDays,
             now: now
         )
-            .map { $0.lastPathComponent }
+            .compactMap { $0.fileURL?.lastPathComponent }
             .sorted()
 
         #expect(filesToDelete == ["20260421-1200-i5.jpg"])
@@ -329,6 +335,48 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func automaticCleanupTimerRemovesExpiredMemoryScreenshots() async throws {
+        let now = makeScreenshotDate(year: 2026, month: 5, day: 6, hour: 12, minute: 0)
+        let fixture = try makeAutomaticCleanupFixture(retention: .sevenDays)
+        defer { fixture.cleanUp() }
+
+        let oldMemory = PendingScreenshot(
+            memory: Data([0xFF, 0xD8, 0xFF, 0xE0]),
+            capturedAt: makeScreenshotDate(year: 2026, month: 4, day: 28, hour: 12, minute: 0),
+            durationMinutes: 5
+        )
+        let newMemory = PendingScreenshot(
+            memory: Data([0xFF, 0xD8, 0xFF, 0xE0]),
+            capturedAt: makeScreenshotDate(year: 2026, month: 4, day: 30, hour: 12, minute: 0),
+            durationMinutes: 5
+        )
+        fixture.database.pendingScreenshotStore.addMemoryScreenshot(oldMemory)
+        fixture.database.pendingScreenshotStore.addMemoryScreenshot(newMemory)
+
+        let timer = AutomaticScreenshotCleanupTimer(
+            database: fixture.database,
+            settingsStore: fixture.settingsStore,
+            logStore: fixture.logStore
+        )
+
+        let semaphore = DispatchSemaphore(value: 0)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .screenshotFilesDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            semaphore.signal()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        await timer.performCleanupForTesting(now: now)
+
+        let remaining = try fixture.database.pendingScreenshotStore.listPendingScreenshots(defaultDurationMinutes: 5)
+        #expect(remaining.map(\.id) == [newMemory.id])
+        #expect(await waitForSemaphore(semaphore, timeoutSeconds: 2))
+    }
+
+    @MainActor
     @Test func automaticCleanupOffRetentionDoesNotDeleteOrNotify() async throws {
         let now = makeScreenshotDate(year: 2026, month: 5, day: 6, hour: 12, minute: 0)
         let fixture = try makeAutomaticCleanupFixture(retention: .off)
@@ -498,7 +546,7 @@ private final class BlockingAutomaticCleanupProbe: @unchecked Sendable {
         return cleanupCallCount
     }
 
-    func cleanup(fileURLs: [URL]) -> AutomaticScreenshotCleanupResult {
+    func cleanup(fileURLs: [PendingScreenshot]) -> AutomaticScreenshotCleanupResult {
         lock.lock()
         cleanupCallCount += 1
         lock.unlock()

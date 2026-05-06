@@ -544,17 +544,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let fileURLs = await self.earlyScreenshotCleanupCoordinator.cachedFiles(for: scope),
-                  !fileURLs.isEmpty else {
+            guard let screenshots = await self.earlyScreenshotCleanupCoordinator.cachedFiles(for: scope),
+                  !screenshots.isEmpty else {
                 self.applyEarlyScreenshotCleanupStatus(.calculating)
                 self.openEarlyScreenshotCleanupSubmenu()
                 return
             }
 
-            guard self.confirmEarlyScreenshotCleanup(scope: scope, count: fileURLs.count) else {
+            guard self.confirmEarlyScreenshotCleanup(scope: scope, count: screenshots.count) else {
                 return
             }
-            self.deleteEarlyScreenshots(fileURLs)
+            self.deleteEarlyScreenshots(screenshots)
         }
     }
 
@@ -685,19 +685,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    private func deleteEarlyScreenshots(_ fileURLs: [URL]) {
+    private func deleteEarlyScreenshots(_ screenshots: [PendingScreenshot]) {
+        guard let database else { return }
         let coordinator = earlyScreenshotCleanupCoordinator
         Task { [weak self] in
-            do {
-                _ = try await Task.detached(priority: .utility) {
-                    try EarlyScreenshotCleanupCoordinator.deleteFiles(fileURLs)
-                }.value
-            } catch {
+            var failedCount = 0
+            for screenshot in screenshots {
+                do {
+                    try database.pendingScreenshotStore.remove(screenshot)
+                } catch {
+                    failedCount += 1
+                    await MainActor.run { [weak self] in
+                        self?.logStore?.add(
+                            level: .error,
+                            source: .screenshot,
+                            message: "Failed to delete early screenshot \(screenshot.displayName): \(error.localizedDescription)"
+                        )
+                    }
+                }
+            }
+            if failedCount > 0 {
                 await MainActor.run { [weak self] in
                     self?.logStore?.add(
                         level: .error,
                         source: .screenshot,
-                        message: "Failed to delete early screenshots: \(EarlyScreenshotCleanupCoordinator.describe(error))"
+                        message: "Failed to delete \(failedCount) early screenshots"
                     )
                 }
             }
@@ -753,9 +765,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let database else { return }
 
         let defaultDuration = settingsStore?.screenshotIntervalMinutes ?? AppDefaults.screenshotIntervalMinutes
-        let pendingScreenshots: [ScreenshotFileRecord]
+        let pendingScreenshots: [PendingScreenshot]
         do {
-            pendingScreenshots = try database.listScreenshotFiles(defaultDurationMinutes: defaultDuration)
+            pendingScreenshots = try database.pendingScreenshotStore.listPendingScreenshots(defaultDurationMinutes: defaultDuration)
             didLogStatusMenuPendingScreenshotsFailure = false
         } catch {
             pendingScreenshots = []

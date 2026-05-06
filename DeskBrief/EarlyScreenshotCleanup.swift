@@ -12,10 +12,10 @@ enum EarlyScreenshotCleanupScope: Int, CaseIterable, Sendable {
 
 struct EarlyScreenshotCleanupResult: Sendable, Equatable {
     let calculatedAt: Date
-    let filesByScope: [EarlyScreenshotCleanupScope: [URL]]
+    let filesByScope: [EarlyScreenshotCleanupScope: [PendingScreenshot]]
 
     nonisolated
-    func files(for scope: EarlyScreenshotCleanupScope) -> [URL] {
+    func files(for scope: EarlyScreenshotCleanupScope) -> [PendingScreenshot] {
         filesByScope[scope] ?? []
     }
 
@@ -64,7 +64,7 @@ actor EarlyScreenshotCleanupCoordinator {
         now: Date = Date()
     ) -> EarlyScreenshotCleanupStatus {
         beginCalculationIfNeeded(now: now) {
-            try Self.scan(database: database, defaultDurationMinutes: defaultDurationMinutes, now: now)
+            try await Self.scan(database: database, defaultDurationMinutes: defaultDurationMinutes, now: now)
         }
     }
 
@@ -116,7 +116,7 @@ actor EarlyScreenshotCleanupCoordinator {
         return .calculating
     }
 
-    func cachedFiles(for scope: EarlyScreenshotCleanupScope, now: Date = Date()) -> [URL]? {
+    func cachedFiles(for scope: EarlyScreenshotCleanupScope, now: Date = Date()) -> [PendingScreenshot]? {
         guard let cachedResult, cachedResult.isValid(now: now, cacheDuration: cacheDuration) else {
             return nil
         }
@@ -207,40 +207,49 @@ actor EarlyScreenshotCleanupCoordinator {
         database: AppDatabase,
         defaultDurationMinutes: Int,
         now: Date
-    ) throws -> EarlyScreenshotCleanupResult {
-        let screenshots = try database.listScreenshotFiles(defaultDurationMinutes: defaultDurationMinutes)
+    ) async throws -> EarlyScreenshotCleanupResult {
+        let screenshots = try await database.pendingScreenshotStore.listPendingScreenshots(defaultDurationMinutes: defaultDurationMinutes)
         return calculate(screenshots: screenshots, now: now)
     }
 
     nonisolated static func calculate(
-        screenshots: [ScreenshotFileRecord],
+        screenshots: [PendingScreenshot],
         now: Date
     ) -> EarlyScreenshotCleanupResult {
-        var filesByScope: [EarlyScreenshotCleanupScope: [URL]] = [:]
+        var filesByScope: [EarlyScreenshotCleanupScope: [PendingScreenshot]] = [:]
         for scope in EarlyScreenshotCleanupScope.allCases {
             let cutoff = now.addingTimeInterval(-scope.age)
             filesByScope[scope] = screenshots
                 .filter { $0.capturedAt < cutoff }
-                .map(\.url)
         }
         return EarlyScreenshotCleanupResult(calculatedAt: now, filesByScope: filesByScope)
     }
 
     @discardableResult
-    nonisolated static func deleteFiles(_ fileURLs: [URL]) throws -> Int {
+    nonisolated static func deleteFiles(_ screenshots: [PendingScreenshot]) throws -> Int {
         var deletedCount = 0
         var failures: [String] = []
 
-        for fileURL in fileURLs {
-            guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        for screenshot in screenshots {
+            switch screenshot.storageLocation {
+            case .disk:
+                guard let fileURL = screenshot.fileURL else {
+                    failures.append("\(screenshot.displayName): missing file URL for disk screenshot")
+                    continue
+                }
+                guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                    continue
+                }
+                do {
+                    try FileManager.default.removeItem(at: fileURL)
+                    deletedCount += 1
+                } catch {
+                    failures.append("\(fileURL.lastPathComponent): \(error.localizedDescription)")
+                }
+            case .memory:
+                // Memory screenshots must be removed via PendingScreenshotStore.remove()
+                // which requires MainActor context. Skip here; caller handles separately.
                 continue
-            }
-
-            do {
-                try FileManager.default.removeItem(at: fileURL)
-                deletedCount += 1
-            } catch {
-                failures.append("\(fileURL.lastPathComponent): \(error.localizedDescription)")
             }
         }
 

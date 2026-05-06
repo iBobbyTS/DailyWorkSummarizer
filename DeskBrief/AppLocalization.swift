@@ -345,6 +345,8 @@ nonisolated enum L10n {
         case lmStudioEndpointInvalid
         case lmStudioHTTPResponseInvalid
         case lmStudioNoData
+        case settingsScreenshotStorageLocation
+        case settingsScreenshotStorageLocationTooltip
         case lmStudioMissingLoadedInstanceID
     }
 
@@ -630,6 +632,8 @@ nonisolated enum L10n {
             .settingsModelContextLengthTooltip: "截屏分析不建议超过6000，总结可以更长。",
             .settingsModelLMStudioExplicitLoadUnloadModelTooltip: "目前仅支持LM Studio，打开后App会在截屏分析、工作内容总结前后发起加载、卸载请求。通常打开此选项配合*定时启动*，适合运行在工作电脑上；关闭此选项配合*截屏后立即启动*，适合专门的大模型电脑/服务器。",
             .settingsIntervalTooltip: "建议**10分钟**。\n启动软件时开始计时，退出软件暂停，软件本身不提供暂停功能。",
+            .settingsScreenshotStorageLocation: "截屏保存位置",
+            .settingsScreenshotStorageLocationTooltip: "保存到*硬盘*时安全级别和其他用户文件一致，别的用户无法直接访问，如果对隐私要求较高，可选择保存到内存，app退出/系统重启等操作会导致没有分析过的截屏直接消失",
             .settingsLanguageTooltip: "建议选择和截屏分析、工作内容总结填入的信息相同的语言",
             .settingsAutoDeletionRetentionTooltip: "自动删除超过保留期限的待分析截屏文件。仅删除 screenshots 根目录下的 JPEG 文件，不影响 preview/ 和 temp/ 子目录。",
             .settingsReportWeekStartTooltip: "仅用于周报。",
@@ -920,6 +924,8 @@ nonisolated enum L10n {
             .settingsModelContextLengthTooltip: "Screenshot analysis should not exceed 6000. Summaries can be longer.",
             .settingsModelLMStudioExplicitLoadUnloadModelTooltip: "Currently only supports LM Studio. When enabled, the app sends load/unload requests around screenshot analysis and work content summary. Usually paired with *Scheduled* mode. Disable for *On capture* mode on a dedicated AI server.",
             .settingsIntervalTooltip: "Recommended: **10 minutes**.\nTiming starts when the app launches and pauses when the app exits. The app does not have a built-in pause feature.",
+            .settingsScreenshotStorageLocation: "Screenshot Storage",
+            .settingsScreenshotStorageLocationTooltip: "When saved to *Disk*, the security level is consistent with other user files and cannot be directly accessed by other users. If you have high privacy requirements, choose memory storage. Unanalyzed screenshots will be lost when the app exits or system restarts.",
             .settingsLanguageTooltip: "It is recommended to use the same language as the information entered for screenshot analysis and work content summary.",
             .settingsAutoDeletionRetentionTooltip: "Automatically delete pending screenshot files older than the selected retention period. Only deletes JPEG files in the root screenshots directory; preview/ and temp/ subdirectories are not affected.",
             .settingsReportWeekStartTooltip: "Only used for weekly reports.",

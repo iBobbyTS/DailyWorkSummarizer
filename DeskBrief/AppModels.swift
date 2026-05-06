@@ -184,6 +184,37 @@ nonisolated enum ImageAnalysisMethod: String, CaseIterable, Codable, Identifiabl
     }
 }
 
+/// Where to store pending scheduled screenshots before analysis.
+nonisolated enum ScreenshotStorageLocation: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
+    case disk = "disk"
+    case memory = "memory"
+
+    var id: String { rawValue }
+}
+
+extension ScreenshotStorageLocation {
+    nonisolated static func simplifiedChineseTitle(for location: Self) -> String {
+        switch location {
+        case .disk: return "硬盘"
+        case .memory: return "内存"
+        }
+    }
+
+    nonisolated static func englishTitle(for location: Self) -> String {
+        switch location {
+        case .disk: return "Disk"
+        case .memory: return "Memory"
+        }
+    }
+
+    nonisolated func localizedTitle(language: AppLanguage) -> String {
+        switch language {
+        case .simplifiedChinese: return Self.simplifiedChineseTitle(for: self)
+        case .english: return Self.englishTitle(for: self)
+        }
+    }
+}
+
 nonisolated enum ScreenshotAutoDeletionRetention: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
     case off
     case sevenDays = "7"
@@ -491,6 +522,7 @@ enum ModelMemoryError: LocalizedError, Equatable {
 
 nonisolated struct AppSettingsSnapshot {
     let screenshotIntervalMinutes: Int
+    let screenshotStorageLocation: ScreenshotStorageLocation
     let analysisTimeMinutes: Int
     let analysisStartupMode: AnalysisStartupMode
     let autoAnalysisRequiresCharger: Bool

@@ -48,30 +48,30 @@ extension DeskBriefTests {
         let dayBoundaryURL = URL(fileURLWithPath: "/tmp/20260429-1200-i5.jpg")
         let oldWeekURL = URL(fileURLWithPath: "/tmp/20260423-1158-i5.jpg")
 
+        let oldDayPending = PendingScreenshot(disk: ScreenshotFileRecord(
+            url: oldDayURL,
+            capturedAt: now.addingTimeInterval(-24 * 60 * 60 - 120),
+            durationMinutes: 5
+        ))
+        let dayBoundaryPending = PendingScreenshot(disk: ScreenshotFileRecord(
+            url: dayBoundaryURL,
+            capturedAt: now.addingTimeInterval(-24 * 60 * 60),
+            durationMinutes: 5
+        ))
+        let oldWeekPending = PendingScreenshot(disk: ScreenshotFileRecord(
+            url: oldWeekURL,
+            capturedAt: now.addingTimeInterval(-7 * 24 * 60 * 60 - 120),
+            durationMinutes: 5
+        ))
+
         let result = EarlyScreenshotCleanupCoordinator.calculate(
-            screenshots: [
-                ScreenshotFileRecord(
-                    url: oldDayURL,
-                    capturedAt: now.addingTimeInterval(-24 * 60 * 60 - 120),
-                    durationMinutes: 5
-                ),
-                ScreenshotFileRecord(
-                    url: dayBoundaryURL,
-                    capturedAt: now.addingTimeInterval(-24 * 60 * 60),
-                    durationMinutes: 5
-                ),
-                ScreenshotFileRecord(
-                    url: oldWeekURL,
-                    capturedAt: now.addingTimeInterval(-7 * 24 * 60 * 60 - 120),
-                    durationMinutes: 5
-                ),
-            ],
+            screenshots: [oldDayPending, dayBoundaryPending, oldWeekPending],
             now: now
         )
 
-        #expect(result.files(for: .oneDay) == [oldDayURL, oldWeekURL])
-        #expect(result.files(for: .oneWeek) == [oldWeekURL])
-        #expect(!result.files(for: .oneDay).contains(dayBoundaryURL))
+        #expect(result.files(for: .oneDay) == [oldDayPending, oldWeekPending])
+        #expect(result.files(for: .oneWeek) == [oldWeekPending])
+        #expect(!result.files(for: .oneDay).contains(dayBoundaryPending))
     }
 
     @Test func earlyScreenshotCleanupScanIgnoresPreviewAndTempSubdirectories() async throws {
@@ -98,13 +98,13 @@ extension DeskBriefTests {
         try writeTestScreenshotPlaceholder(to: tempScreenshot)
 
         let now = makeScreenshotDate(year: 2026, month: 4, day: 30, hour: 12, minute: 0)
-        let result = try EarlyScreenshotCleanupCoordinator.scan(
+        let result = try await EarlyScreenshotCleanupCoordinator.scan(
             database: database,
             defaultDurationMinutes: 5,
             now: now
         )
 
-        let oneDayFiles = result.files(for: .oneDay).map(\.standardizedFileURL)
+        let oneDayFiles = result.files(for: .oneDay).compactMap { $0.fileURL?.standardizedFileURL }
         #expect(oneDayFiles == [rootScreenshot.standardizedFileURL])
         #expect(!oneDayFiles.contains(previewScreenshot.standardizedFileURL))
         #expect(!oneDayFiles.contains(tempScreenshot.standardizedFileURL))
@@ -113,9 +113,14 @@ extension DeskBriefTests {
     @Test func earlyScreenshotCleanupDoesNotStartDuplicateCalculationWhileOneIsRunning() async throws {
         let coordinator = EarlyScreenshotCleanupCoordinator()
         let now = makeScreenshotDate(year: 2026, month: 4, day: 30, hour: 12, minute: 0)
+        let oldPending = PendingScreenshot(disk: ScreenshotFileRecord(
+            url: URL(fileURLWithPath: "/tmp/old.jpg"),
+            capturedAt: now.addingTimeInterval(-48 * 60 * 60),
+            durationMinutes: 5
+        ))
         let result = EarlyScreenshotCleanupResult(
             calculatedAt: now,
-            filesByScope: [.oneDay: [URL(fileURLWithPath: "/tmp/old.jpg")], .oneWeek: []]
+            filesByScope: [.oneDay: [oldPending], .oneWeek: []]
         )
         let started = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
@@ -158,7 +163,12 @@ extension DeskBriefTests {
         try writeTestScreenshotPlaceholder(to: oldScreenshot)
         try writeTestScreenshotPlaceholder(to: retainedScreenshot)
 
-        let deletedCount = try EarlyScreenshotCleanupCoordinator.deleteFiles([oldScreenshot])
+        let oldPending = PendingScreenshot(disk: ScreenshotFileRecord(
+            url: oldScreenshot,
+            capturedAt: Date(),
+            durationMinutes: 5
+        ))
+        let deletedCount = try EarlyScreenshotCleanupCoordinator.deleteFiles([oldPending])
 
         #expect(deletedCount == 1)
         #expect(!FileManager.default.fileExists(atPath: oldScreenshot.path))
