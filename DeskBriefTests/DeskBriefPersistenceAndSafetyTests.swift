@@ -170,72 +170,7 @@ extension DeskBriefTests {
 
         _ = try AppDatabase(databaseURL: databaseURL)
 
-        #expect(try fetchInt("PRAGMA user_version;", databaseURL: databaseURL) == Int(DatabaseSchema.currentVersion))
         #expect(try columnNames(in: "summary_runs", databaseURL: databaseURL).contains("analysis_run_id"))
-    }
-
-    @Test func databaseSchemaAcceptsCompleteLegacyVersionZeroDatabaseAndSetsCurrentVersion() async throws {
-        let databaseURL = makeTemporaryDatabaseURL()
-        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
-
-        let legacyDatabase = try AppDatabase(databaseURL: databaseURL)
-        try legacyDatabase.insertAppLog(AppLogEntry(level: .log, source: .app, message: "legacy"))
-        try DatabaseSchema.setVersion(connection: legacyDatabase.connection, version: 0)
-
-        let reopened = try AppDatabase(databaseURL: databaseURL)
-        let logs = try reopened.fetchAppLogs(limit: nil)
-
-        #expect(logs.map(\.message) == ["legacy"])
-        #expect(try DatabaseSchema.loadVersion(connection: reopened.connection) == DatabaseSchema.currentVersion)
-    }
-
-    @Test func databaseSchemaRejectsFutureUserVersion() async throws {
-        let databaseURL = makeTemporaryDatabaseURL()
-        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
-
-        let database = try AppDatabase(databaseURL: databaseURL)
-        try DatabaseSchema.setVersion(connection: database.connection, version: DatabaseSchema.currentVersion + 1)
-
-        do {
-            _ = try AppDatabase(databaseURL: databaseURL)
-            Issue.record("Expected future database schema version to be rejected")
-        } catch DatabaseError.execute(let message) {
-            #expect(message.contains("unsupported database schema version"))
-        } catch {
-            Issue.record("Expected future database schema version error, got \(error)")
-        }
-    }
-
-    @Test func databaseSchemaRejectsLegacyDatabaseWithMissingRequiredColumn() async throws {
-        let databaseURL = makeTemporaryDatabaseURL()
-        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
-
-        do {
-            _ = try AppDatabase(databaseURL: databaseURL)
-        }
-        try executeSQLite(
-            """
-            ALTER TABLE app_logs RENAME TO app_logs_old;
-            CREATE TABLE app_logs (
-                id TEXT PRIMARY KEY,
-                created_at DOUBLE NOT NULL,
-                level TEXT NOT NULL,
-                source TEXT NOT NULL
-            );
-            DROP TABLE app_logs_old;
-            PRAGMA user_version = 0;
-            """,
-            databaseURL: databaseURL
-        )
-
-        do {
-            _ = try AppDatabase(databaseURL: databaseURL)
-            Issue.record("Expected incomplete legacy database schema to be rejected")
-        } catch DatabaseError.execute(let message) {
-            #expect(message.contains("missing columns message"))
-        } catch {
-            Issue.record("Expected missing column schema validation error, got \(error)")
-        }
     }
 
     @Test func encryptedDatabaseCreatesAndReopensWithStoredPassphrase() async throws {
@@ -385,7 +320,6 @@ extension DeskBriefTests {
         let database = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
         try database.insertAppLog(AppLogEntry(level: .log, source: .app, message: "rekey"))
         userDefaults.set(true, forKey: "com.deskbrief.settings.databaseEncryptionEnabled")
-        let userVersionBefore = try DatabaseSchema.loadVersion(connection: database.connection)
         let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
 
         try store.updateDatabasePassphrase(to: newPassphrase)
@@ -398,8 +332,6 @@ extension DeskBriefTests {
 
         let reloaded = try AppDatabase(databaseURL: databaseURL, passphrase: newPassphrase)
         #expect(try reloaded.fetchAppLogs(limit: nil).map(\.message) == ["rekey"])
-        let userVersionAfter = try DatabaseSchema.loadVersion(connection: reloaded.connection)
-        #expect(userVersionAfter == userVersionBefore)
         #expect(keychain.string(for: AppDefaults.databasePassphraseAccount) == newPassphrase.value)
     }
 
@@ -439,45 +371,6 @@ extension DeskBriefTests {
         }
     }
 
-    @Test func encryptedDatabaseImportsPassphraseFileWhenKeychainIsMissing() async throws {
-        let databaseURL = makeTemporaryDatabaseURL()
-        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
-
-        _ = try AppDatabase(
-            databaseURL: databaseURL,
-            passphrase: try DatabasePassphrase("imported-passphrase")
-        )
-
-        let importURL = AppDatabase.databasePassphraseImportURL(for: databaseURL)
-        try "imported-passphrase\n".write(to: importURL, atomically: true, encoding: .utf8)
-
-        let keychain = FakeKeychainStore()
-        _ = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
-
-        #expect(keychain.string(for: AppDefaults.databasePassphraseAccount) == "imported-passphrase")
-        #expect(!FileManager.default.fileExists(atPath: importURL.path))
-    }
-
-    @Test func encryptedDatabaseKeepsImportFileWhenImportedPassphraseIsWrong() async throws {
-        let databaseURL = makeTemporaryDatabaseURL()
-        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
-
-        _ = try AppDatabase(
-            databaseURL: databaseURL,
-            passphrase: try DatabasePassphrase("correct-passphrase")
-        )
-
-        let importURL = AppDatabase.databasePassphraseImportURL(for: databaseURL)
-        try "wrong-passphrase\n".write(to: importURL, atomically: true, encoding: .utf8)
-
-        do {
-            _ = try AppDatabase(databaseURL: databaseURL, keychain: FakeKeychainStore(), encryptionEnabled: true)
-            Issue.record("Expected invalid imported database passphrase")
-        } catch DatabaseError.invalidPassphrase {
-            #expect(FileManager.default.fileExists(atPath: importURL.path))
-        }
-    }
-
     @Test func encryptedDatabaseRejectsWrongPassphrase() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         defer { removeTemporaryDatabaseFiles(at: databaseURL) }
@@ -501,7 +394,6 @@ extension DeskBriefTests {
         let databaseURL = makeTemporaryDatabaseURL()
         let walURL = URL(fileURLWithPath: databaseURL.path + "-wal")
         let shmURL = URL(fileURLWithPath: databaseURL.path + "-shm")
-        let importURL = AppDatabase.databasePassphraseImportURL(for: databaseURL)
         let screenshotsURL = databaseURL.deletingLastPathComponent().appendingPathComponent("screenshots", isDirectory: true)
         defer { removeTemporaryDatabaseFiles(at: databaseURL) }
         defer { try? FileManager.default.removeItem(at: screenshotsURL) }
@@ -509,7 +401,6 @@ extension DeskBriefTests {
         try "db".write(to: databaseURL, atomically: true, encoding: .utf8)
         try "wal".write(to: walURL, atomically: true, encoding: .utf8)
         try "shm".write(to: shmURL, atomically: true, encoding: .utf8)
-        try "passphrase".write(to: importURL, atomically: true, encoding: .utf8)
         try FileManager.default.createDirectory(at: screenshotsURL, withIntermediateDirectories: true)
 
         try AppDatabase.removeDatabaseFiles(at: databaseURL)
@@ -517,7 +408,6 @@ extension DeskBriefTests {
         #expect(!FileManager.default.fileExists(atPath: databaseURL.path))
         #expect(!FileManager.default.fileExists(atPath: walURL.path))
         #expect(!FileManager.default.fileExists(atPath: shmURL.path))
-        #expect(!FileManager.default.fileExists(atPath: importURL.path))
         #expect(FileManager.default.fileExists(atPath: screenshotsURL.path))
     }
 
@@ -579,69 +469,13 @@ extension DeskBriefTests {
         #expect(error.errorDescription == L10n.string(.analysisNeedsBaseURL, language: language))
     }
 
-    // MARK: - UserDefaults key migration
-
     @MainActor
-    @Test func settingsStoreReadsFromLegacyKeyWhenNewKeyAbsent() async throws {
+    @Test func settingsStoreWritesToNamespacedKey() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DeskBriefTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         let keychain = KeychainStore(service: suiteName)
         let newKey = "com.deskbrief.settings.analysisStartupMode"
-        let oldKey = "settings.analysisStartupMode"
-
-        defer {
-            userDefaults.removePersistentDomain(forName: suiteName)
-            keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
-            try? FileManager.default.removeItem(at: databaseURL)
-        }
-
-        userDefaults.set(AnalysisStartupMode.scheduled.rawValue, forKey: oldKey)
-        #expect(userDefaults.object(forKey: newKey) == nil)
-
-        let database = try AppDatabase(databaseURL: databaseURL)
-        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
-
-        #expect(store.analysisStartupMode == .scheduled)
-
-        let migratedValue = userDefaults.string(forKey: newKey)
-        #expect(migratedValue == AnalysisStartupMode.scheduled.rawValue)
-    }
-
-    @MainActor
-    @Test func settingsStorePrefersNewKeyWhenBothExist() async throws {
-        let databaseURL = makeTemporaryDatabaseURL()
-        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
-        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
-        let keychain = KeychainStore(service: suiteName)
-        let newKey = "com.deskbrief.settings.analysisStartupMode"
-        let oldKey = "settings.analysisStartupMode"
-
-        defer {
-            userDefaults.removePersistentDomain(forName: suiteName)
-            keychain.set("", for: AppDefaults.apiKeyAccount)
-            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
-            try? FileManager.default.removeItem(at: databaseURL)
-        }
-
-        userDefaults.set(AnalysisStartupMode.scheduled.rawValue, forKey: oldKey)
-        userDefaults.set(AnalysisStartupMode.realtime.rawValue, forKey: newKey)
-
-        let database = try AppDatabase(databaseURL: databaseURL)
-        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
-
-        #expect(store.analysisStartupMode == .realtime)
-    }
-
-    @MainActor
-    @Test func settingsStoreWritesOnlyToNewKey() async throws {
-        let databaseURL = makeTemporaryDatabaseURL()
-        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
-        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
-        let keychain = KeychainStore(service: suiteName)
-        let newKey = "com.deskbrief.settings.analysisStartupMode"
-        let oldKey = "settings.analysisStartupMode"
 
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
@@ -656,6 +490,5 @@ extension DeskBriefTests {
         store.analysisStartupMode = .realtime
 
         #expect(userDefaults.string(forKey: newKey) == AnalysisStartupMode.realtime.rawValue)
-        #expect(userDefaults.object(forKey: oldKey) == nil)
     }
 }

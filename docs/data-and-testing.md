@@ -40,9 +40,9 @@ The app stores runtime data under Application Support:
 ### GRDB / SQLite / SQLCipher
 
 SQLite is the source of truth for captured work history, analysis outputs, and generated daily reports. Business schema setup and CRUD use GRDB `DatabaseQueue`, record types, the Query Interface, and the GRDB schema builder. Runtime access goes through SQLCipher only when database encryption is enabled; a missing or invalid database passphrase blocks startup before services are created.
-Schema setup runs through `DatabaseSchema.create(connection:)`, which is the migration entrypoint even though the public method name is kept for existing call sites. New databases initialize the current version and write `PRAGMA user_version`. Existing databases are read by `user_version`, migrated one version at a time, and then validated for required tables, columns, and indexes. Databases from a newer app version are rejected instead of being silently opened by older code.
+Schema setup runs through `DatabaseSchema.create(connection:)`, which creates the current application tables and indexes. The pre-release app does not keep schema migration or legacy compatibility layers.
 The system `sqlite3` CLI is expected to fail against an encrypted runtime database unless it is pointed at a plaintext backup, an unencrypted test fixture, or a database whose encryption has been turned off in Settings. These `sqlite3` commands are inspection helpers, not the app's business persistence path. Encrypted runtime database inspection should use a SQLCipher-linked helper that loads the passphrase from Keychain.
-Settings can convert the database between encrypted and plaintext modes immediately. Plaintext-to-encrypted and encrypted-to-plaintext conversion exports through SQLCipher into a temporary database, verifies `integrity_check`, `user_version`, and key table row counts, then replaces the SQLite file and sidecars. Encrypted key changes use `PRAGMA rekey`.
+Settings can convert the database between encrypted and plaintext modes immediately. Plaintext-to-encrypted and encrypted-to-plaintext conversion exports through SQLCipher into a temporary database, verifies `integrity_check` and key table row counts, then replaces the SQLite file and sidecars. Encrypted key changes use `PRAGMA rekey`.
 It also stores lightweight runtime logs in `app_logs`, capped to the latest 1000 entries.
 Away intervals caused by missing captures are not persisted; report views derive those display-only `离开` blocks from bounded gaps between adjacent successful analysis results. Fully dark screenshots can be persisted as `离开` results so their capture time is retained without sending the image to a model.
 Failed per-screenshot attempts are counted on `analysis_runs` but are not persisted as `analysis_results` rows.
@@ -253,11 +253,4 @@ All custom error enums now conform to `Equatable`:
 `LocalizedError` conformance and message formatting are unchanged.
 
 ### UserDefaults key namespacing
-All `SettingsStore.Keys` and `AppLanguage.userDefaultsKey` now use the `com.deskbrief.settings.` prefix:
-
-| Scope | Old key | New key |
-|-------|---------|---------|
-| Settings keys | `settings.*` | `com.deskbrief.settings.*` |
-| App language | `settings.appLanguage` | `com.deskbrief.settings.appLanguage` |
-
-Reading uses `UserDefaults.objectWithFallback(newKey:oldKey:)` which checks the new key first, falls back to the old key, and migrates the value to the new key. Writing only updates the new key. Old keys are not removed.
+All `SettingsStore.Keys` and `AppLanguage.userDefaultsKey` use the `com.deskbrief.settings.` prefix. Reading and writing use only the current namespaced keys; the pre-release app does not keep old `settings.*` fallback or migration paths.

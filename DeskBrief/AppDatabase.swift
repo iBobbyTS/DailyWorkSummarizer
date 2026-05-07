@@ -83,7 +83,6 @@ final class AppDatabase: @unchecked Sendable {
         self.logStore = LogDataStore(connection: connection)
         self.screenshotStore = ScreenshotFileStore(applicationSupportDirectory: applicationSupportDirectory)
         try DatabaseSchema.create(connection: connection)
-        try Self.finishPassphraseImportIfNeeded(resolvedPassphrase, databaseURL: databaseURL, keychain: keychain)
     }
 
     // MARK: - Analysis Runs
@@ -110,13 +109,6 @@ final class AppDatabase: @unchecked Sendable {
         let store = DatabasePassphraseStore(keychain: keychain)
         let fileExists = FileManager.default.fileExists(atPath: databaseURL.path)
         if fileExists {
-            if let importedPassphrase = try DatabasePassphraseImportFile.load(for: databaseURL) {
-                return ResolvedDatabasePassphrase(
-                    openMode: .encrypted(importedPassphrase),
-                    passphrase: importedPassphrase,
-                    pendingImportURL: DatabasePassphraseImportFile.url(for: databaseURL)
-                )
-            }
             if let storedPassphrase = try store.load() {
                 return ResolvedDatabasePassphrase(openMode: .encrypted(storedPassphrase), passphrase: storedPassphrase)
             }
@@ -126,24 +118,6 @@ final class AppDatabase: @unchecked Sendable {
 
         let passphrase = try store.loadOrCreate()
         return ResolvedDatabasePassphrase(openMode: .encrypted(passphrase), passphrase: passphrase)
-    }
-
-    private static func finishPassphraseImportIfNeeded(
-        _ resolvedPassphrase: ResolvedDatabasePassphrase,
-        databaseURL: URL,
-        keychain: KeychainStoring?
-    ) throws {
-        guard let pendingImportURL = resolvedPassphrase.pendingImportURL,
-              let keychain else {
-            return
-        }
-
-        guard let passphrase = resolvedPassphrase.passphrase else {
-            return
-        }
-
-        try DatabasePassphraseStore(keychain: keychain).save(passphrase)
-        try FileManager.default.removeItem(at: pendingImportURL)
     }
 
     func createAnalysisRun(modelName: String, totalItems: Int, status: String = "running") throws -> Int64 {
@@ -414,13 +388,9 @@ final class AppDatabase: @unchecked Sendable {
         ]
     }
 
-    nonisolated static func databasePassphraseImportURL(for databaseURL: URL) -> URL {
-        DatabasePassphraseImportFile.url(for: databaseURL)
-    }
-
     nonisolated static func removeDatabaseFiles(at databaseURL: URL) throws {
         let fileManager = FileManager.default
-        let urls = [databaseURL, databasePassphraseImportURL(for: databaseURL)] + databaseSidecarURLs(for: databaseURL)
+        let urls = [databaseURL] + databaseSidecarURLs(for: databaseURL)
         for url in urls where fileManager.fileExists(atPath: url.path) {
             try fileManager.removeItem(at: url)
         }
@@ -430,12 +400,10 @@ final class AppDatabase: @unchecked Sendable {
 private struct ResolvedDatabasePassphrase {
     let openMode: DatabaseOpenMode
     let passphrase: DatabasePassphrase?
-    let pendingImportURL: URL?
 
-    init(openMode: DatabaseOpenMode, passphrase: DatabasePassphrase? = nil, pendingImportURL: URL? = nil) {
+    init(openMode: DatabaseOpenMode, passphrase: DatabasePassphrase? = nil) {
         self.openMode = openMode
         self.passphrase = passphrase
-        self.pendingImportURL = pendingImportURL
     }
 }
 
@@ -520,22 +488,5 @@ struct DatabasePassphraseStore {
         let passphrase = try DatabasePassphrase.generate()
         try save(passphrase)
         return passphrase
-    }
-}
-
-nonisolated enum DatabasePassphraseImportFile {
-    static func url(for databaseURL: URL) -> URL {
-        databaseURL.deletingLastPathComponent().appendingPathComponent(AppDefaults.databasePassphraseImportFilename, isDirectory: false)
-    }
-
-    static func load(for databaseURL: URL) throws -> DatabasePassphrase? {
-        let importURL = url(for: databaseURL)
-        guard FileManager.default.fileExists(atPath: importURL.path) else {
-            return nil
-        }
-
-        let rawValue = try String(contentsOf: importURL, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return try DatabasePassphrase(rawValue)
     }
 }

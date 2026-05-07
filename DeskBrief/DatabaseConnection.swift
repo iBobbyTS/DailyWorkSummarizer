@@ -123,7 +123,6 @@ nonisolated final class DatabaseConnection: @unchecked Sendable {
             targetKey = passphrase.value
         }
 
-        let currentUserVersion = try Int64.fetchOne(db, sql: "PRAGMA user_version;") ?? 0
         let schemaCounts = try schemaCounts(db)
         try db.execute(
             sql: "ATTACH DATABASE ? AS converted KEY ?;",
@@ -131,7 +130,6 @@ nonisolated final class DatabaseConnection: @unchecked Sendable {
         )
         do {
             try db.execute(sql: "SELECT sqlcipher_export('converted');")
-            try db.execute(sql: "PRAGMA converted.user_version = \(currentUserVersion);")
             try db.execute(sql: "DETACH DATABASE converted;")
         } catch {
             try? db.execute(sql: "DETACH DATABASE converted;")
@@ -141,7 +139,6 @@ nonisolated final class DatabaseConnection: @unchecked Sendable {
         try Self.validateDatabase(
             at: targetURL,
             mode: targetMode,
-            expectedUserVersion: currentUserVersion,
             expectedSchemaCounts: schemaCounts
         )
     }
@@ -160,7 +157,6 @@ nonisolated final class DatabaseConnection: @unchecked Sendable {
     private static func validateDatabase(
         at url: URL,
         mode: DatabaseOpenMode,
-        expectedUserVersion: Int64,
         expectedSchemaCounts: [String: Int64]
     ) throws {
         let validationQueue = try openQueue(databaseURL: url, mode: mode)
@@ -170,11 +166,6 @@ nonisolated final class DatabaseConnection: @unchecked Sendable {
             let integrity = try String.fetchOne(db, sql: "PRAGMA integrity_check;") ?? ""
             guard integrity == "ok" else {
                 throw DatabaseError.execute("converted database integrity_check failed: \(integrity)")
-            }
-
-            let userVersion = try Int64.fetchOne(db, sql: "PRAGMA user_version;") ?? 0
-            guard userVersion == expectedUserVersion else {
-                throw DatabaseError.execute("converted database user_version mismatch: \(userVersion) != \(expectedUserVersion)")
             }
 
             for (tableName, expectedCount) in expectedSchemaCounts {

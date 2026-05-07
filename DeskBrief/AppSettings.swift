@@ -275,11 +275,11 @@ final class SettingsStore: ObservableObject {
         self.logStore = logStore
 
         func read<T>(key: String, fallback: @autoclosure () -> T) -> T {
-            (userDefaults.objectWithFallback(newKey: key, oldKey: Keys.legacyKey(for: key)) as? T) ?? fallback()
+            (userDefaults.object(forKey: key) as? T) ?? fallback()
         }
 
         func readString(key: String) -> String? {
-            userDefaults.objectWithFallback(newKey: key, oldKey: Keys.legacyKey(for: key)) as? String
+            userDefaults.string(forKey: key)
         }
 
         let savedInterval: Int = read(key: Keys.screenshotIntervalMinutes, fallback: AppDefaults.screenshotIntervalMinutes)
@@ -293,14 +293,8 @@ final class SettingsStore: ObservableObject {
             ?? .disk
         let savedAutoAnalysisRequiresCharger: Bool = read(key: Keys.autoAnalysisRequiresCharger, fallback: AppDefaults.autoAnalysisRequiresCharger)
 
-        let savedAppLanguageRaw: String? = userDefaults.objectWithFallback(
-            newKey: AppLanguage.userDefaultsKey,
-            oldKey: AppLanguage.legacyUserDefaultsKey
-        ) as? String
+        let savedAppLanguageRaw = userDefaults.string(forKey: AppLanguage.userDefaultsKey)
         let savedAppLanguage = AppLanguage(rawValue: savedAppLanguageRaw ?? "") ?? .defaultValue
-        if savedAppLanguageRaw != nil && userDefaults.object(forKey: AppLanguage.userDefaultsKey) == nil {
-            userDefaults.set(savedAppLanguage.rawValue, forKey: AppLanguage.userDefaultsKey)
-        }
 
         let savedSummaryInstruction = readString(key: Keys.summaryInstruction)
             ?? AppDefaults.defaultSummaryInstruction(language: savedAppLanguage)
@@ -322,15 +316,13 @@ final class SettingsStore: ObservableObject {
             for: savedProvider
         )
         let savedWorkContentSummaryProvider = Self.resolvedProvider(
-            ModelProvider(rawValue: readString(key: Keys.workContentSummaryProvider) ?? "") ?? savedProvider,
+            ModelProvider(rawValue: readString(key: Keys.workContentSummaryProvider) ?? "") ?? .openAI,
             language: savedAppLanguage
         )
-        let savedWorkContentSummaryBaseURL = readString(key: Keys.workContentSummaryAPIBaseURL) ?? savedBaseURL
-        let savedWorkContentSummaryModelName = readString(key: Keys.workContentSummaryModelName) ?? savedModelName
-        let savedWorkContentSummaryAPIKey = keychain.string(for: AppDefaults.workContentSummaryAPIKeyAccount).isEmpty
-            ? savedAPIKey
-            : keychain.string(for: AppDefaults.workContentSummaryAPIKeyAccount)
-        let savedWorkContentSummaryLMStudioContextLength: Int = read(key: Keys.workContentSummaryLMStudioContextLength, fallback: savedLMStudioContextLength)
+        let savedWorkContentSummaryBaseURL = readString(key: Keys.workContentSummaryAPIBaseURL) ?? ""
+        let savedWorkContentSummaryModelName = readString(key: Keys.workContentSummaryModelName) ?? ""
+        let savedWorkContentSummaryAPIKey = keychain.string(for: AppDefaults.workContentSummaryAPIKeyAccount)
+        let savedWorkContentSummaryLMStudioContextLength: Int = read(key: Keys.workContentSummaryLMStudioContextLength, fallback: AppDefaults.lmStudioContextLength)
         let savedWorkContentSummaryLMStudioExplicitLoadUnloadModel: Bool = read(key: Keys.workContentSummaryLMStudioExplicitLoadUnloadModel, fallback: AppDefaults.lmStudioExplicitLoadUnloadModel)
         let savedWorkContentSummaryMemoryCheckEnabled: Bool = read(key: Keys.workContentSummaryMemoryCheckEnabled, fallback: AppDefaults.memoryCheckEnabled)
         let savedWorkContentSummaryMemoryThresholdGB: Double = read(key: Keys.workContentSummaryMemoryThresholdGB, fallback: AppDefaults.memoryThresholdGB)
@@ -577,10 +569,7 @@ final class SettingsStore: ObservableObject {
     }
 
     static func databaseEncryptionEnabled(from userDefaults: UserDefaults) -> Bool {
-        guard let value = userDefaults.objectWithFallback(
-            newKey: Keys.databaseEncryptionEnabled,
-            oldKey: Keys.legacyKey(for: Keys.databaseEncryptionEnabled)
-        ) as? Bool else {
+        guard let value = userDefaults.object(forKey: Keys.databaseEncryptionEnabled) as? Bool else {
             return AppDefaults.databaseEncryptionEnabled
         }
         return value
@@ -682,7 +671,6 @@ final class SettingsStore: ObservableObject {
 
     private enum Keys {
         private static let prefix = "com.deskbrief.settings."
-        private static let legacyPrefix = "settings."
 
         static let screenshotIntervalMinutes = prefix + "screenshotIntervalMinutes"
         static let analysisTimeMinutes = prefix + "analysisTimeMinutes"
@@ -708,9 +696,5 @@ final class SettingsStore: ObservableObject {
         static let workContentSummaryMemoryCheckEnabled = prefix + "workContentSummary.memoryCheckEnabled"
         static let workContentSummaryMemoryThresholdGB = prefix + "workContentSummary.memoryThresholdGB"
         static let databaseEncryptionEnabled = prefix + "databaseEncryptionEnabled"
-
-        static func legacyKey(for newKey: String) -> String {
-            legacyPrefix + newKey.dropFirst(prefix.count)
-        }
     }
 }

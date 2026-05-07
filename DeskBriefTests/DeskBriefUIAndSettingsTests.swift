@@ -832,7 +832,7 @@ extension DeskBriefTests {
         let suiteName = "DeskBriefTests.\(UUID().uuidString)"
         let userDefaults = try #require(UserDefaults(suiteName: suiteName))
         let keychain = KeychainStore(service: suiteName)
-        userDefaults.set(AnalysisStartupMode.scheduled.rawValue, forKey: "settings.analysisStartupMode")
+        userDefaults.set(AnalysisStartupMode.scheduled.rawValue, forKey: "com.deskbrief.settings.analysisStartupMode")
 
         defer {
             userDefaults.removePersistentDomain(forName: suiteName)
