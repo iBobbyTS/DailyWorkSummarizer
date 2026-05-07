@@ -141,6 +141,7 @@ struct DailyReportSummaryRequest {
     var lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy
     var waiters: [DailyReportSummaryWaiter]
     var notificationIntent: DailyReportSummaryNotificationIntent
+    var analysisRunID: Int64?
 
     static func backfill(
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy,
@@ -153,7 +154,8 @@ struct DailyReportSummaryRequest {
             explicitDayStarts: [],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
             waiters: waiter.map { [$0] } ?? [],
-            notificationIntent: notificationIntent
+            notificationIntent: notificationIntent,
+            analysisRunID: nil
         )
     }
 
@@ -168,7 +170,8 @@ struct DailyReportSummaryRequest {
             explicitDayStarts: [],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
             waiters: waiter.map { [$0] } ?? [],
-            notificationIntent: notificationIntent
+            notificationIntent: notificationIntent,
+            analysisRunID: nil
         )
     }
 
@@ -184,7 +187,8 @@ struct DailyReportSummaryRequest {
             explicitDayStarts: [],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
             waiters: waiter.map { [$0] } ?? [],
-            notificationIntent: notificationIntent
+            notificationIntent: notificationIntent,
+            analysisRunID: nil
         )
     }
 
@@ -192,6 +196,7 @@ struct DailyReportSummaryRequest {
     static func summariesAfterAnalysisRun(
         workBlockDayStarts: Set<Date>,
         dailyReportCandidateDayStarts: Set<Date>,
+        analysisRunID: Int64? = nil,
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy,
         waiter: DailyReportSummaryWaiter?,
         notificationIntent: DailyReportSummaryNotificationIntent = .none
@@ -202,7 +207,8 @@ struct DailyReportSummaryRequest {
             explicitDayStarts: [],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
             waiters: waiter.map { [$0] } ?? [],
-            notificationIntent: notificationIntent
+            notificationIntent: notificationIntent,
+            analysisRunID: analysisRunID
         )
     }
 
@@ -218,7 +224,8 @@ struct DailyReportSummaryRequest {
             explicitDayStarts: [dayStart],
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
             waiters: waiter.map { [$0] } ?? [],
-            notificationIntent: notificationIntent
+            notificationIntent: notificationIntent,
+            analysisRunID: nil
         )
     }
 
@@ -231,6 +238,14 @@ struct DailyReportSummaryRequest {
         }
         waiters.append(contentsOf: other.waiters)
         notificationIntent.merge(other.notificationIntent)
+        analysisRunID = Self.mergedAnalysisRunID(analysisRunID, other.analysisRunID)
+    }
+
+    private static func mergedAnalysisRunID(_ lhs: Int64?, _ rhs: Int64?) -> Int64? {
+        guard let lhs, let rhs, lhs == rhs else {
+            return nil
+        }
+        return lhs
     }
 }
 

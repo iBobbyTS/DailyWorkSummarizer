@@ -115,6 +115,7 @@ extension DeskBriefTests {
         run.updateDailyReportStrategyForMergedTrigger(AnalysisTrigger.manual)
 
         #expect(run.dailyReportStrategy == AnalysisRunDailyReportStrategy.boundedRunDays)
+        #expect(run.notificationTrigger == AnalysisTrigger.manual)
         #expect(run.dailyReportCandidateDayStarts(calendar: calendar) == Set([dayOne, dayTwo, dayThree]))
     }
 }

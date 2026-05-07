@@ -1,6 +1,7 @@
 import Foundation
 
 struct AnalysisRunResult {
+    let analysisRunID: Int64?
     let trigger: AnalysisTrigger
     let successCount: Int
     let failureCount: Int

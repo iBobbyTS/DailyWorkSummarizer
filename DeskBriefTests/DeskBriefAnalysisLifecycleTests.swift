@@ -7,6 +7,18 @@ import Testing
 
 @MainActor
 extension DeskBriefTests {
+    private final class LockedIntCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+
+        func increment() -> Int {
+            lock.withLock {
+                value += 1
+                return value
+            }
+        }
+    }
+
     @MainActor
     @Test func runNowWithoutPendingScreenshotsDoesNotCreateAnalysisRun() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
@@ -273,8 +285,11 @@ extension DeskBriefTests {
 
         let storedReport = try #require(try database.fetchDailyReport(for: dayOne))
         let message = try #require(notificationSender.messages.first)
+        let analysisRun = try #require(try database.fetchAnalysisRuns().first)
+        let summaryRun = try #require(try database.fetchSummaryRuns().first)
 
         #expect(didNotify)
+        #expect(summaryRun.analysisRunID == analysisRun.id)
         #expect(storedReport.dailySummaryText == "完成日报通知")
         #expect(message.body.contains("已分析 1 张截屏"))
         #expect(message.body.contains(L10n.reportDayDisplayText(for: dayOne, language: .simplifiedChinese)))
@@ -555,12 +570,19 @@ extension DeskBriefTests {
             )
         }
 
+        let notificationSender = SpyAppNotificationSender()
         let service = AnalysisService(
             database: database,
             settingsStore: store,
             logStore: AppLogStore(database: database),
-            dailyReportSummaryService: DailyReportSummaryService(database: database, settingsStore: store, session: session),
-            session: session
+            dailyReportSummaryService: DailyReportSummaryService(
+                database: database,
+                settingsStore: store,
+                session: session,
+                notificationSender: notificationSender
+            ),
+            session: session,
+            notificationSender: notificationSender
         )
 
         service.start()
@@ -644,12 +666,19 @@ extension DeskBriefTests {
             )
         }
 
+        let notificationSender = SpyAppNotificationSender()
         let service = AnalysisService(
             database: database,
             settingsStore: store,
             logStore: AppLogStore(database: database),
-            dailyReportSummaryService: DailyReportSummaryService(database: database, settingsStore: store, session: session),
-            session: session
+            dailyReportSummaryService: DailyReportSummaryService(
+                database: database,
+                settingsStore: store,
+                session: session,
+                notificationSender: notificationSender
+            ),
+            session: session,
+            notificationSender: notificationSender
         )
 
         service.start()
@@ -666,6 +695,142 @@ extension DeskBriefTests {
         #expect(try fetchInt("SELECT COUNT(*) FROM analysis_results;", databaseURL: databaseURL) == 2)
         #expect(!FileManager.default.fileExists(atPath: oldPendingScreenshot.path))
         #expect(!FileManager.default.fileExists(atPath: realtimeScreenshot.path))
+        #expect(notificationSender.messages.isEmpty)
+    }
+
+    @MainActor
+    @Test func manualAppendToRealtimeRunUpgradesCompletionNotificationTrigger() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        let firstRequestStarted = DispatchSemaphore(value: 0)
+        let releaseFirstRequest = DispatchSemaphore(value: 0)
+        let localRequestCount = LockedIntCounter()
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+            MockURLProtocol.reset()
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.provider = .openAI
+        store.apiBaseURL = "https://analysis.example.com"
+        store.modelName = "screenshot-model"
+        store.imageAnalysisMethod = .multimodal
+        store.analysisStartupMode = .realtime
+
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        let realtimeScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1000-i5.jpg")
+        let manualScreenshot = screenshotsDirectory.appendingPathComponent("20260426-1005-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: realtimeScreenshot)
+
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            let requestIndex = localRequestCount.increment()
+            let category = requestIndex == 1 ? "专注工作" : "会议沟通"
+            if requestIndex == 1 {
+                firstRequestStarted.signal()
+                _ = releaseFirstRequest.wait(timeout: .now() + 5)
+            }
+
+            let payload = """
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "{\\"category\\":\\"\(category)\\",\\"summary\\":\\"手动追加实时运行\\"}"
+                  },
+                  "finish_reason": "stop"
+                }
+              ]
+            }
+            """
+
+            return try makeHTTPResponse(
+                url: try #require(request.url),
+                body: payload
+            )
+        }
+
+        let notificationSender = SpyAppNotificationSender()
+        let service = AnalysisService(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            dailyReportSummaryService: DailyReportSummaryService(
+                database: database,
+                settingsStore: store,
+                session: session,
+                notificationSender: notificationSender
+            ),
+            session: session,
+            notificationSender: notificationSender
+        )
+
+        service.start()
+        NotificationCenter.default.post(name: .screenshotFileSaved, object: realtimeScreenshot)
+        #expect(await waitForSemaphore(firstRequestStarted, timeoutSeconds: 5))
+
+        try writeTestScreenshotPlaceholder(to: manualScreenshot)
+        service.runNow()
+        #expect(service.currentState.totalCount == 2)
+
+        releaseFirstRequest.signal()
+        let didNotify = await waitUntil(timeoutSeconds: 8) {
+            notificationSender.messages.count == 1 && !service.currentState.isRunning
+        }
+
+        #expect(didNotify)
+        #expect(notificationSender.messages.first?.title == "分析完成")
+        #expect(notificationSender.messages.first?.body == "已分析 2 张截屏。")
+    }
+
+    @MainActor
+    @Test func schedulerStartIsIdempotentAndStopRemovesRealtimeObserver() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.analysisStartupMode = .realtime
+        let scheduler = AnalysisScheduler(
+            database: database,
+            settingsStore: store,
+            logStore: AppLogStore(database: database),
+            notificationSender: SpyAppNotificationSender()
+        )
+        var triggers: [AnalysisTrigger] = []
+        scheduler.onTrigger = { trigger in
+            triggers.append(trigger)
+        }
+
+        scheduler.start()
+        scheduler.start()
+        scheduler.stop()
+        NotificationCenter.default.post(name: .screenshotFileSaved, object: URL(fileURLWithPath: "/tmp/20260426-1000-i5.jpg"))
+        try? await Task.sleep(for: .milliseconds(1300))
+
+        #expect(triggers.isEmpty)
     }
 
     @MainActor

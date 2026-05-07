@@ -104,4 +104,61 @@ extension DeskBriefTests {
         #expect(request.dailyReportScope == .candidateDayStarts([firstDailyReportDay, secondDailyReportDay]))
         #expect(request.lmStudioLifecyclePolicy == .loadForSummaryThenUnload)
     }
+
+    @Test func summaryRequestsKeepAnalysisRunIDOnlyWhenMergedRequestsMatch() {
+        let workBlockDay = Date(timeIntervalSince1970: 100)
+        let dailyReportDay = Date(timeIntervalSince1970: 200)
+
+        var sameRunRequest = DailyReportSummaryRequest.summariesAfterAnalysisRun(
+            workBlockDayStarts: [workBlockDay],
+            dailyReportCandidateDayStarts: [],
+            analysisRunID: 42,
+            lmStudioLifecyclePolicy: .loadForSummaryThenUnload,
+            waiter: nil
+        )
+        sameRunRequest.merge(
+            DailyReportSummaryRequest.summariesAfterAnalysisRun(
+                workBlockDayStarts: [],
+                dailyReportCandidateDayStarts: [dailyReportDay],
+                analysisRunID: 42,
+                lmStudioLifecyclePolicy: .loadForSummaryThenUnload,
+                waiter: nil
+            )
+        )
+        #expect(sameRunRequest.analysisRunID == 42)
+
+        var mixedStandaloneRequest = DailyReportSummaryRequest.summariesAfterAnalysisRun(
+            workBlockDayStarts: [workBlockDay],
+            dailyReportCandidateDayStarts: [],
+            analysisRunID: 42,
+            lmStudioLifecyclePolicy: .loadForSummaryThenUnload,
+            waiter: nil
+        )
+        mixedStandaloneRequest.merge(
+            DailyReportSummaryRequest.affectedSummaries(
+                dayStarts: [dailyReportDay],
+                lmStudioLifecyclePolicy: .loadForSummaryThenUnload,
+                waiter: nil
+            )
+        )
+        #expect(mixedStandaloneRequest.analysisRunID == nil)
+
+        var differentRunRequest = DailyReportSummaryRequest.summariesAfterAnalysisRun(
+            workBlockDayStarts: [workBlockDay],
+            dailyReportCandidateDayStarts: [],
+            analysisRunID: 42,
+            lmStudioLifecyclePolicy: .loadForSummaryThenUnload,
+            waiter: nil
+        )
+        differentRunRequest.merge(
+            DailyReportSummaryRequest.summariesAfterAnalysisRun(
+                workBlockDayStarts: [],
+                dailyReportCandidateDayStarts: [dailyReportDay],
+                analysisRunID: 43,
+                lmStudioLifecyclePolicy: .loadForSummaryThenUnload,
+                waiter: nil
+            )
+        )
+        #expect(differentRunRequest.analysisRunID == nil)
+    }
 }

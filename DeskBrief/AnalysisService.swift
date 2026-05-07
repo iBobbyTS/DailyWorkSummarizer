@@ -127,7 +127,7 @@ final class AnalysisService {
         case .startNow:
             beginAnalysisRun(trigger: trigger, pendingScreenshots: pendingScreenshots)
         case .mergeIntoCurrentRun:
-            executor.appendPendingScreenshots(pendingScreenshots)
+            executor.appendPendingScreenshots(pendingScreenshots, trigger: trigger)
         case .queued:
             break
         }
@@ -231,7 +231,7 @@ final class AnalysisService {
             beginAnalysisRun(trigger: trigger)
         case .mergeIntoCurrentRun:
             let pending = pendingScreenshots()
-            executor.appendPendingScreenshots(pending)
+            executor.appendPendingScreenshots(pending, trigger: trigger)
         case .queued:
             break
         }
@@ -260,7 +260,7 @@ final class AnalysisService {
     private func beginAnalysisRun(trigger: AnalysisTrigger, pendingScreenshots: [PendingScreenshot]? = nil) {
         if executor.currentState.isRunning && executor.isAcceptingAppends {
             let screenshots = pendingScreenshots ?? self.pendingScreenshots()
-            executor.appendPendingScreenshots(screenshots)
+            executor.appendPendingScreenshots(screenshots, trigger: trigger)
             return
         }
 
@@ -310,6 +310,7 @@ final class AnalysisService {
         dailyReportSummaryService.enqueueSummariesAfterAnalysis(
             workBlockDayStarts: result.affectedDayStarts,
             dailyReportCandidateDayStarts: result.dailyReportCandidateDayStarts,
+            analysisRunID: result.analysisRunID,
             lmStudioLifecyclePolicy: lmStudioPolicy,
             notificationIntent: notificationIntent
         )

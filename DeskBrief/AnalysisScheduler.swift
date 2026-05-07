@@ -43,6 +43,12 @@ final class AnalysisScheduler {
     func start() {
         scheduleNextRun()
         configureRealtimeBacklogMonitoring()
+        installScreenshotSavedObserverIfNeeded()
+        installWakeObserverIfNeeded()
+    }
+
+    private func installScreenshotSavedObserverIfNeeded() {
+        guard screenshotSavedObserver == nil else { return }
         screenshotSavedObserver = NotificationCenter.default.addObserver(
             forName: .screenshotFileSaved,
             object: nil,
@@ -53,6 +59,10 @@ final class AnalysisScheduler {
                 self?.scheduleRealtimeAnalysisAfterCapture()
             }
         }
+    }
+
+    private func installWakeObserverIfNeeded() {
+        guard wakeObserver == nil else { return }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification,
             object: nil,

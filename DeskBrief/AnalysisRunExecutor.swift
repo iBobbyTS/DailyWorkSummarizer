@@ -51,10 +51,11 @@ final class AnalysisRunExecutor {
     }
 
     @discardableResult
-    func appendPendingScreenshots(_ screenshots: [PendingScreenshot]) -> Int {
+    func appendPendingScreenshots(_ screenshots: [PendingScreenshot], trigger: AnalysisTrigger) -> Int {
         guard let run = activeAnalysisRun else { return 0 }
         let appendedCount = run.appendMissingScreenshots(screenshots)
         guard appendedCount > 0 else { return 0 }
+        run.updateDailyReportStrategyForMergedTrigger(trigger)
         do {
             try database.updateAnalysisRunTotalItems(id: run.id, totalItems: run.totalCount)
         } catch {
@@ -88,6 +89,7 @@ final class AnalysisRunExecutor {
         } catch {
             logStore.addError(source: .analysis, context: "Failed to create analysis run", error: error)
             onRunResult?(AnalysisRunResult(
+                analysisRunID: nil,
                 trigger: trigger,
                 successCount: 0,
                 failureCount: pendingScreenshots.count,
@@ -189,7 +191,7 @@ final class AnalysisRunExecutor {
             finishAnalysisRun(id: run.id, status: "failed", successCount: 0, failureCount: run.totalCount,
                               errorMessage: localized(.analysisNeedsCategoryRule, language: snapshot.appLanguage))
             run.failureCount = run.totalCount
-            return AnalysisRunResult(trigger: .manual, successCount: 0, failureCount: run.totalCount,
+            return AnalysisRunResult(analysisRunID: run.id, trigger: run.notificationTrigger, successCount: 0, failureCount: run.totalCount,
                                      inputMeanTokens: nil, inputMaxTokens: nil,
                                      outputMeanTokens: nil, outputMaxTokens: nil,
                                      averageItemDurationSeconds: nil, errorMessage: "No valid category rules",
@@ -201,7 +203,7 @@ final class AnalysisRunExecutor {
                 finishAnalysisRun(id: run.id, status: "failed", successCount: 0, failureCount: run.totalCount,
                                   errorMessage: localized(.analysisNeedsBaseURL, language: snapshot.appLanguage))
                 run.failureCount = run.totalCount
-                return AnalysisRunResult(trigger: .manual, successCount: 0, failureCount: run.totalCount,
+                return AnalysisRunResult(analysisRunID: run.id, trigger: run.notificationTrigger, successCount: 0, failureCount: run.totalCount,
                                          inputMeanTokens: nil, inputMaxTokens: nil,
                                          outputMeanTokens: nil, outputMaxTokens: nil,
                                          averageItemDurationSeconds: nil, errorMessage: "No base URL",
@@ -211,7 +213,7 @@ final class AnalysisRunExecutor {
                 finishAnalysisRun(id: run.id, status: "failed", successCount: 0, failureCount: run.totalCount,
                                   errorMessage: localized(.analysisNeedsModelName, language: snapshot.appLanguage))
                 run.failureCount = run.totalCount
-                return AnalysisRunResult(trigger: .manual, successCount: 0, failureCount: run.totalCount,
+                return AnalysisRunResult(analysisRunID: run.id, trigger: run.notificationTrigger, successCount: 0, failureCount: run.totalCount,
                                          inputMeanTokens: nil, inputMaxTokens: nil,
                                          outputMeanTokens: nil, outputMaxTokens: nil,
                                          averageItemDurationSeconds: nil, errorMessage: "No model name",
@@ -242,7 +244,7 @@ final class AnalysisRunExecutor {
                     )
                 }
             }
-            return AnalysisRunResult(trigger: .manual, successCount: 0, failureCount: run.totalCount,
+            return AnalysisRunResult(analysisRunID: run.id, trigger: run.notificationTrigger, successCount: 0, failureCount: run.totalCount,
                                      inputMeanTokens: nil, inputMaxTokens: nil,
                                      outputMeanTokens: nil, outputMaxTokens: nil,
                                      averageItemDurationSeconds: nil, errorMessage: error.localizedDescription,
@@ -384,7 +386,7 @@ final class AnalysisRunExecutor {
                               outputMeanTokens: run.outputMeanTokens, outputMaxTokens: run.outputMaxTokens,
                               averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
                               errorMessage: localized(.analysisCancelledByUser, language: snapshot.appLanguage))
-            return AnalysisRunResult(trigger: .manual, successCount: run.successCount, failureCount: run.failureCount,
+            return AnalysisRunResult(analysisRunID: run.id, trigger: run.notificationTrigger, successCount: run.successCount, failureCount: run.failureCount,
                                      inputMeanTokens: run.inputMeanTokens, inputMaxTokens: run.inputMaxTokens,
                                      outputMeanTokens: run.outputMeanTokens, outputMaxTokens: run.outputMaxTokens,
                                      averageItemDurationSeconds: nil, errorMessage: nil,
@@ -399,7 +401,7 @@ final class AnalysisRunExecutor {
                               outputMeanTokens: run.outputMeanTokens, outputMaxTokens: run.outputMaxTokens,
                               averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
                               errorMessage: message)
-            return AnalysisRunResult(trigger: .manual, successCount: run.successCount, failureCount: run.failureCount,
+            return AnalysisRunResult(analysisRunID: run.id, trigger: run.notificationTrigger, successCount: run.successCount, failureCount: run.failureCount,
                                      inputMeanTokens: run.inputMeanTokens, inputMaxTokens: run.inputMaxTokens,
                                      outputMeanTokens: run.outputMeanTokens, outputMaxTokens: run.outputMaxTokens,
                                      averageItemDurationSeconds: nil, errorMessage: message,
@@ -421,7 +423,7 @@ final class AnalysisRunExecutor {
                           averageItemDurationSeconds: run.measuredItemCount > 0 ? run.measuredDurationTotal / Double(run.measuredItemCount) : nil,
                           errorMessage: run.failureCount > 0 ? localized(.analysisPartialFailures, language: snapshot.appLanguage) : nil)
 
-        return AnalysisRunResult(trigger: .manual, successCount: run.successCount, failureCount: run.failureCount,
+        return AnalysisRunResult(analysisRunID: run.id, trigger: run.notificationTrigger, successCount: run.successCount, failureCount: run.failureCount,
                                  inputMeanTokens: run.inputMeanTokens, inputMaxTokens: run.inputMaxTokens,
                                  outputMeanTokens: run.outputMeanTokens, outputMaxTokens: run.outputMaxTokens,
                                  averageItemDurationSeconds: nil, errorMessage: nil,

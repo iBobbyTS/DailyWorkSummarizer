@@ -195,12 +195,14 @@ final class DailyReportSummaryService {
     func summarizeAfterAnalysis(
         workBlockDayStarts: Set<Date>,
         dailyReportCandidateDayStarts: Set<Date>,
+        analysisRunID: Int64? = nil,
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy = .loadForSummaryThenUnload,
         notificationIntent: DailyReportSummaryNotificationIntent = .none
     ) async {
         let request = DailyReportSummaryRequest.summariesAfterAnalysisRun(
             workBlockDayStarts: workBlockDayStarts,
             dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
+            analysisRunID: analysisRunID,
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
             waiter: nil,
             notificationIntent: notificationIntent
@@ -214,12 +216,14 @@ final class DailyReportSummaryService {
     func enqueueSummariesAfterAnalysis(
         workBlockDayStarts: Set<Date>,
         dailyReportCandidateDayStarts: Set<Date>,
+        analysisRunID: Int64?,
         lmStudioLifecyclePolicy: DailyReportLMStudioLifecyclePolicy,
         notificationIntent: DailyReportSummaryNotificationIntent = .none
     ) {
         let request = DailyReportSummaryRequest.summariesAfterAnalysisRun(
             workBlockDayStarts: workBlockDayStarts,
             dailyReportCandidateDayStarts: dailyReportCandidateDayStarts,
+            analysisRunID: analysisRunID,
             lmStudioLifecyclePolicy: lmStudioLifecyclePolicy,
             waiter: nil,
             notificationIntent: notificationIntent
@@ -571,7 +575,8 @@ final class DailyReportSummaryService {
         do {
             summaryRunID = try database.createSummaryRun(
                 modelName: modelName,
-                totalItems: totalCount
+                totalItems: totalCount,
+                analysisRunID: request.analysisRunID
             )
             currentSummaryRunID = summaryRunID
             summaryRunTokenInputValues = []
