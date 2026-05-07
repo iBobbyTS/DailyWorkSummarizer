@@ -253,6 +253,13 @@ extension DeskBriefTests {
         #expect(!L10n.string(.settingsDatabaseEnableConfirmMessage, language: .simplifiedChinese).contains("%@"))
         #expect(!L10n.string(.settingsDatabaseEnableConfirmMessage, language: .english).contains("%@"))
         #expect(L10n.string(.settingsDatabasePassphraseTooltip, language: .english).contains("Keychain Access"))
+        #expect(L10n.string(.alertDatabasePassphraseInvalidMessage, language: .simplifiedChinese).contains("数据库文件无法读取"))
+        #expect(L10n.string(.alertDatabasePassphraseInvalidMessage, language: .english).contains("database file could not be read"))
+        #expect(L10n.string(
+            .alertDatabasePassphraseInvalidRetryMessage,
+            language: .simplifiedChinese,
+            arguments: ["SQLITE_NOTADB"]
+        ).contains("SQLITE_NOTADB"))
     }
 
     @Test func memoryCheckSizeUnitStringsAreLocalized() async throws {
@@ -350,6 +357,22 @@ extension DeskBriefTests {
         #expect(!englishAlert.buttons[0].hasDestructiveAction)
         #expect(englishAlert.buttons[1].title == "Close Without Saving")
         #expect(englishAlert.buttons[1].hasDestructiveAction)
+    }
+
+    @MainActor
+    @Test func databaseRecoveryAlertShowsUnderlyingOpenErrorDetail() async throws {
+        let delegate = AppDelegate()
+
+        let alert = delegate.makeDatabaseRecoveryAlert(
+            messageKey: .alertDatabasePassphraseInvalidMessage,
+            detail: "SQLITE_NOTADB: file is encrypted or is not a database",
+            language: .english
+        )
+
+        #expect(alert.messageText == "Cannot Open Encrypted Database")
+        #expect(alert.informativeText.contains("database file could not be read"))
+        #expect(alert.informativeText.contains("SQLITE_NOTADB"))
+        #expect(alert.buttons.map(\.title) == ["Enter Key", "Delete Database", "Quit"])
     }
 
     @Test func summaryInstructionEditorKeepsTextAwayFromClippingEdge() async throws {

@@ -6,6 +6,7 @@ enum DatabaseError: LocalizedError, Equatable {
     case openDatabase(String)
     case missingPassphrase(URL)
     case invalidPassphrase(String)
+    case encryptedDatabaseUnreadable(String)
     case keychainReadFailed(KeychainReadResult)
     case keychainWriteFailed(KeychainWriteResult)
     case databaseStateRestoreFailed(operation: String, originalError: String, restoreError: String)
@@ -20,6 +21,8 @@ enum DatabaseError: LocalizedError, Equatable {
             return "Missing database passphrase for \(url.path)"
         case .invalidPassphrase(let message):
             return message
+        case .encryptedDatabaseUnreadable(let message):
+            return message
         case .keychainReadFailed(let result):
             return KeychainReadError(result: result).localizedDescription
         case .keychainWriteFailed(let result):
@@ -33,7 +36,7 @@ enum DatabaseError: LocalizedError, Equatable {
 
     var isDatabaseRecoveryCandidate: Bool {
         switch self {
-        case .missingPassphrase, .invalidPassphrase:
+        case .missingPassphrase, .invalidPassphrase, .encryptedDatabaseUnreadable:
             return true
         case .openDatabase, .keychainReadFailed, .keychainWriteFailed, .databaseStateRestoreFailed, .prepareStatement, .execute:
             return false

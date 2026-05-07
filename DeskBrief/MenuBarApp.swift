@@ -143,7 +143,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             initializeServices(database: database, launchConfiguration: launchConfiguration, keychain: keychain)
         } catch let error as DatabaseError where error.isDatabaseRecoveryCandidate && !launchConfiguration.isUITesting {
             do {
-                let database = try recoverEncryptedDatabase(for: launchConfiguration, keychain: keychain)
+                let database = try recoverEncryptedDatabase(
+                    for: launchConfiguration,
+                    keychain: keychain,
+                    initialError: error
+                )
                 initializeServices(database: database, launchConfiguration: launchConfiguration, keychain: keychain)
             } catch DatabaseRecoveryCancellation.cancelled {
                 NSApp.terminate(nil)
@@ -309,19 +313,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private func recoverEncryptedDatabase(
         for launchConfiguration: AppLaunchConfiguration,
-        keychain: KeychainStoring
+        keychain: KeychainStoring,
+        initialError: DatabaseError
     ) throws -> AppDatabase {
         let databaseURL = try databaseURL(for: launchConfiguration)
         let passphraseStore = DatabasePassphraseStore(keychain: keychain)
         var messageKey: L10n.Key = (try passphraseStore.load()) == nil
             ? .alertDatabasePassphraseMissingMessage
             : .alertDatabasePassphraseInvalidMessage
+        var recoveryDetail: String? = initialError.localizedDescription
 
         while true {
-            switch presentDatabaseRecoveryAlert(messageKey: messageKey) {
+            switch presentDatabaseRecoveryAlert(messageKey: messageKey, detail: recoveryDetail) {
             case .enterPassphrase:
                 guard let passphrase = presentDatabasePassphraseInputAlert() else {
                     messageKey = .alertDatabasePassphraseMissingMessage
+                    recoveryDetail = nil
                     continue
                 }
 
@@ -340,9 +347,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 } catch {
                     presentDatabaseRecoveryNotice(
                         title: text(.alertDatabasePassphraseInvalidTitle, language: .current),
-                        message: text(.alertDatabasePassphraseInvalidRetryMessage, language: .current)
+                        message: text(
+                            .alertDatabasePassphraseInvalidRetryMessage,
+                            arguments: [error.localizedDescription],
+                            language: .current
+                        )
                     )
                     messageKey = .alertDatabasePassphraseInvalidMessage
+                    recoveryDetail = error.localizedDescription
                 }
 
             case .deleteDatabase:
@@ -363,15 +375,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
 
-    private func presentDatabaseRecoveryAlert(messageKey: L10n.Key) -> DatabaseRecoveryChoice {
-        let language = AppLanguage.current
+    func makeDatabaseRecoveryAlert(messageKey: L10n.Key, detail: String?, language: AppLanguage) -> NSAlert {
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = text(.alertDatabaseRecoveryTitle, language: language)
-        alert.informativeText = text(messageKey, language: language)
+        if let detail, !detail.isEmpty {
+            alert.informativeText = text(messageKey, language: language) + "\n\n" + detail
+        } else {
+            alert.informativeText = text(messageKey, language: language)
+        }
         alert.addButton(withTitle: text(.alertDatabaseEnterPassphrase, language: language))
         alert.addButton(withTitle: text(.alertDatabaseDeleteDatabase, language: language))
         alert.addButton(withTitle: text(.alertDatabaseQuit, language: language))
+        return alert
+    }
+
+    private func presentDatabaseRecoveryAlert(messageKey: L10n.Key, detail: String?) -> DatabaseRecoveryChoice {
+        let language = AppLanguage.current
+        let alert = makeDatabaseRecoveryAlert(messageKey: messageKey, detail: detail, language: language)
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:

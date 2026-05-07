@@ -185,6 +185,9 @@ extension DeskBriefTests {
         #expect(DatabaseError.openDatabase("a") != DatabaseError.openDatabase("b"))
         #expect(DatabaseError.missingPassphrase(URL(fileURLWithPath: "/tmp/a.sqlite")) == DatabaseError.missingPassphrase(URL(fileURLWithPath: "/tmp/a.sqlite")))
         #expect(DatabaseError.invalidPassphrase("err") == DatabaseError.invalidPassphrase("err"))
+        #expect(DatabaseError.encryptedDatabaseUnreadable("err") == DatabaseError.encryptedDatabaseUnreadable("err"))
+        #expect(DatabaseError.encryptedDatabaseUnreadable("a") != DatabaseError.encryptedDatabaseUnreadable("b"))
+        #expect(DatabaseError.encryptedDatabaseUnreadable("err").isDatabaseRecoveryCandidate)
         #expect(DatabaseError.keychainReadFailed(.failure(account: "a", status: -1)) == DatabaseError.keychainReadFailed(.failure(account: "a", status: -1)))
         #expect(DatabaseError.keychainReadFailed(.failure(account: "a", status: -1)) != DatabaseError.keychainReadFailed(.failure(account: "a", status: -2)))
         #expect(DatabaseError.keychainWriteFailed(.failure(account: "a", operation: .update, status: -1)) == DatabaseError.keychainWriteFailed(.failure(account: "a", operation: .update, status: -1)))
@@ -416,7 +419,7 @@ extension DeskBriefTests {
         do {
             _ = try AppDatabase(databaseURL: databaseURL, passphrase: oldPassphrase)
             Issue.record("Expected old database passphrase to fail")
-        } catch DatabaseError.invalidPassphrase {
+        } catch DatabaseError.encryptedDatabaseUnreadable {
         }
 
         let reloaded = try AppDatabase(databaseURL: databaseURL, passphrase: newPassphrase)
@@ -459,7 +462,7 @@ extension DeskBriefTests {
         do {
             _ = try AppDatabase(databaseURL: databaseURL, passphrase: newPassphrase)
             Issue.record("Expected new database passphrase to fail after rollback")
-        } catch DatabaseError.invalidPassphrase {
+        } catch DatabaseError.encryptedDatabaseUnreadable {
         }
         #expect(keychain.string(for: AppDefaults.databasePassphraseAccount) == oldPassphrase.value)
         #expect(store.databaseEncryptionEnabled)
@@ -516,7 +519,26 @@ extension DeskBriefTests {
                 passphrase: try DatabasePassphrase("wrong-passphrase")
             )
             Issue.record("Expected invalid database passphrase")
+        } catch DatabaseError.encryptedDatabaseUnreadable(let message) {
+            #expect(!message.isEmpty)
+        }
+    }
+
+    @Test func encryptedOpenOfNonDatabaseFileReportsUnreadableDatabaseNotInvalidPassphrase() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+        try "not a sqlite database".write(to: databaseURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try AppDatabase(
+                databaseURL: databaseURL,
+                passphrase: try DatabasePassphrase("some-passphrase")
+            )
+            Issue.record("Expected unreadable encrypted database")
+        } catch DatabaseError.encryptedDatabaseUnreadable(let message) {
+            #expect(!message.isEmpty)
         } catch DatabaseError.invalidPassphrase {
+            Issue.record("Expected unreadable encrypted database, not invalid passphrase")
         }
     }
 

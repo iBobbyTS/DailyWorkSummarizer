@@ -102,7 +102,18 @@ nonisolated final class DatabaseConnection: @unchecked Sendable {
         guard case .encrypted = mode else {
             return DatabaseError.openDatabase(error.localizedDescription)
         }
-        return DatabaseError.invalidPassphrase(error.localizedDescription)
+        guard let databaseError = error as? GRDB.DatabaseError else {
+            return DatabaseError.openDatabase(error.localizedDescription)
+        }
+
+        switch databaseError.resultCode {
+        case .SQLITE_NOTADB:
+            return DatabaseError.encryptedDatabaseUnreadable(error.localizedDescription)
+        case .SQLITE_CANTOPEN, .SQLITE_PERM, .SQLITE_READONLY, .SQLITE_IOERR, .SQLITE_CORRUPT:
+            return DatabaseError.openDatabase(error.localizedDescription)
+        default:
+            return DatabaseError.openDatabase(error.localizedDescription)
+        }
     }
 
     nonisolated private static func validateReadable(_ db: Database) throws {
