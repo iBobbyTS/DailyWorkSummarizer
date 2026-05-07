@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="DeskBrief light vector icon">
+  <rect width="1024" height="1024" fill="#f6f7f8"/>
+  <circle cx="512" cy="402" r="430" fill="#ffffff" opacity="0.82"/>
+  <ellipse cx="512" cy="832" rx="238" ry="42" fill="#9aa3ad" opacity="0.18"/>
+
+  <g id="screen-and-chart-layer">
+    <path d="M442 724h140c6 58 18 86 43 90H399c25-4 37-32 43-90z" fill="#c9d0d5"/>
+    <path d="M446 724h132c3 24 7 44 14 60H432c7-16 11-36 14-60z" fill="#ffffff" opacity="0.70"/>
+    <rect x="365" y="812" width="294" height="34" rx="12" fill="#d4d9dd"/>
+    <rect x="374" y="818" width="276" height="12" rx="6" fill="#ffffff" opacity="0.74"/>
+
+    <rect x="204" y="230" width="650" height="500" rx="66" fill="#cfd5d9"/>
+    <rect x="216" y="242" width="626" height="476" rx="55" fill="#ffffff"/>
+    <rect x="230" y="256" width="598" height="448" rx="43" fill="#d9dee2"/>
+    <rect x="242" y="278" width="574" height="422" rx="34" fill="#f9fafb"/>
+    <rect x="252" y="288" width="554" height="402" rx="27" fill="#ffffff"/>
+
+    <g id="background-chart-bars">
+      <line x1="268" y1="704" x2="790" y2="704" stroke="#8a929a" stroke-opacity="0.25" stroke-width="4" stroke-linecap="round"/>
+      <rect x="268" y="480" width="54" height="220" rx="14" fill="#2F7DD1"/>
+      <rect x="274" y="486" width="16" height="207" rx="8" fill="#80c2ff" opacity="0.34"/>
+      <rect x="362" y="420" width="54" height="280" rx="14" fill="#45A564"/>
+      <rect x="368" y="426" width="16" height="267" rx="8" fill="#9be4b0" opacity="0.34"/>
+      <rect x="455" y="524" width="54" height="176" rx="14" fill="#E1733B"/>
+      <rect x="461" y="530" width="16" height="163" rx="8" fill="#ffc082" opacity="0.34"/>
+      <rect x="549" y="390" width="54" height="310" rx="14" fill="#D7B72D"/>
+      <rect x="555" y="396" width="16" height="297" rx="8" fill="#fff08a" opacity="0.42"/>
+      <rect x="642" y="450" width="54" height="250" rx="14" fill="#4B8E3F"/>
+      <rect x="648" y="456" width="16" height="237" rx="8" fill="#a0d974" opacity="0.34"/>
+      <rect x="736" y="510" width="54" height="190" rx="14" fill="#8E8E93"/>
+      <rect x="742" y="516" width="16" height="177" rx="8" fill="#d6d8dc" opacity="0.36"/>
+    </g>
+
+    <rect x="242" y="278" width="574" height="422" rx="34" fill="none" stroke="#aeb5bb" stroke-opacity="0.58" stroke-width="4"/>
+    <path d="M254 299c12-12 26-18 43-18h463c18 0 33 6 45 18" fill="none" stroke="#ffffff" stroke-opacity="0.88" stroke-width="5" stroke-linecap="round"/>
+  </g>
+
+  <g id="foreground-screenshot-layer">
+    <rect x="174" y="310" width="290" height="210" rx="15" fill="#dbeef4" opacity="0.64" stroke="#ffffff" stroke-width="3"/>
+    <rect x="142" y="352" width="276" height="220" rx="18" fill="#d4e8ee" opacity="0.66" stroke="#ffffff" stroke-width="3"/>
+    <rect x="96" y="398" width="300" height="244" rx="25" fill="#f4f6f8" stroke="#ffffff" stroke-width="5"/>
+    <rect x="108" y="410" width="276" height="220" rx="18" fill="#ffffff" opacity="0.58"/>
+
+    <rect x="140" y="448" width="210" height="156" rx="14" fill="#c0cfd7" stroke="#ffffff" stroke-opacity="0.70" stroke-width="2"/>
+    <circle cx="170" cy="482" r="16" fill="#f7fbfd"/>
+    <path d="M140 592l58-62c15-16 32-16 48 0l60 64z" fill="#a9bbc5"/>
+    <path d="M208 604l86-92c16-17 35-17 51 1l34 38v53z" fill="#d8e4ea"/>
+
+    <g fill="none" stroke="#2fb4b1" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M126 458v-24h24"/>
+      <path d="M366 458v-24h-24"/>
+      <path d="M126 582v24h24"/>
+      <path d="M366 582v24h-24"/>
+    </g>
+    <path d="M111 416c22-10 240-11 266 0" fill="none" stroke="#ffffff" stroke-opacity="0.88" stroke-width="5" stroke-linecap="round"/>
+  </g>
+</svg>
