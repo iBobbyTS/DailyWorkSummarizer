@@ -540,7 +540,18 @@ final class SettingsStore: ObservableObject {
         try database.decryptDatabase()
         let result = keychain.set("", for: AppDefaults.databasePassphraseAccount)
         guard result.isSuccess else {
-            try? database.encryptDatabase(passphrase: currentPassphrase)
+            do {
+                try database.encryptDatabase(passphrase: currentPassphrase)
+            } catch {
+                databaseEncryptionEnabled = false
+                userDefaults.set(false, forKey: Keys.databaseEncryptionEnabled)
+                notifySettingsChanged()
+                throw DatabaseError.databaseStateRestoreFailed(
+                    operation: "Disable database encryption",
+                    originalError: DatabaseError.keychainWriteFailed(result).localizedDescription,
+                    restoreError: error.localizedDescription
+                )
+            }
             throw DatabaseError.keychainWriteFailed(result)
         }
         databaseEncryptionEnabled = false
@@ -549,11 +560,22 @@ final class SettingsStore: ObservableObject {
     }
 
     func enableDatabaseEncryption(with passphrase: DatabasePassphrase) throws {
-        try database.encryptDatabase(passphrase: passphrase)
         do {
             try DatabasePassphraseStore(keychain: keychain).save(passphrase)
         } catch {
-            try? database.decryptDatabase()
+            throw error
+        }
+        do {
+            try database.encryptDatabase(passphrase: passphrase)
+        } catch {
+            let keychainRestoreResult = keychain.set("", for: AppDefaults.databasePassphraseAccount)
+            if !keychainRestoreResult.isSuccess {
+                throw DatabaseError.databaseStateRestoreFailed(
+                    operation: "Enable database encryption",
+                    originalError: error.localizedDescription,
+                    restoreError: DatabaseError.keychainWriteFailed(keychainRestoreResult).localizedDescription
+                )
+            }
             throw error
         }
         databaseEncryptionEnabled = true
@@ -569,7 +591,16 @@ final class SettingsStore: ObservableObject {
         do {
             try DatabasePassphraseStore(keychain: keychain).save(passphrase)
         } catch {
-            try? database.changeDatabasePassphrase(to: currentPassphrase)
+            let originalError = error.localizedDescription
+            do {
+                try database.changeDatabasePassphrase(to: currentPassphrase)
+            } catch {
+                throw DatabaseError.databaseStateRestoreFailed(
+                    operation: "Change database passphrase",
+                    originalError: originalError,
+                    restoreError: error.localizedDescription
+                )
+            }
             throw error
         }
         notifySettingsChanged()

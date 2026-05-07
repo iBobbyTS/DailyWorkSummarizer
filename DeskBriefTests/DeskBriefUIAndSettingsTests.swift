@@ -250,6 +250,8 @@ extension DeskBriefTests {
         #expect(L10n.string(.settingsDatabaseOpenLocation, language: .english) == "Open Database Location")
         #expect(L10n.string(.settingsDatabaseEncryptionTooltip, language: .simplifiedChinese).contains("*关闭*"))
         #expect(L10n.string(.settingsDatabaseEncryptionTooltip, language: .simplifiedChinese).contains("每次打开app时自动解密数据库"))
+        #expect(!L10n.string(.settingsDatabaseEnableConfirmMessage, language: .simplifiedChinese).contains("%@"))
+        #expect(!L10n.string(.settingsDatabaseEnableConfirmMessage, language: .english).contains("%@"))
         #expect(L10n.string(.settingsDatabasePassphraseTooltip, language: .english).contains("Keychain Access"))
     }
 
@@ -283,6 +285,41 @@ extension DeskBriefTests {
         #expect(!store.databasePassphraseCanBeUpdated(to: "   "))
         #expect(!store.databasePassphraseCanBeUpdated(to: "current-key"))
         #expect(store.databasePassphraseCanBeUpdated(to: "new-key"))
+    }
+
+    @Test func databaseEncryptionOperationIsBlockedWhileAnalysisOrSummaryRuns() async throws {
+        let analysisRunning = AnalysisRuntimeState(
+            isRunning: true,
+            stoppingStage: nil,
+            startedAt: Date(),
+            modelName: "analysis-model",
+            completedCount: 0,
+            totalCount: 1
+        )
+        let summaryRunning = DailyReportSummaryRuntimeState(
+            isRunning: true,
+            isStopping: false,
+            modelName: "summary-model",
+            completedCount: 0,
+            totalCount: 1
+        )
+
+        #expect(SettingsDatabaseEncryptionPolicy.canStartOperation(
+            analysisState: .idle,
+            summaryState: .idle
+        ))
+        #expect(!SettingsDatabaseEncryptionPolicy.canStartOperation(
+            analysisState: analysisRunning,
+            summaryState: .idle
+        ))
+        #expect(!SettingsDatabaseEncryptionPolicy.canStartOperation(
+            analysisState: .idle,
+            summaryState: summaryRunning
+        ))
+        #expect(!SettingsDatabaseEncryptionPolicy.canStartOperation(
+            analysisState: analysisRunning,
+            summaryState: summaryRunning
+        ))
     }
 
     @MainActor

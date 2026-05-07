@@ -188,6 +188,9 @@ extension DeskBriefTests {
         #expect(DatabaseError.keychainReadFailed(.failure(account: "a", status: -1)) == DatabaseError.keychainReadFailed(.failure(account: "a", status: -1)))
         #expect(DatabaseError.keychainReadFailed(.failure(account: "a", status: -1)) != DatabaseError.keychainReadFailed(.failure(account: "a", status: -2)))
         #expect(DatabaseError.keychainWriteFailed(.failure(account: "a", operation: .update, status: -1)) == DatabaseError.keychainWriteFailed(.failure(account: "a", operation: .update, status: -1)))
+        #expect(DatabaseError.databaseStateRestoreFailed(operation: "op", originalError: "a", restoreError: "b") == DatabaseError.databaseStateRestoreFailed(operation: "op", originalError: "a", restoreError: "b"))
+        #expect(DatabaseError.databaseStateRestoreFailed(operation: "op", originalError: "a", restoreError: "b") != DatabaseError.databaseStateRestoreFailed(operation: "op", originalError: "a", restoreError: "c"))
+        #expect(!DatabaseError.databaseStateRestoreFailed(operation: "op", originalError: "a", restoreError: "b").isDatabaseRecoveryCandidate)
         #expect(DatabaseError.prepareStatement("err") == DatabaseError.prepareStatement("err"))
         #expect(DatabaseError.execute("err") == DatabaseError.execute("err"))
         #expect(DatabaseError.openDatabase("err") != DatabaseError.execute("err"))
@@ -351,6 +354,44 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func settingsStoreDoesNotEncryptDatabaseWhenSavingNewPassphraseFails() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            removeTemporaryDatabaseFiles(at: databaseURL)
+        }
+
+        userDefaults.set(false, forKey: "com.deskbrief.settings.databaseEncryptionEnabled")
+        let keychain = FakeKeychainStore()
+        let database = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: false)
+        try database.insertAppLog(AppLogEntry(level: .log, source: .app, message: "enable failed"))
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        keychain.queuedResults = [
+            .failure(account: AppDefaults.databasePassphraseAccount, operation: .add, status: -25308)
+        ]
+
+        do {
+            try store.enableDatabaseEncryption(with: try DatabasePassphrase("Aa1!new-pass"))
+            Issue.record("Expected database passphrase save failure")
+        } catch DatabaseError.keychainWriteFailed(let result) {
+            #expect(result.account == AppDefaults.databasePassphraseAccount)
+        }
+
+        let handle = try openSQLite(at: databaseURL, passphrase: nil)
+        defer { sqlite3_close(handle) }
+        var statement: OpaquePointer?
+        #expect(sqlite3_prepare_v2(handle, "SELECT message FROM app_logs LIMIT 1;", -1, &statement, nil) == SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        #expect(sqlite3_step(statement) == SQLITE_ROW)
+        #expect(statement.flatMap { sqlite3_column_text($0, 0) }.map { String(cString: $0) } == "enable failed")
+        #expect(!store.databaseEncryptionEnabled)
+        #expect(userDefaults.bool(forKey: "com.deskbrief.settings.databaseEncryptionEnabled") == false)
+        #expect(keychain.string(for: AppDefaults.databasePassphraseAccount).isEmpty)
+    }
+
+    @MainActor
     @Test func settingsStoreChangesEncryptedDatabasePassphrase() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let suiteName = "DeskBriefTests.\(UUID().uuidString)"
@@ -381,6 +422,47 @@ extension DeskBriefTests {
         let reloaded = try AppDatabase(databaseURL: databaseURL, passphrase: newPassphrase)
         #expect(try reloaded.fetchAppLogs(limit: nil).map(\.message) == ["rekey"])
         #expect(keychain.string(for: AppDefaults.databasePassphraseAccount) == newPassphrase.value)
+    }
+
+    @MainActor
+    @Test func settingsStoreRollsBackPassphraseChangeWhenKeychainSaveFails() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            removeTemporaryDatabaseFiles(at: databaseURL)
+        }
+
+        let oldPassphrase = try DatabasePassphrase("Aa1!old-pass")
+        let newPassphrase = try DatabasePassphrase("Bb2@new-pass")
+        let keychain = FakeKeychainStore(values: [
+            AppDefaults.databasePassphraseAccount: oldPassphrase.value
+        ])
+        let database = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
+        try database.insertAppLog(AppLogEntry(level: .log, source: .app, message: "rollback rekey"))
+        userDefaults.set(true, forKey: "com.deskbrief.settings.databaseEncryptionEnabled")
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        keychain.queuedResults = [
+            .failure(account: AppDefaults.databasePassphraseAccount, operation: .update, status: -25308)
+        ]
+
+        do {
+            try store.updateDatabasePassphrase(to: newPassphrase)
+            Issue.record("Expected database passphrase save failure")
+        } catch DatabaseError.keychainWriteFailed(let result) {
+            #expect(result.account == AppDefaults.databasePassphraseAccount)
+        }
+
+        let reloaded = try AppDatabase(databaseURL: databaseURL, passphrase: oldPassphrase)
+        #expect(try reloaded.fetchAppLogs(limit: nil).map(\.message) == ["rollback rekey"])
+        do {
+            _ = try AppDatabase(databaseURL: databaseURL, passphrase: newPassphrase)
+            Issue.record("Expected new database passphrase to fail after rollback")
+        } catch DatabaseError.invalidPassphrase {
+        }
+        #expect(keychain.string(for: AppDefaults.databasePassphraseAccount) == oldPassphrase.value)
+        #expect(store.databaseEncryptionEnabled)
     }
 
     @Test func encryptedDatabaseRequiresStoredPassphraseForExistingFile() async throws {

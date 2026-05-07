@@ -56,10 +56,10 @@ The app is centered around a small set of long-lived services created at launch 
 ### Database encryption management
 
 - The General settings tab exposes a Database Settings section with an encryption switch, a hidden new-key field, and an Open Database Location button below the settings surface.
-- Encryption is disabled by default so first launch does not request Keychain access for the database. Enabling encryption generates a 16-character random passphrase and stores it in Keychain account `database-passphrase.main`.
+- Encryption is disabled by default so first launch does not request Keychain access for the database. Enabling encryption generates a 16-character random passphrase and saves it in Keychain account `database-passphrase.main` before converting the database file; if file conversion fails, the new Keychain value is removed before the error is surfaced.
 - Turning encryption off decrypts the database to a temporary plaintext file through SQLCipher export, verifies the exported copy, replaces the database file and sidecars, and deletes the Keychain passphrase.
-- Turning encryption back on generates a new passphrase, shows it once for confirmation, exports the plaintext database into an encrypted copy, verifies it, replaces the database file and sidecars, and stores the passphrase in Keychain.
-- Changing the key uses SQLCipher `PRAGMA rekey` and then updates Keychain. If the Keychain write fails, the store attempts to rekey back to the previous passphrase before surfacing the error.
+- Turning encryption back on asks for confirmation without displaying the generated key in app UI, exports the plaintext database into an encrypted copy, verifies it, and replaces the database file and sidecars.
+- Changing the key uses SQLCipher `PRAGMA rekey` and then updates Keychain. If the Keychain write fails, the store attempts to rekey back to the previous passphrase before surfacing the error. If any file or Keychain rollback fails, the store surfaces a database-state restore error instead of silently swallowing the secondary failure.
 - Database encryption operations are blocked while screenshot analysis or work-content summary is running, because those flows may hold active database work and should not race a file replacement.
 
 ### 2. Screenshot capture flow

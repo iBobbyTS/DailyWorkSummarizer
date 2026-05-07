@@ -8,6 +8,7 @@ enum DatabaseError: LocalizedError, Equatable {
     case invalidPassphrase(String)
     case keychainReadFailed(KeychainReadResult)
     case keychainWriteFailed(KeychainWriteResult)
+    case databaseStateRestoreFailed(operation: String, originalError: String, restoreError: String)
     case prepareStatement(String)
     case execute(String)
 
@@ -23,6 +24,8 @@ enum DatabaseError: LocalizedError, Equatable {
             return KeychainReadError(result: result).localizedDescription
         case .keychainWriteFailed(let result):
             return KeychainWriteError(result: result).localizedDescription
+        case .databaseStateRestoreFailed(let operation, let originalError, let restoreError):
+            return "\(operation) failed: \(originalError). The attempt to restore the previous database state also failed: \(restoreError)"
         case .prepareStatement(let message), .execute(let message):
             return message
         }
@@ -32,7 +35,7 @@ enum DatabaseError: LocalizedError, Equatable {
         switch self {
         case .missingPassphrase, .invalidPassphrase:
             return true
-        case .openDatabase, .keychainReadFailed, .keychainWriteFailed, .prepareStatement, .execute:
+        case .openDatabase, .keychainReadFailed, .keychainWriteFailed, .databaseStateRestoreFailed, .prepareStatement, .execute:
             return false
         }
     }

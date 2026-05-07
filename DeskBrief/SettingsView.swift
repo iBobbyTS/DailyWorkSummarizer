@@ -1346,6 +1346,10 @@ struct SettingsView: View {
     }
 
     private func applyDatabaseEncryptionAction(_ action: DatabaseEncryptionAction) {
+        guard ensureDatabaseEncryptionOperationAllowed() else {
+            return
+        }
+
         do {
             switch action {
             case .enable(let passphrase):
@@ -1374,10 +1378,10 @@ struct SettingsView: View {
                 },
                 secondaryButton: .cancel(Text(text(.commonCancel)))
             )
-        case .enable(let passphrase), .update(let passphrase):
+        case .enable, .update:
             return Alert(
                 title: Text(text(.settingsDatabaseEnableConfirmTitle)),
-                message: Text(text(.settingsDatabaseEnableConfirmMessage, arguments: [passphrase.value])),
+                message: Text(text(.settingsDatabaseEnableConfirmMessage)),
                 primaryButton: .default(Text(text(.commonConfirm))) {
                     applyDatabaseEncryptionAction(action)
                 },
@@ -1387,8 +1391,10 @@ struct SettingsView: View {
     }
 
     private func ensureDatabaseEncryptionOperationAllowed() -> Bool {
-        guard !analysisService.currentState.isRunning,
-              !dailyReportSummaryService.currentState.isRunning else {
+        guard SettingsDatabaseEncryptionPolicy.canStartOperation(
+            analysisState: analysisService.currentState,
+            summaryState: dailyReportSummaryService.currentState
+        ) else {
             settingsStore.persistenceAlert = SettingsPersistenceAlert(
                 title: text(.settingsDatabaseBusyTitle),
                 message: text(.settingsDatabaseBusyMessage)
@@ -1718,6 +1724,15 @@ enum SummaryInstructionTextViewTextSystem {
 nonisolated enum SettingsAnalysisControlsPolicy {
     static func showsChargerRequirement(for startupMode: AnalysisStartupMode, hasInternalBattery: Bool = true) -> Bool {
         startupMode != .manual && hasInternalBattery
+    }
+}
+
+nonisolated enum SettingsDatabaseEncryptionPolicy {
+    static func canStartOperation(
+        analysisState: AnalysisRuntimeState,
+        summaryState: DailyReportSummaryRuntimeState
+    ) -> Bool {
+        !analysisState.isRunning && !summaryState.isRunning
     }
 }
 
