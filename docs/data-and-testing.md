@@ -105,7 +105,7 @@ Category-rule writes are also treated as durable settings changes. `SettingsStor
 - Preview screenshots add a `-preview` suffix.
 - Model-test screenshots add a `-model-test` suffix.
 
-The filename is not just cosmetic: the app derives capture time and duration metadata from it when loading pending screenshot files.
+The filename is not just cosmetic: the app derives capture time and duration metadata from it when loading pending screenshot files. Screenshot filenames do not encode a time zone, and DeskBrief intentionally does not model cross-time-zone capture semantics. When a pending screenshot file is analyzed, the filename's local wall-clock time is interpreted in the current system time zone and converted to the stored timestamp from that interpretation.
 Preview screenshots live in `screenshots/preview/` and model-test screenshots live in `screenshots/temp/` only while the active request is showing or testing them. The normal UI paths delete those files in `SettingsView` cleanup, and `ScreenshotService` removes leftover regular files from both directories on initialization so a crash or forced quit after capture does not leave sensitive JPEGs behind.
 The Clear Early Screenshots menu scans and deletes pending JPEG files in the screenshot directory root, and also clears memory-backed pending screenshots from `PendingScreenshotStore`. It does not inspect or remove files from the `preview/` or `temp/` subdirectories, and its count cache is in memory only.
 

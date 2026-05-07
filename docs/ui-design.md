@@ -82,6 +82,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - Weekly heatmap brightness uses one normalization pool for all selected non-away categories and a separate pool for Away.
 - Daily heatmap blocks may represent merged contiguous work summaries even when the visual span matches the underlying raw events. Hover text appears only from `daily_work_block_summaries`, not directly from raw analysis rows, and is positioned over the left report-selection area so the heatmap itself does not shift when hover content changes.
 - Daily report legends keep category-summary hover stable across chip gaps by checking pointer locations against row-union hover rectangles with a small margin; individual chip exits should not clear the hovered category, and trailing empty space after the last row should not count as hovered.
+- DeskBrief assumes a pointing device for the richest report experience. Category summaries and daily heatmap work-block summaries are intentionally hover-driven, so keyboard-only and VoiceOver paths can still navigate the app but are not considered equivalent report-summary interaction modes.
 - Derived statuses such as temporary daily reports should be visually marked where the result appears, not explained in a detached help block.
 - Runtime logs should remain dense, sortable or filterable when needed, and copy/export friendly.
 
