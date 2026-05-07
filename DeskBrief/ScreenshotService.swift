@@ -47,7 +47,7 @@ final class ScreenshotService {
         self.logStore = logStore
         self.userDefaults = userDefaults
         self.captureRuntime = captureRuntime ?? ScreenshotCaptureRuntime.liveCaptureRuntime(settingsStore: settingsStore)
-        removeLeftoverTemporaryScreenshots()
+        removeLeftoverTransientScreenshots()
     }
 
     deinit {
@@ -130,24 +130,35 @@ final class ScreenshotService {
         return fileURL
     }
 
-    private func removeLeftoverTemporaryScreenshots() {
-        do {
-            let tempDirectory = try database.screenshotsDirectory().appendingPathComponent("temp", isDirectory: true)
-            guard FileManager.default.fileExists(atPath: tempDirectory.path) else {
-                return
+    private func removeLeftoverTransientScreenshots() {
+        for directoryName in ["preview", "temp"] {
+            do {
+                try removeRegularFilesInTransientScreenshotDirectory(named: directoryName)
+            } catch {
+                logStore?.addError(
+                    source: .screenshot,
+                    context: "Failed to clean up leftover \(directoryName) screenshots",
+                    error: error
+                )
             }
-            let fileURLs = try FileManager.default.contentsOfDirectory(
-                at: tempDirectory,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            )
-            for fileURL in fileURLs {
-                let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
-                guard values.isRegularFile == true else { continue }
-                try FileManager.default.removeItem(at: fileURL)
-            }
-        } catch {
-            logStore?.addError(source: .screenshot, context: "Failed to clean up leftover model test screenshots", error: error)
+        }
+    }
+
+    private func removeRegularFilesInTransientScreenshotDirectory(named directoryName: String) throws {
+        let directory = try database.screenshotsDirectory().appendingPathComponent(directoryName, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else {
+            return
+        }
+
+        let fileURLs = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        )
+        for fileURL in fileURLs {
+            let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true else { continue }
+            try FileManager.default.removeItem(at: fileURL)
         }
     }
 

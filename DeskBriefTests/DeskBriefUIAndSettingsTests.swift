@@ -1080,7 +1080,11 @@ extension DeskBriefTests {
         #expect(chineseLabel == "自动删除截屏")
         #expect(englishLabel == "Auto-Delete Screenshots")
         #expect(chineseTooltip.contains("保留期限"))
+        #expect(chineseTooltip.contains("启动时"))
+        #expect(chineseTooltip.contains("preview/"))
         #expect(englishTooltip.contains("retention period"))
+        #expect(englishTooltip.contains("app launch"))
+        #expect(englishTooltip.contains("preview/"))
     }
 
     @Test func chargerRequirementAppliesOnlyToAutomaticAnalysisTriggers() async throws {
@@ -1772,7 +1776,7 @@ extension DeskBriefTests {
     }
 
     @MainActor
-    @Test func screenshotServiceInitializationRemovesLeftoverModelTestScreenshots() async throws {
+    @Test func screenshotServiceInitializationRemovesLeftoverTransientScreenshots() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1821,7 +1825,7 @@ extension DeskBriefTests {
         )
 
         #expect(FileManager.default.fileExists(atPath: rootURL.path))
-        #expect(FileManager.default.fileExists(atPath: previewURL.path))
+        #expect(!FileManager.default.fileExists(atPath: previewURL.path))
         #expect(!FileManager.default.fileExists(atPath: tempURL.path))
         #expect(FileManager.default.fileExists(atPath: tempSubdirectory.path))
     }
