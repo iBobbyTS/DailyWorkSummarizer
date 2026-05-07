@@ -253,6 +253,7 @@ final class SettingsStore: ObservableObject {
 
     @Published private(set) var categoryRules: [CategoryRule]
     @Published private(set) var categoryRulesValidationMessage: String?
+    @Published private(set) var databaseEncryptionEnabled: Bool
     @Published var persistenceAlert: SettingsPersistenceAlert?
 
     private let userDefaults: UserDefaults
@@ -333,6 +334,7 @@ final class SettingsStore: ObservableObject {
         let savedWorkContentSummaryLMStudioExplicitLoadUnloadModel: Bool = read(key: Keys.workContentSummaryLMStudioExplicitLoadUnloadModel, fallback: AppDefaults.lmStudioExplicitLoadUnloadModel)
         let savedWorkContentSummaryMemoryCheckEnabled: Bool = read(key: Keys.workContentSummaryMemoryCheckEnabled, fallback: AppDefaults.memoryCheckEnabled)
         let savedWorkContentSummaryMemoryThresholdGB: Double = read(key: Keys.workContentSummaryMemoryThresholdGB, fallback: AppDefaults.memoryThresholdGB)
+        let savedDatabaseEncryptionEnabled = Self.databaseEncryptionEnabled(from: userDefaults)
         let savedRules: [CategoryRule]
         do {
             savedRules = try database.fetchCategoryRules()
@@ -367,12 +369,14 @@ final class SettingsStore: ObservableObject {
         screenshotAnalysisMemoryThresholdGB = savedScreenshotAnalysisMemoryThresholdGB
         workContentSummaryMemoryCheckEnabled = savedWorkContentSummaryMemoryCheckEnabled
         workContentSummaryMemoryThresholdGB = savedWorkContentSummaryMemoryThresholdGB
+        databaseEncryptionEnabled = savedDatabaseEncryptionEnabled
         let initialRules = savedRules.isEmpty ? AppDefaults.defaultCategoryRules(language: savedAppLanguage) : savedRules
         categoryRules = Self.normalizedCategoryRules(initialRules, language: savedAppLanguage)
         categoryRulesValidationMessage = nil
         userDefaults.set(analysisStartupMode.rawValue, forKey: Keys.analysisStartupMode)
         userDefaults.set(screenshotAnalysisLMStudioExplicitLoadUnloadModel, forKey: Keys.screenshotAnalysisLMStudioExplicitLoadUnloadModel)
         userDefaults.set(workContentSummaryLMStudioExplicitLoadUnloadModel, forKey: Keys.workContentSummaryLMStudioExplicitLoadUnloadModel)
+        userDefaults.set(databaseEncryptionEnabled, forKey: Keys.databaseEncryptionEnabled)
 
         if savedRules.isEmpty || initialRules != categoryRules {
             persistCategoryRules(context: "Failed to initialize category rules")
@@ -501,6 +505,71 @@ final class SettingsStore: ObservableObject {
         screenshotAnalysisMemoryThresholdGB = workContentSummaryMemoryThresholdGB
     }
 
+    var databaseURL: URL {
+        database.databaseURL
+    }
+
+    var currentDatabasePassphrase: String {
+        keychain.string(for: AppDefaults.databasePassphraseAccount)
+    }
+
+    func databasePassphraseCanBeUpdated(to value: String) -> Bool {
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmedValue.isEmpty && trimmedValue != currentDatabasePassphrase
+    }
+
+    func generateDatabasePassphrase() throws -> DatabasePassphrase {
+        try DatabasePassphrase.generate()
+    }
+
+    func disableDatabaseEncryption() throws {
+        let currentPassphrase = try DatabasePassphrase(currentDatabasePassphrase)
+        try database.decryptDatabase()
+        let result = keychain.set("", for: AppDefaults.databasePassphraseAccount)
+        guard result.isSuccess else {
+            try? database.encryptDatabase(passphrase: currentPassphrase)
+            throw DatabaseError.keychainWriteFailed(result)
+        }
+        databaseEncryptionEnabled = false
+        userDefaults.set(false, forKey: Keys.databaseEncryptionEnabled)
+        notifySettingsChanged()
+    }
+
+    func enableDatabaseEncryption(with passphrase: DatabasePassphrase) throws {
+        try database.encryptDatabase(passphrase: passphrase)
+        do {
+            try DatabasePassphraseStore(keychain: keychain).save(passphrase)
+        } catch {
+            try? database.decryptDatabase()
+            throw error
+        }
+        databaseEncryptionEnabled = true
+        userDefaults.set(true, forKey: Keys.databaseEncryptionEnabled)
+        notifySettingsChanged()
+    }
+
+    func updateDatabasePassphrase(to passphrase: DatabasePassphrase) throws {
+        let currentPassphrase = try DatabasePassphrase(currentDatabasePassphrase)
+        try database.changeDatabasePassphrase(to: passphrase)
+        do {
+            try DatabasePassphraseStore(keychain: keychain).save(passphrase)
+        } catch {
+            try? database.changeDatabasePassphrase(to: currentPassphrase)
+            throw error
+        }
+        notifySettingsChanged()
+    }
+
+    static func databaseEncryptionEnabled(from userDefaults: UserDefaults) -> Bool {
+        guard let value = userDefaults.objectWithFallback(
+            newKey: Keys.databaseEncryptionEnabled,
+            oldKey: Keys.legacyKey(for: Keys.databaseEncryptionEnabled)
+        ) as? Bool else {
+            return AppDefaults.databaseEncryptionEnabled
+        }
+        return value
+    }
+
     private func saveCategoryRules() {
         categoryRules = Self.normalizedCategoryRules(categoryRules, language: appLanguage)
         persistCategoryRules(context: "Failed to save category rules")
@@ -622,6 +691,7 @@ final class SettingsStore: ObservableObject {
         static let workContentSummaryLMStudioExplicitLoadUnloadModel = prefix + "workContentSummary.lmStudioExplicitLoadUnloadModel"
         static let workContentSummaryMemoryCheckEnabled = prefix + "workContentSummary.memoryCheckEnabled"
         static let workContentSummaryMemoryThresholdGB = prefix + "workContentSummary.memoryThresholdGB"
+        static let databaseEncryptionEnabled = prefix + "databaseEncryptionEnabled"
 
         static func legacyKey(for newKey: String) -> String {
             legacyPrefix + newKey.dropFirst(prefix.count)

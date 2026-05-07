@@ -68,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var logsWindow: NSWindow?
     private var analysisRunsWindow: NSWindow?
     private var analysisRunsViewModel: AnalysisRunsViewModel?
+    private var settingsWindowState: SettingsWindowState?
     private var settingsObserver: NSObjectProtocol?
     private var databaseObserver: NSObjectProtocol?
     private var screenshotObserver: NSObjectProtocol?
@@ -231,6 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         guard let window = notification.object as? NSWindow else { return }
         if window == settingsWindow {
             settingsWindow = nil
+            settingsWindowState = nil
         } else if window == reportsWindow {
             reportsWindow = nil
         } else if window == logsWindow {
@@ -240,16 +242,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
 
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard sender == settingsWindow,
+              settingsWindowState?.hasUnsavedDatabasePassphrase == true,
+              let settingsStore else {
+            return true
+        }
+
+        let language = settingsStore.appLanguage
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = text(.settingsDatabasePassphraseUnsavedTitle, language: language)
+        alert.informativeText = text(.settingsDatabasePassphraseUnsavedMessage, language: language)
+        alert.addButton(withTitle: text(.settingsDatabasePassphraseContinueEditing, language: language))
+        alert.addButton(withTitle: text(.settingsDatabasePassphraseContinueClosing, language: language))
+        if alert.runModal() == .alertFirstButtonReturn {
+            return false
+        }
+        settingsWindowState?.discardUnsavedDatabasePassphrase = true
+        return true
+    }
+
     private func makeDatabase(for launchConfiguration: AppLaunchConfiguration, keychain: KeychainStoring) throws -> AppDatabase {
+        let userDefaults = launchConfiguration.userDefaultsSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
+        let encryptionEnabled = SettingsStore.databaseEncryptionEnabled(from: userDefaults)
         guard let supportDirectory = launchConfiguration.supportDirectory else {
-            return try AppDatabase(keychain: keychain)
+            let supportURL = try AppDatabase.applicationSupportDirectory()
+            return try AppDatabase(
+                databaseURL: supportURL.appendingPathComponent("desk-brief.sqlite", isDirectory: false),
+                keychain: keychain,
+                encryptionEnabled: encryptionEnabled
+            )
         }
 
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
         return try AppDatabase(
             databaseURL: supportDirectory.appendingPathComponent("desk-brief.sqlite", isDirectory: false),
             applicationSupportDirectory: supportDirectory,
-            keychain: keychain
+            keychain: keychain,
+            encryptionEnabled: encryptionEnabled
         )
     }
 
@@ -564,17 +595,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     @objc private func openSettings() {
-        guard let settingsStore, let screenshotService, let analysisService, let logStore else { return }
+        guard let settingsStore, let screenshotService, let analysisService, let dailyReportSummaryService, let logStore else { return }
         if let window = settingsWindow {
             activateAndShow(window)
             return
         }
 
+        let windowState = SettingsWindowState()
         let controller = NSHostingController(
             rootView: SettingsView(
                 settingsStore: settingsStore,
                 screenshotService: screenshotService,
                 analysisService: analysisService,
+                dailyReportSummaryService: dailyReportSummaryService,
+                windowState: windowState,
                 logStore: logStore
             )
         )
@@ -585,6 +619,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.setContentSize(NSSize(width: 760, height: 620))
         window.center()
         settingsWindow = window
+        settingsWindowState = windowState
         activateAndShow(window)
     }
 

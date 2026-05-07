@@ -1,6 +1,13 @@
 import AppKit
+import Combine
 import FoundationModels
 import SwiftUI
+
+@MainActor
+final class SettingsWindowState: ObservableObject {
+    @Published var hasUnsavedDatabasePassphrase = false
+    @Published var discardUnsavedDatabasePassphrase = false
+}
 
 struct SettingsView: View {
     private enum ModelCopyDestination: String, Identifiable {
@@ -8,6 +15,23 @@ struct SettingsView: View {
         case screenshotAnalysis
 
         var id: String { rawValue }
+    }
+
+    private enum DatabaseEncryptionAction: Identifiable, Equatable {
+        case enable(DatabasePassphrase)
+        case disable
+        case update(DatabasePassphrase)
+
+        var id: String {
+            switch self {
+            case .enable(let passphrase):
+                return "enable:\(passphrase.value)"
+            case .disable:
+                return "disable"
+            case .update(let passphrase):
+                return "update:\(passphrase.value)"
+            }
+        }
     }
 
     private enum Layout {
@@ -41,6 +65,8 @@ struct SettingsView: View {
     @ObservedObject var settingsStore: SettingsStore
     let screenshotService: ScreenshotService
     let analysisService: AnalysisService
+    let dailyReportSummaryService: DailyReportSummaryService
+    @ObservedObject var windowState: SettingsWindowState
     let logStore: AppLogStore?
 
     @State private var previewImage: NSImage?
@@ -53,6 +79,8 @@ struct SettingsView: View {
     @State private var modelTestCountdownText: String?
     @State private var isTestingModel = false
     @State private var pendingModelCopyDestination: ModelCopyDestination?
+    @State private var pendingDatabasePassphrase = ""
+    @State private var pendingDatabaseEncryptionAction: DatabaseEncryptionAction?
 
     @State private var showIntervalTooltip = false
 
@@ -113,6 +141,23 @@ struct SettingsView: View {
                 message: Text(alert.message),
                 dismissButton: .default(Text(text(.commonConfirm)))
             )
+        }
+        .alert(item: $pendingDatabaseEncryptionAction) { action in
+            databaseEncryptionAlert(for: action)
+        }
+        .onChange(of: pendingDatabasePassphrase) { _, newValue in
+            windowState.hasUnsavedDatabasePassphrase = settingsStore.databasePassphraseCanBeUpdated(to: newValue)
+        }
+        .onChange(of: settingsStore.databaseEncryptionEnabled) { _, isEnabled in
+            if !isEnabled {
+                pendingDatabasePassphrase = ""
+            }
+        }
+        .onChange(of: windowState.discardUnsavedDatabasePassphrase) { _, shouldDiscard in
+            guard shouldDiscard else { return }
+            pendingDatabasePassphrase = ""
+            windowState.hasUnsavedDatabasePassphrase = false
+            windowState.discardUnsavedDatabasePassphrase = false
         }
         .onDisappear {
             removePreviewFile()
@@ -944,12 +989,75 @@ struct SettingsView: View {
                     .fill(Color.gray.opacity(0.08))
             )
 
+            Text(text(.settingsDatabaseSectionTitle))
+                .font(.title2.weight(.semibold))
+
+            databaseSettingsSection
+
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, Layout.tabHorizontalPadding)
         .padding(.vertical, Layout.tabVerticalPadding)
         .accessibilityIdentifier("settings.tab.general")
+    }
+
+    private var databaseSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            proportionalFieldRow(text(.settingsDatabaseEncryption), tooltip: text(.settingsDatabaseEncryptionTooltip)) { fieldWidth in
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    Toggle(
+                        "",
+                        isOn: Binding(
+                            get: { settingsStore.databaseEncryptionEnabled },
+                            set: handleDatabaseEncryptionToggle
+                        )
+                    )
+                    .labelsHidden()
+                    .toggleStyle(.checkbox)
+                    .accessibilityLabel(text(.settingsDatabaseEncryption))
+                }
+                .frame(width: fieldWidth, alignment: .trailing)
+            }
+
+            if settingsStore.databaseEncryptionEnabled {
+                Divider()
+
+                proportionalFieldRow(text(.settingsDatabasePassphrase), tooltip: text(.settingsDatabasePassphraseTooltip)) { fieldWidth in
+                    HStack(spacing: 8) {
+                        SecureField(text(.settingsDatabasePassphrasePlaceholder), text: $pendingDatabasePassphrase)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: max(160, fieldWidth - 88), alignment: .trailing)
+                        Button(text(.settingsDatabasePassphraseConfirm)) {
+                            requestDatabasePassphraseUpdate()
+                        }
+                        .disabled(!settingsStore.databasePassphraseCanBeUpdated(to: pendingDatabasePassphrase))
+                    }
+                    .frame(width: fieldWidth, alignment: .trailing)
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Button {
+                    openDatabaseLocation()
+                } label: {
+                    Label(text(.settingsDatabaseOpenLocation), systemImage: "folder")
+                }
+                .buttonStyle(.bordered)
+                Spacer()
+            }
+            .padding(.horizontal, Layout.cardRowHorizontalPadding)
+            .padding(.vertical, Layout.cardRowVerticalPadding)
+
+            Divider()
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.gray.opacity(0.08))
+        )
     }
 
     private var reportTab: some View {
@@ -1175,6 +1283,97 @@ struct SettingsView: View {
         }
     }
 
+    private func handleDatabaseEncryptionToggle(_ enabled: Bool) {
+        guard enabled != settingsStore.databaseEncryptionEnabled else {
+            return
+        }
+        guard ensureDatabaseEncryptionOperationAllowed() else {
+            return
+        }
+
+        do {
+            if enabled {
+                pendingDatabaseEncryptionAction = .enable(try settingsStore.generateDatabasePassphrase())
+            } else {
+                pendingDatabaseEncryptionAction = .disable
+            }
+        } catch {
+            showDatabaseOperationFailed(error)
+        }
+    }
+
+    private func requestDatabasePassphraseUpdate() {
+        guard ensureDatabaseEncryptionOperationAllowed() else {
+            return
+        }
+        let trimmedPassphrase = pendingDatabasePassphrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            pendingDatabaseEncryptionAction = .update(try DatabasePassphrase(trimmedPassphrase))
+        } catch {
+            showDatabaseOperationFailed(error)
+        }
+    }
+
+    private func applyDatabaseEncryptionAction(_ action: DatabaseEncryptionAction) {
+        do {
+            switch action {
+            case .enable(let passphrase):
+                try settingsStore.enableDatabaseEncryption(with: passphrase)
+                pendingDatabasePassphrase = ""
+            case .disable:
+                try settingsStore.disableDatabaseEncryption()
+            case .update(let passphrase):
+                try settingsStore.updateDatabasePassphrase(to: passphrase)
+                pendingDatabasePassphrase = ""
+            }
+            windowState.hasUnsavedDatabasePassphrase = false
+        } catch {
+            showDatabaseOperationFailed(error)
+        }
+    }
+
+    private func databaseEncryptionAlert(for action: DatabaseEncryptionAction) -> Alert {
+        switch action {
+        case .disable:
+            return Alert(
+                title: Text(text(.settingsDatabaseDisableConfirmTitle)),
+                message: Text(text(.settingsDatabaseDisableConfirmMessage)),
+                primaryButton: .destructive(Text(text(.settingsDatabaseDisableConfirmButton))) {
+                    applyDatabaseEncryptionAction(action)
+                },
+                secondaryButton: .cancel(Text(text(.commonCancel)))
+            )
+        case .enable(let passphrase), .update(let passphrase):
+            return Alert(
+                title: Text(text(.settingsDatabaseEnableConfirmTitle)),
+                message: Text(text(.settingsDatabaseEnableConfirmMessage, arguments: [passphrase.value])),
+                primaryButton: .default(Text(text(.commonConfirm))) {
+                    applyDatabaseEncryptionAction(action)
+                },
+                secondaryButton: .cancel(Text(text(.commonCancel)))
+            )
+        }
+    }
+
+    private func ensureDatabaseEncryptionOperationAllowed() -> Bool {
+        guard !analysisService.currentState.isRunning,
+              !dailyReportSummaryService.currentState.isRunning else {
+            settingsStore.persistenceAlert = SettingsPersistenceAlert(
+                title: text(.settingsDatabaseBusyTitle),
+                message: text(.settingsDatabaseBusyMessage)
+            )
+            return false
+        }
+        return true
+    }
+
+    private func showDatabaseOperationFailed(_ error: Error) {
+        settingsStore.persistenceAlert = SettingsPersistenceAlert(
+            title: text(.settingsDatabaseOperationFailedTitle),
+            message: error.localizedDescription
+        )
+    }
+
     private func capturePreview() {
         previewError = nil
         previewCountdownText = nil
@@ -1220,6 +1419,10 @@ struct SettingsView: View {
 
     private func openScreenshotsFolder() {
         screenshotService.openScreenshotsFolder()
+    }
+
+    private func openDatabaseLocation() {
+        NSWorkspace.shared.activateFileViewerSelecting([settingsStore.databaseURL])
     }
 
     private func testModel() {

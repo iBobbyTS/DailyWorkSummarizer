@@ -5,7 +5,7 @@
 The app is centered around a small set of long-lived services created at launch by `AppDelegate`:
 
 - `AppDatabase`
-  SQLCipher-backed SQLite persistence and current schema setup.
+  SQLite persistence, SQLCipher-backed encryption mode, plaintext mode, runtime encryption conversion, and current schema setup.
 - `SettingsStore`
   UserDefaults and Keychain-backed settings state exposed to SwiftUI.
 - `ScreenshotService`
@@ -46,11 +46,20 @@ The app is centered around a small set of long-lived services created at launch 
 ### 1. App startup
 
 - `MenuBarApp` boots through `AppDelegate`.
-- The app loads or creates the database passphrase in Keychain, then opens or creates the SQLCipher database.
+- The app reads `databaseEncryptionEnabled` from UserDefaults before opening the database. If the setting is missing, the default is `false` and `SettingsStore` writes that explicit value back after startup. When enabled, it loads or creates the database passphrase in Keychain and opens or creates the SQLCipher database. When disabled, it opens the same database file as plaintext SQLite and does not require the Keychain database passphrase.
 - If an existing encrypted database cannot be opened because the passphrase is missing or invalid, startup presents a recovery alert that can accept a manual key, delete only the database files, or quit.
 - Settings are loaded from UserDefaults and Keychain.
 - Services are created and started.
 - The menu bar UI reflects pending screenshots, the single active run state, force-unload actions, and the log viewer entry point.
+
+### Database encryption management
+
+- The General settings tab exposes a Database Settings section with an encryption checkbox, a hidden new-key field, and an Open Database Location button.
+- Encryption is disabled by default so first launch does not request Keychain access for the database. Enabling encryption generates a 16-character random passphrase and stores it in Keychain account `database-passphrase.main`.
+- Turning encryption off decrypts the database to a temporary plaintext file through SQLCipher export, verifies the exported copy, replaces the database file and sidecars, and deletes the Keychain passphrase.
+- Turning encryption back on generates a new passphrase, shows it once for confirmation, exports the plaintext database into an encrypted copy, verifies it, replaces the database file and sidecars, and stores the passphrase in Keychain.
+- Changing the key uses SQLCipher `PRAGMA rekey` and then updates Keychain. If the Keychain write fails, the store attempts to rekey back to the previous passphrase before surfacing the error.
+- Database encryption operations are blocked while screenshot analysis or work-content summary is running, because those flows may hold active database work and should not race a file replacement.
 
 ### 2. Screenshot capture flow
 

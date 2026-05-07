@@ -143,19 +143,192 @@ extension DeskBriefTests {
         #expect(DatabaseError.openDatabase("err") != DatabaseError.execute("err"))
     }
 
+    @Test func databaseDefaultsToPlaintextWithoutKeychainPassphrase() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        let keychain = FakeKeychainStore()
+        let database = try AppDatabase(databaseURL: databaseURL, keychain: keychain)
+        try database.insertAppLog(AppLogEntry(level: .log, source: .app, message: "default plain"))
+
+        let handle = try openSQLite(at: databaseURL, passphrase: nil)
+        defer { sqlite3_close(handle) }
+
+        var statement: OpaquePointer?
+        #expect(sqlite3_prepare_v2(handle, "SELECT message FROM app_logs LIMIT 1;", -1, &statement, nil) == SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        #expect(sqlite3_step(statement) == SQLITE_ROW)
+        #expect(statement.flatMap { sqlite3_column_text($0, 0) }.map { String(cString: $0) } == "default plain")
+        #expect(keychain.string(for: AppDefaults.databasePassphraseAccount).isEmpty)
+    }
+
     @Test func encryptedDatabaseCreatesAndReopensWithStoredPassphrase() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         defer { removeTemporaryDatabaseFiles(at: databaseURL) }
 
         let keychain = FakeKeychainStore()
-        let firstDatabase = try AppDatabase(databaseURL: databaseURL, keychain: keychain)
+        let firstDatabase = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
         try firstDatabase.insertAppLog(AppLogEntry(level: .log, source: .app, message: "encrypted"))
 
-        let secondDatabase = try AppDatabase(databaseURL: databaseURL, keychain: keychain)
+        let secondDatabase = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
         let logs = try secondDatabase.fetchAppLogs(limit: nil)
 
         #expect(logs.map(\.message) == ["encrypted"])
-        #expect(!keychain.string(for: AppDefaults.databasePassphraseAccount).isEmpty)
+        let generatedPassphrase = keychain.string(for: AppDefaults.databasePassphraseAccount)
+        #expect(generatedPassphrase.count == 16)
+        #expect(generatedPassphrase.contains { $0.isUppercase })
+        #expect(generatedPassphrase.contains { $0.isLowercase })
+        #expect(generatedPassphrase.contains { $0.isNumber })
+        #expect(generatedPassphrase.contains { !$0.isLetter && !$0.isNumber })
+    }
+
+    @Test func plaintextDatabaseOpensWithoutPassphraseWhenEncryptionDisabled() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        let keychain = FakeKeychainStore(values: [
+            AppDefaults.databasePassphraseAccount: "existing-key"
+        ])
+        let database = try AppDatabase(
+            databaseURL: databaseURL,
+            keychain: keychain,
+            encryptionEnabled: false
+        )
+        try database.insertAppLog(AppLogEntry(level: .log, source: .app, message: "plain"))
+
+        let handle = try openSQLite(at: databaseURL, passphrase: nil)
+        defer { sqlite3_close(handle) }
+
+        var statement: OpaquePointer?
+        #expect(sqlite3_prepare_v2(handle, "SELECT message FROM app_logs LIMIT 1;", -1, &statement, nil) == SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        #expect(sqlite3_step(statement) == SQLITE_ROW)
+        #expect(statement.flatMap { sqlite3_column_text($0, 0) }.map { String(cString: $0) } == "plain")
+        #expect(keychain.string(for: AppDefaults.databasePassphraseAccount) == "existing-key")
+    }
+
+    @MainActor
+    @Test func settingsStoreDefaultsMissingEncryptionPreferenceToOffAndPersistsIt() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let key = "com.deskbrief.settings.databaseEncryptionEnabled"
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            removeTemporaryDatabaseFiles(at: databaseURL)
+        }
+
+        let keychain = FakeKeychainStore()
+        let database = try AppDatabase(databaseURL: databaseURL, keychain: keychain)
+        #expect(userDefaults.object(forKey: key) == nil)
+
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        #expect(!store.databaseEncryptionEnabled)
+        #expect(userDefaults.object(forKey: key) as? Bool == false)
+        #expect(keychain.string(for: AppDefaults.databasePassphraseAccount).isEmpty)
+    }
+
+    @MainActor
+    @Test func settingsStoreDisablesEncryptionByDecryptingDatabaseAndDeletingKey() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            removeTemporaryDatabaseFiles(at: databaseURL)
+        }
+
+        let keychain = FakeKeychainStore()
+        let database = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
+        try database.insertAppLog(AppLogEntry(level: .log, source: .app, message: "decrypt"))
+        userDefaults.set(true, forKey: "com.deskbrief.settings.databaseEncryptionEnabled")
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        try store.disableDatabaseEncryption()
+
+        let handle = try openSQLite(at: databaseURL, passphrase: nil)
+        defer { sqlite3_close(handle) }
+        var statement: OpaquePointer?
+        #expect(sqlite3_prepare_v2(handle, "SELECT message FROM app_logs LIMIT 1;", -1, &statement, nil) == SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        #expect(sqlite3_step(statement) == SQLITE_ROW)
+        #expect(statement.flatMap { sqlite3_column_text($0, 0) }.map { String(cString: $0) } == "decrypt")
+        #expect(keychain.string(for: AppDefaults.databasePassphraseAccount).isEmpty)
+        #expect(!store.databaseEncryptionEnabled)
+        #expect(userDefaults.bool(forKey: "com.deskbrief.settings.databaseEncryptionEnabled") == false)
+    }
+
+    @MainActor
+    @Test func settingsStoreEncryptsPlaintextDatabaseWithNewKey() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            removeTemporaryDatabaseFiles(at: databaseURL)
+        }
+
+        userDefaults.set(false, forKey: "com.deskbrief.settings.databaseEncryptionEnabled")
+        let keychain = FakeKeychainStore()
+        let database = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: false)
+        try database.insertAppLog(AppLogEntry(level: .log, source: .app, message: "encrypt"))
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        let passphrase = try DatabasePassphrase("Aa1!Bb2@Cc3#Dd4$")
+
+        try store.enableDatabaseEncryption(with: passphrase)
+
+        let encryptedDatabase = try AppDatabase(databaseURL: databaseURL, passphrase: passphrase)
+        let logs = try encryptedDatabase.fetchAppLogs(limit: nil)
+        #expect(logs.map(\.message) == ["encrypt"])
+        #expect(keychain.string(for: AppDefaults.databasePassphraseAccount) == passphrase.value)
+        #expect(store.databaseEncryptionEnabled)
+
+        let plaintextHandle = try openSQLite(at: databaseURL, passphrase: nil)
+        defer { sqlite3_close(plaintextHandle) }
+        var statement: OpaquePointer?
+        #expect(sqlite3_prepare_v2(plaintextHandle, "SELECT count(*) FROM sqlite_master;", -1, &statement, nil) != SQLITE_OK)
+        sqlite3_finalize(statement)
+    }
+
+    @MainActor
+    @Test func settingsStoreChangesEncryptedDatabasePassphrase() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            removeTemporaryDatabaseFiles(at: databaseURL)
+        }
+
+        let oldPassphrase = try DatabasePassphrase("Aa1!old-pass")
+        let newPassphrase = try DatabasePassphrase("Bb2@new-pass")
+        let keychain = FakeKeychainStore(values: [
+            AppDefaults.databasePassphraseAccount: oldPassphrase.value
+        ])
+        let database = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
+        try database.insertAppLog(AppLogEntry(level: .log, source: .app, message: "rekey"))
+        userDefaults.set(true, forKey: "com.deskbrief.settings.databaseEncryptionEnabled")
+        let userVersionBefore = try database.connection.withLock { lock in
+            try lock.int64Value("PRAGMA user_version;")
+        }
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        try store.updateDatabasePassphrase(to: newPassphrase)
+
+        do {
+            _ = try AppDatabase(databaseURL: databaseURL, passphrase: oldPassphrase)
+            Issue.record("Expected old database passphrase to fail")
+        } catch DatabaseError.invalidPassphrase {
+        }
+
+        let reloaded = try AppDatabase(databaseURL: databaseURL, passphrase: newPassphrase)
+        #expect(try reloaded.fetchAppLogs(limit: nil).map(\.message) == ["rekey"])
+        let userVersionAfter = try reloaded.connection.withLock { lock in
+            try lock.int64Value("PRAGMA user_version;")
+        }
+        #expect(userVersionAfter == userVersionBefore)
+        #expect(keychain.string(for: AppDefaults.databasePassphraseAccount) == newPassphrase.value)
     }
 
     @Test func encryptedDatabaseRequiresStoredPassphraseForExistingFile() async throws {
@@ -163,10 +336,10 @@ extension DeskBriefTests {
         defer { removeTemporaryDatabaseFiles(at: databaseURL) }
 
         let keychain = FakeKeychainStore()
-        _ = try AppDatabase(databaseURL: databaseURL, keychain: keychain)
+        _ = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
 
         do {
-            _ = try AppDatabase(databaseURL: databaseURL, keychain: FakeKeychainStore())
+            _ = try AppDatabase(databaseURL: databaseURL, keychain: FakeKeychainStore(), encryptionEnabled: true)
             Issue.record("Expected missing database passphrase")
         } catch DatabaseError.missingPassphrase(let url) {
             #expect(url == databaseURL)
@@ -186,7 +359,7 @@ extension DeskBriefTests {
         try "imported-passphrase\n".write(to: importURL, atomically: true, encoding: .utf8)
 
         let keychain = FakeKeychainStore()
-        _ = try AppDatabase(databaseURL: databaseURL, keychain: keychain)
+        _ = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
 
         #expect(keychain.string(for: AppDefaults.databasePassphraseAccount) == "imported-passphrase")
         #expect(!FileManager.default.fileExists(atPath: importURL.path))
@@ -205,7 +378,7 @@ extension DeskBriefTests {
         try "wrong-passphrase\n".write(to: importURL, atomically: true, encoding: .utf8)
 
         do {
-            _ = try AppDatabase(databaseURL: databaseURL, keychain: FakeKeychainStore())
+            _ = try AppDatabase(databaseURL: databaseURL, keychain: FakeKeychainStore(), encryptionEnabled: true)
             Issue.record("Expected invalid imported database passphrase")
         } catch DatabaseError.invalidPassphrase {
             #expect(FileManager.default.fileExists(atPath: importURL.path))
@@ -228,7 +401,6 @@ extension DeskBriefTests {
             )
             Issue.record("Expected invalid database passphrase")
         } catch DatabaseError.invalidPassphrase {
-            #expect(true)
         }
     }
 

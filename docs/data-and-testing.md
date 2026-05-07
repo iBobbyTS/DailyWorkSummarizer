@@ -6,7 +6,7 @@ The app stores runtime data under Application Support:
 
 - Database
   `~/Library/Application Support/DeskBrief/desk-brief.sqlite`
-  The SQLite file is encrypted with SQLCipher. The database passphrase is stored in Keychain under service `com.iBobby.DeskBrief` and account `database-passphrase.main`.
+  The SQLite file is plaintext by default. If database encryption is enabled in Settings, the file is converted to SQLCipher and the passphrase is stored in Keychain under service `com.iBobby.DeskBrief` and account `database-passphrase.main`.
 - Screenshot directory
   `~/Library/Application Support/DeskBrief/screenshots/`
 - Preview screenshots
@@ -39,8 +39,9 @@ The app stores runtime data under Application Support:
 
 ### SQLite / SQLCipher
 
-SQLite is the source of truth for captured work history, analysis outputs, and generated daily reports. Runtime access goes through SQLCipher; a missing or invalid database passphrase blocks startup before services are created.
-The system `sqlite3` CLI is expected to fail against the encrypted runtime database unless it is pointed at a plaintext backup or an unencrypted test fixture. Runtime database inspection should use a SQLCipher-linked helper that loads the passphrase from Keychain.
+SQLite is the source of truth for captured work history, analysis outputs, and generated daily reports. Runtime access goes through SQLCipher when database encryption is enabled; a missing or invalid database passphrase blocks startup before services are created.
+The system `sqlite3` CLI is expected to fail against an encrypted runtime database unless it is pointed at a plaintext backup, an unencrypted test fixture, or a database whose encryption has been turned off in Settings. Encrypted runtime database inspection should use a SQLCipher-linked helper that loads the passphrase from Keychain.
+Settings can convert the database between encrypted and plaintext modes immediately. Plaintext-to-encrypted and encrypted-to-plaintext conversion exports through SQLCipher into a temporary database, verifies `integrity_check`, `user_version`, and key table row counts, then replaces the SQLite file and sidecars. Encrypted key changes use `PRAGMA rekey`.
 It also stores lightweight runtime logs in `app_logs`, capped to the latest 1000 entries.
 Away intervals caused by missing captures are not persisted; report views derive those display-only `离开` blocks from bounded gaps between adjacent successful analysis results. Fully dark screenshots can be persisted as `离开` results so their capture time is retained without sending the image to a model.
 Failed per-screenshot attempts are counted on `analysis_runs` but are not persisted as `analysis_results` rows.
@@ -77,6 +78,7 @@ UserDefaults stores lightweight preferences such as:
 - image analysis methods
 - screenshot auto-deletion retention (off, 7 days, 14 days, 28 days; default 28 days)
 - screenshot storage location (com.deskbrief.settings.screenshotStorageLocation, raw values "disk" / "memory", default "disk")
+- database encryption enabled (com.deskbrief.settings.databaseEncryptionEnabled, default false; `SettingsStore` writes the default when the key is missing)
 
 ### Memory screenshot storage
 
@@ -84,13 +86,14 @@ When `ScreenshotStorageLocation` is set to `Memory`, scheduled screenshots are c
 
 ### Keychain
 
-Keychain stores the database passphrase and API keys for the two model profiles:
+Keychain stores the database passphrase only after database encryption is enabled, plus API keys for the two model profiles:
 
 - encrypted database passphrase (`database-passphrase.main`)
 - screenshot analysis key
 - work-content summary key
 
-Keychain writes and deletes are not silent. If saving or deleting either API key fails, `SettingsStore` rolls the visible setting back to the last persisted value, writes a `settings` error to `app_logs`, and publishes a localized blocking alert for `SettingsView`.
+New database passphrases are 16-character random strings containing uppercase letters, lowercase letters, digits, and symbols. The current passphrase is not displayed in the app; users can inspect the Keychain item directly. Turning encryption off deletes `database-passphrase.main`.
+Keychain writes and deletes are not silent. If saving or deleting either API key fails, `SettingsStore` rolls the visible setting back to the last persisted value, writes a `settings` error to `app_logs`, and publishes a localized blocking alert for `SettingsView`. Database encryption changes also keep the file and Keychain in sync: if saving or deleting the database passphrase fails after a file conversion, the store attempts to restore the prior database encryption state before surfacing the error.
 
 ## File conventions
 
@@ -166,7 +169,7 @@ xcodebuild build \
 
 ## Useful inspection commands
 
-The following `sqlite3` examples apply to plaintext backups or unencrypted test fixtures. They are intentionally not suitable for the encrypted runtime database.
+The following `sqlite3` examples apply to plaintext backups, unencrypted test fixtures, or runtime databases with encryption turned off. They are intentionally not suitable for an encrypted runtime database.
 
 List tables:
 

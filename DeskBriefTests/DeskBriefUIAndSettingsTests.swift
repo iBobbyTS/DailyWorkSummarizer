@@ -226,6 +226,51 @@ extension DeskBriefTests {
         #expect(L10n.string(.menuBackfillMissingSummaries, language: .english) == "Fill Missing Summaries")
     }
 
+    @Test func databaseSettingsStringsAreLocalized() async throws {
+        #expect(L10n.string(.settingsDatabaseSectionTitle, language: .simplifiedChinese) == "数据库设置")
+        #expect(L10n.string(.settingsDatabaseEncryption, language: .simplifiedChinese) == "数据库加密")
+        #expect(L10n.string(.settingsDatabasePassphrase, language: .english) == "Database Key")
+        #expect(L10n.string(.settingsDatabaseOpenLocation, language: .english) == "Open Database Location")
+        #expect(L10n.string(.settingsDatabaseEncryptionTooltip, language: .simplifiedChinese).contains("*关闭*"))
+        #expect(L10n.string(.settingsDatabasePassphraseTooltip, language: .english).contains("Keychain Access"))
+    }
+
+    @MainActor
+    @Test func databasePassphraseConfirmAvailabilityRequiresNewNonEmptyValue() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = FakeKeychainStore(values: [
+            AppDefaults.databasePassphraseAccount: "current-key"
+        ])
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            removeTemporaryDatabaseFiles(at: databaseURL)
+        }
+
+        userDefaults.set(true, forKey: "com.deskbrief.settings.databaseEncryptionEnabled")
+        let database = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        #expect(store.databaseURL == databaseURL)
+        #expect(!store.databasePassphraseCanBeUpdated(to: ""))
+        #expect(!store.databasePassphraseCanBeUpdated(to: "   "))
+        #expect(!store.databasePassphraseCanBeUpdated(to: "current-key"))
+        #expect(store.databasePassphraseCanBeUpdated(to: "new-key"))
+    }
+
+    @MainActor
+    @Test func settingsWindowStateTracksUnsavedDatabasePassphraseCloseWarning() async throws {
+        let state = SettingsWindowState()
+
+        #expect(!state.hasUnsavedDatabasePassphrase)
+        state.hasUnsavedDatabasePassphrase = true
+        #expect(state.hasUnsavedDatabasePassphrase)
+        state.discardUnsavedDatabasePassphrase = true
+        #expect(state.discardUnsavedDatabasePassphrase)
+    }
+
     @Test func summaryInstructionEditorKeepsTextAwayFromClippingEdge() async throws {
         let textView = NSTextView()
         SummaryInstructionTextViewTextSystem.apply(to: textView)

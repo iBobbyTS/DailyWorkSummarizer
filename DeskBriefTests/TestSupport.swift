@@ -231,21 +231,27 @@ func waitUntil(
 }
 
 func openSQLite(at url: URL) throws -> OpaquePointer? {
+    try openSQLite(at: url, passphrase: nil)
+}
+
+func openSQLite(at url: URL, passphrase: DatabasePassphrase?) throws -> OpaquePointer? {
     var handle: OpaquePointer?
     guard sqlite3_open(url.path, &handle) == SQLITE_OK else {
         let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown sqlite error"
         sqlite3_close(handle)
         throw DatabaseError.openDatabase(message)
     }
-    let passphrase = try DatabasePassphrase("DeskBrief.TestDatabase.Passphrase")
-    let bytes = Array(passphrase.value.utf8)
-    let rc = bytes.withUnsafeBufferPointer { buffer in
-        sqlite3_key(handle, buffer.baseAddress, Int32(buffer.count))
-    }
-    guard rc == SQLITE_OK else {
-        let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite key failed"
-        sqlite3_close(handle)
-        throw DatabaseError.invalidPassphrase(message)
+
+    if let passphrase {
+        let bytes = Array(passphrase.value.utf8)
+        let rc = bytes.withUnsafeBufferPointer { buffer in
+            sqlite3_key(handle, buffer.baseAddress, Int32(buffer.count))
+        }
+        guard rc == SQLITE_OK else {
+            let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite key failed"
+            sqlite3_close(handle)
+            throw DatabaseError.invalidPassphrase(message)
+        }
     }
     return handle
 }

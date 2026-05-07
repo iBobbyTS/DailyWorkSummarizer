@@ -134,6 +134,24 @@ nonisolated enum L10n {
         case settingsGeneralTitle
         case settingsLanguage
         case settingsAutoDeletionRetention
+        case settingsDatabaseSectionTitle
+        case settingsDatabaseEncryption
+        case settingsDatabasePassphrase
+        case settingsDatabasePassphrasePlaceholder
+        case settingsDatabasePassphraseConfirm
+        case settingsDatabaseOpenLocation
+        case settingsDatabaseDisableConfirmTitle
+        case settingsDatabaseDisableConfirmMessage
+        case settingsDatabaseDisableConfirmButton
+        case settingsDatabaseEnableConfirmTitle
+        case settingsDatabaseEnableConfirmMessage
+        case settingsDatabasePassphraseUnsavedTitle
+        case settingsDatabasePassphraseUnsavedMessage
+        case settingsDatabasePassphraseContinueEditing
+        case settingsDatabasePassphraseContinueClosing
+        case settingsDatabaseBusyTitle
+        case settingsDatabaseBusyMessage
+        case settingsDatabaseOperationFailedTitle
         case autoDeletionRetentionOff
         case autoDeletionRetention7Days
         case autoDeletionRetention14Days
@@ -357,6 +375,8 @@ nonisolated enum L10n {
         case settingsIntervalTooltip
         case settingsLanguageTooltip
         case settingsAutoDeletionRetentionTooltip
+        case settingsDatabaseEncryptionTooltip
+        case settingsDatabasePassphraseTooltip
         case settingsReportWeekStartTooltip
         case modelMemoryError
         case lmStudioEndpointInvalid
@@ -445,6 +465,24 @@ nonisolated enum L10n {
             .settingsGeneralTitle: "通用设置",
             .settingsLanguage: "语言",
             .settingsAutoDeletionRetention: "自动删除截屏",
+            .settingsDatabaseSectionTitle: "数据库设置",
+            .settingsDatabaseEncryption: "数据库加密",
+            .settingsDatabasePassphrase: "数据库密钥",
+            .settingsDatabasePassphrasePlaceholder: "输入新密钥",
+            .settingsDatabasePassphraseConfirm: "确定",
+            .settingsDatabaseOpenLocation: "打开数据库位置",
+            .settingsDatabaseDisableConfirmTitle: "是否继续关闭密码",
+            .settingsDatabaseDisableConfirmMessage: "关闭后，数据库将可被直接读取其中的数据，数据库密钥会从 macOS Keychain 中删除。",
+            .settingsDatabaseDisableConfirmButton: "继续关闭密码",
+            .settingsDatabaseEnableConfirmTitle: "确认数据库密钥",
+            .settingsDatabaseEnableConfirmMessage: "即将使用“%@”对数据库进行加密，当前密码不会再在App内显示，之后可在钥匙串app里查看。",
+            .settingsDatabasePassphraseUnsavedTitle: "数据库密钥尚未更新，是否继续关闭",
+            .settingsDatabasePassphraseUnsavedMessage: "关闭设置窗口会丢弃当前输入的新数据库密钥。",
+            .settingsDatabasePassphraseContinueEditing: "继续编辑",
+            .settingsDatabasePassphraseContinueClosing: "继续关闭（不保存）",
+            .settingsDatabaseBusyTitle: "暂时无法修改数据库加密",
+            .settingsDatabaseBusyMessage: "当前正在分析或总结。请等待当前任务结束后再修改数据库加密设置。",
+            .settingsDatabaseOperationFailedTitle: "数据库加密操作失败",
             .autoDeletionRetentionOff: "关闭",
             .autoDeletionRetention7Days: "7 天",
             .autoDeletionRetention14Days: "14 天",
@@ -670,6 +708,8 @@ nonisolated enum L10n {
             .settingsScreenshotStorageLocationTooltip: "保存到*硬盘*时安全级别和其他用户文件一致，别的用户无法直接访问，如果对隐私要求较高，可选择保存到内存，app退出/系统重启等操作会导致没有分析过的截屏直接消失",
             .settingsLanguageTooltip: "建议选择和截屏分析、工作内容总结填入的信息相同的语言",
             .settingsAutoDeletionRetentionTooltip: "自动删除超过保留期限的待分析截屏文件。仅删除 screenshots 根目录下的 JPEG 文件，不影响 preview/ 和 temp/ 子目录。",
+            .settingsDatabaseEncryptionTooltip: "*关闭*：别的app只要可以读取这个文件，就可以读取数据。\n*开启*：别的app必须输入密钥才能读取其中的数据，您可随时在app内修改，也可在钥匙串里查看。",
+            .settingsDatabasePassphraseTooltip: "输入新的数据库密钥后点击确定。当前密钥不会在 App 内显示，可在钥匙串 app 里查看。",
             .settingsReportWeekStartTooltip: "仅用于周报。",
             .modelMemoryError: "可用内存不足：已要求 %.0f GiB，当前可用 %.1f GiB",
             .lmStudioEndpointInvalid: "LM Studio 模型管理接口地址无效。",
@@ -754,6 +794,24 @@ nonisolated enum L10n {
             .settingsGeneralTitle: "General Settings",
             .settingsLanguage: "Language",
             .settingsAutoDeletionRetention: "Auto-Delete Screenshots",
+            .settingsDatabaseSectionTitle: "Database Settings",
+            .settingsDatabaseEncryption: "Database Encryption",
+            .settingsDatabasePassphrase: "Database Key",
+            .settingsDatabasePassphrasePlaceholder: "Enter new key",
+            .settingsDatabasePassphraseConfirm: "Confirm",
+            .settingsDatabaseOpenLocation: "Open Database Location",
+            .settingsDatabaseDisableConfirmTitle: "Continue turning off the password?",
+            .settingsDatabaseDisableConfirmMessage: "After this is turned off, the database can be read directly. The database key will be removed from macOS Keychain.",
+            .settingsDatabaseDisableConfirmButton: "Turn Off Password",
+            .settingsDatabaseEnableConfirmTitle: "Confirm Database Key",
+            .settingsDatabaseEnableConfirmMessage: "DeskBrief will encrypt the database with \"%@\". The current password will no longer be shown in the app. You can view it later in Keychain Access.",
+            .settingsDatabasePassphraseUnsavedTitle: "The database key has not been updated. Continue closing?",
+            .settingsDatabasePassphraseUnsavedMessage: "Closing the Settings window will discard the database key currently entered.",
+            .settingsDatabasePassphraseContinueEditing: "Keep Editing",
+            .settingsDatabasePassphraseContinueClosing: "Close Without Saving",
+            .settingsDatabaseBusyTitle: "Cannot Change Database Encryption Yet",
+            .settingsDatabaseBusyMessage: "Analysis or summary work is currently running. Try again after the current task finishes.",
+            .settingsDatabaseOperationFailedTitle: "Database Encryption Failed",
             .autoDeletionRetentionOff: "Off",
             .autoDeletionRetention7Days: "7 Days",
             .autoDeletionRetention14Days: "14 Days",
@@ -979,6 +1037,8 @@ nonisolated enum L10n {
             .settingsScreenshotStorageLocationTooltip: "When saved to *Disk*, the security level is consistent with other user files and cannot be directly accessed by other users. If you have high privacy requirements, choose memory storage. Unanalyzed screenshots will be lost when the app exits or system restarts.",
             .settingsLanguageTooltip: "It is recommended to use the same language as the information entered for screenshot analysis and work content summary.",
             .settingsAutoDeletionRetentionTooltip: "Automatically delete pending screenshot files older than the selected retention period. Only deletes JPEG files in the root screenshots directory; preview/ and temp/ subdirectories are not affected.",
+            .settingsDatabaseEncryptionTooltip: "*Off*: Other apps can read the data if they can read this file.\n*On*: Other apps must enter the key before reading the data. You can change it in the app at any time, or view it in Keychain Access.",
+            .settingsDatabasePassphraseTooltip: "Enter a new database key, then click Confirm. The current key is not shown in the app and can be viewed in Keychain Access.",
             .settingsReportWeekStartTooltip: "Only used for weekly reports.",
             .modelMemoryError: "Insufficient available memory: requested %.0f GiB, available %.1f GiB",
             .lmStudioEndpointInvalid: "LM Studio model management endpoint is invalid.",

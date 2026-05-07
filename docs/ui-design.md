@@ -23,6 +23,9 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - Do not add extra explanatory text inside settings unless the user needs a persistent warning, provider limitation, or validation message.
 - API key persistence failures should be blocking and explicit: keep the affected field rolled back to the last saved value, log the failure, and show the localized `SettingsPersistenceAlert` instead of relying on inline text that could be missed.
 - The General tab includes a Language picker and an automatic screenshot deletion retention picker (Off, 7 Days, 14 Days, 28 Days). The deletion picker sits below Language with a divider, and its tooltip explains that only root JPEG files are affected.
+- The General tab also includes a Database Settings section. The encryption control is a checkbox row with an info tooltip. When encryption is enabled, the Database Key row shows a hidden input, Confirm button, and tooltip aligned to the right-side control column. The current key is never displayed in the app; only unsaved new input appears in the field.
+- Closing Settings with an unsaved database-key input must present a confirmation dialog that keeps editing by default and offers a destructive "close without saving" path. Database encryption, decryption, and key changes use explicit confirmation dialogs rather than applying on checkbox or field edit alone.
+- The Open Database Location button sits in the Database Settings surface below the key row and opens Finder selecting the current `AppDatabase.databaseURL`.
 
 ## Screenshot Analysis Settings
 

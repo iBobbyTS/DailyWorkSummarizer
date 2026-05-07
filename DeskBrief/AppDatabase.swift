@@ -55,7 +55,8 @@ final class AppDatabase: @unchecked Sendable {
         let supportURL = try ScreenshotFileStore.applicationSupportDirectory()
         try self.init(
             databaseURL: supportURL.appendingPathComponent("desk-brief.sqlite", isDirectory: false),
-            keychain: keychain
+            keychain: keychain,
+            encryptionEnabled: AppDefaults.databaseEncryptionEnabled
         )
     }
 
@@ -63,15 +64,17 @@ final class AppDatabase: @unchecked Sendable {
         databaseURL: URL,
         applicationSupportDirectory: URL? = nil,
         keychain: KeychainStoring? = nil,
-        passphrase: DatabasePassphrase? = nil
+        passphrase: DatabasePassphrase? = nil,
+        encryptionEnabled: Bool = AppDefaults.databaseEncryptionEnabled
     ) throws {
         self.databaseURL = databaseURL
         let resolvedPassphrase = try Self.resolvePassphrase(
             databaseURL: databaseURL,
             keychain: keychain,
-            passphrase: passphrase
+            passphrase: passphrase,
+            encryptionEnabled: encryptionEnabled
         )
-        self.connection = try DatabaseConnection(databaseURL: databaseURL, passphrase: resolvedPassphrase.passphrase)
+        self.connection = try DatabaseConnection(databaseURL: databaseURL, mode: resolvedPassphrase.openMode)
         self.analysisStore = AnalysisDataStore(connection: connection)
         self.reportStore = ReportDataStore(connection: connection)
         self.logStore = LogDataStore(connection: connection)
@@ -85,14 +88,20 @@ final class AppDatabase: @unchecked Sendable {
     private static func resolvePassphrase(
         databaseURL: URL,
         keychain: KeychainStoring?,
-        passphrase: DatabasePassphrase?
+        passphrase: DatabasePassphrase?,
+        encryptionEnabled: Bool
     ) throws -> ResolvedDatabasePassphrase {
         if let passphrase {
-            return ResolvedDatabasePassphrase(passphrase: passphrase)
+            return ResolvedDatabasePassphrase(openMode: .encrypted(passphrase), passphrase: passphrase)
+        }
+
+        guard encryptionEnabled else {
+            return ResolvedDatabasePassphrase(openMode: .plaintext)
         }
 
         guard let keychain else {
-            return try ResolvedDatabasePassphrase(passphrase: DatabasePassphrase("DeskBrief.TestDatabase.Passphrase"))
+            let passphrase = try DatabasePassphrase("DeskBrief.TestDatabase.Passphrase")
+            return ResolvedDatabasePassphrase(openMode: .encrypted(passphrase), passphrase: passphrase)
         }
 
         let store = DatabasePassphraseStore(keychain: keychain)
@@ -100,18 +109,20 @@ final class AppDatabase: @unchecked Sendable {
         if fileExists {
             if let importedPassphrase = try DatabasePassphraseImportFile.load(for: databaseURL) {
                 return ResolvedDatabasePassphrase(
+                    openMode: .encrypted(importedPassphrase),
                     passphrase: importedPassphrase,
                     pendingImportURL: DatabasePassphraseImportFile.url(for: databaseURL)
                 )
             }
             if let storedPassphrase = store.load() {
-                return ResolvedDatabasePassphrase(passphrase: storedPassphrase)
+                return ResolvedDatabasePassphrase(openMode: .encrypted(storedPassphrase), passphrase: storedPassphrase)
             }
 
             throw DatabaseError.missingPassphrase(databaseURL)
         }
 
-        return try ResolvedDatabasePassphrase(passphrase: store.loadOrCreate())
+        let passphrase = try store.loadOrCreate()
+        return ResolvedDatabasePassphrase(openMode: .encrypted(passphrase), passphrase: passphrase)
     }
 
     private static func finishPassphraseImportIfNeeded(
@@ -124,7 +135,11 @@ final class AppDatabase: @unchecked Sendable {
             return
         }
 
-        try DatabasePassphraseStore(keychain: keychain).save(resolvedPassphrase.passphrase)
+        guard let passphrase = resolvedPassphrase.passphrase else {
+            return
+        }
+
+        try DatabasePassphraseStore(keychain: keychain).save(passphrase)
         try FileManager.default.removeItem(at: pendingImportURL)
     }
 
@@ -321,6 +336,37 @@ final class AppDatabase: @unchecked Sendable {
         try reportStore.replaceCategoryRules(rules)
     }
 
+    // MARK: - Database Encryption
+
+    func decryptDatabase() throws {
+        let tempURL = conversionTemporaryURL()
+        do {
+            try connection.exportDatabase(to: tempURL, mode: .plaintext)
+            try connection.replaceDatabaseFile(with: tempURL, reopenMode: .plaintext)
+            NotificationCenter.default.post(name: .appDatabaseDidChange, object: nil)
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
+        }
+    }
+
+    func encryptDatabase(passphrase: DatabasePassphrase) throws {
+        let tempURL = conversionTemporaryURL()
+        do {
+            try connection.exportDatabase(to: tempURL, mode: .encrypted(passphrase))
+            try connection.replaceDatabaseFile(with: tempURL, reopenMode: .encrypted(passphrase))
+            NotificationCenter.default.post(name: .appDatabaseDidChange, object: nil)
+        } catch {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
+        }
+    }
+
+    func changeDatabasePassphrase(to passphrase: DatabasePassphrase) throws {
+        try connection.rekey(to: passphrase)
+        NotificationCenter.default.post(name: .appDatabaseDidChange, object: nil)
+    }
+
     // MARK: - App Logs
 
     func fetchAppLogs(limit: Int? = nil) throws -> [AppLogEntry] {
@@ -353,6 +399,11 @@ final class AppDatabase: @unchecked Sendable {
         try screenshotStore.listScreenshotFiles(defaultDurationMinutes: defaultDurationMinutes)
     }
 
+    private func conversionTemporaryURL() -> URL {
+        databaseURL.deletingLastPathComponent()
+            .appendingPathComponent("\(databaseURL.lastPathComponent).conversion-\(UUID().uuidString)", isDirectory: false)
+    }
+
     nonisolated static func databaseSidecarURLs(for databaseURL: URL) -> [URL] {
         [
             URL(fileURLWithPath: databaseURL.path + "-wal"),
@@ -374,10 +425,12 @@ final class AppDatabase: @unchecked Sendable {
 }
 
 private struct ResolvedDatabasePassphrase {
-    let passphrase: DatabasePassphrase
+    let openMode: DatabaseOpenMode
+    let passphrase: DatabasePassphrase?
     let pendingImportURL: URL?
 
-    init(passphrase: DatabasePassphrase, pendingImportURL: URL? = nil) {
+    init(openMode: DatabaseOpenMode, passphrase: DatabasePassphrase? = nil, pendingImportURL: URL? = nil) {
+        self.openMode = openMode
         self.passphrase = passphrase
         self.pendingImportURL = pendingImportURL
     }
@@ -394,12 +447,39 @@ nonisolated struct DatabasePassphrase: Equatable {
     }
 
     static func generate() throws -> DatabasePassphrase {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let uppercase = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        let lowercase = Array("abcdefghijklmnopqrstuvwxyz")
+        let digits = Array("0123456789")
+        let symbols = Array("!#$%&*+-=?@^_")
+        let groups = [uppercase, lowercase, digits, symbols]
+        let allCharacters = Array(groups.joined())
+        var characters = try groups.map { try randomElement(in: $0) }
+        for _ in characters.count..<16 {
+            characters.append(try randomElement(in: allCharacters))
+        }
+        try shuffle(&characters)
+        return try DatabasePassphrase(String(characters))
+    }
+
+    private static func randomElement(in characters: [Character]) throws -> Character {
+        var byte = UInt8.zero
+        let status = SecRandomCopyBytes(kSecRandomDefault, 1, &byte)
         guard status == errSecSuccess else {
             throw DatabaseError.execute("failed to generate database passphrase: \(status)")
         }
-        return try DatabasePassphrase(Data(bytes).base64EncodedString())
+        return characters[Int(byte) % characters.count]
+    }
+
+    private static func shuffle(_ characters: inout [Character]) throws {
+        guard characters.count > 1 else { return }
+        for index in stride(from: characters.count - 1, through: 1, by: -1) {
+            var byte = UInt8.zero
+            let status = SecRandomCopyBytes(kSecRandomDefault, 1, &byte)
+            guard status == errSecSuccess else {
+                throw DatabaseError.execute("failed to shuffle database passphrase: \(status)")
+            }
+            characters.swapAt(index, Int(byte) % (index + 1))
+        }
     }
 }
 
