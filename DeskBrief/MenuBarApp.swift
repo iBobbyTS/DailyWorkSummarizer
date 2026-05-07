@@ -17,8 +17,11 @@ private struct AppLaunchConfiguration {
     let isUnitTesting: Bool
     let disableBackgroundServices: Bool
     let openSettingsWindow: Bool
+    let openSettingsGeneralTab: Bool
     let openReportsWindow: Bool
     let openLogsWindow: Bool
+    let openAnalysisRunsWindow: Bool
+    let seedUITestData: Bool
     let supportDirectory: URL?
     let userDefaultsSuiteName: String?
     let keychainService: String?
@@ -41,8 +44,11 @@ private struct AppLaunchConfiguration {
             isUnitTesting: isUnitTesting,
             disableBackgroundServices: isUITesting || isUnitTesting || arguments.contains("--deskbrief-disable-background-services"),
             openSettingsWindow: arguments.contains("--deskbrief-open-settings"),
+            openSettingsGeneralTab: arguments.contains("--deskbrief-open-settings-general"),
             openReportsWindow: arguments.contains("--deskbrief-open-reports"),
             openLogsWindow: arguments.contains("--deskbrief-open-logs"),
+            openAnalysisRunsWindow: arguments.contains("--deskbrief-open-analysis-runs"),
+            seedUITestData: arguments.contains("--deskbrief-seed-ui-test-data"),
             supportDirectory: supportDirectory,
             userDefaultsSuiteName: environment["DESKBRIEF_UI_TEST_DEFAULTS_SUITE"],
             keychainService: environment["DESKBRIEF_UI_TEST_KEYCHAIN_SERVICE"]
@@ -124,7 +130,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             return
         }
 
-        let keychain = KeychainStore(service: launchConfiguration.keychainService ?? Bundle.main.bundleIdentifier ?? "DeskBrief")
+        let keychain: KeychainStoring = launchConfiguration.isUITesting
+            ? InMemoryKeychainStore()
+            : KeychainStore(service: launchConfiguration.keychainService ?? Bundle.main.bundleIdentifier ?? "DeskBrief")
         NSApp.setActivationPolicy(launchConfiguration.isUITesting ? .regular : .accessory)
         if !launchConfiguration.isUITesting {
             terminateOtherRunningInstances()
@@ -186,7 +194,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private func initializeServices(
         database: AppDatabase,
         launchConfiguration: AppLaunchConfiguration,
-        keychain: KeychainStore
+        keychain: KeychainStoring
     ) {
         let logStore = AppLogStore(database: database)
         let userDefaults = launchConfiguration.userDefaultsSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
@@ -226,6 +234,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             logStore: logStore,
             backgroundServicesEnabled: !launchConfiguration.disableBackgroundServices
         )
+
+        if launchConfiguration.seedUITestData {
+            seedUITestData(database: database, logStore: logStore)
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -291,7 +303,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private func recoverEncryptedDatabase(
         for launchConfiguration: AppLaunchConfiguration,
-        keychain: KeychainStore
+        keychain: KeychainStoring
     ) throws -> AppDatabase {
         let databaseURL = try databaseURL(for: launchConfiguration)
         let passphraseStore = DatabasePassphraseStore(keychain: keychain)
@@ -410,7 +422,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
 
         if launchConfiguration.openSettingsWindow {
-            openSettings()
+            openSettingsWindow(initialTab: .screenshotAnalysis)
+        }
+        if launchConfiguration.openSettingsGeneralTab {
+            openSettingsWindow(initialTab: .general)
         }
         if launchConfiguration.openReportsWindow {
             openReports()
@@ -418,6 +433,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if launchConfiguration.openLogsWindow {
             openLogs()
         }
+        if launchConfiguration.openAnalysisRunsWindow {
+            openAnalysisRuns()
+        }
+    }
+
+    private func seedUITestData(database: AppDatabase, logStore: AppLogStore) {
+        do {
+            let runID = try database.createAnalysisRun(
+                modelName: "ui-test-model-with-long-name-for-horizontal-scroll",
+                totalItems: 3
+            )
+            try database.finishAnalysisRun(
+                id: runID,
+                status: "partial_failed",
+                successCount: 2,
+                failureCount: 1,
+                inputMeanTokens: 1200,
+                inputMaxTokens: 1800,
+                outputMeanTokens: 320,
+                outputMaxTokens: 640,
+                averageItemDurationSeconds: 4.2,
+                errorMessage: "ui test long analysis error message"
+            )
+            let summaryRunID = try database.createSummaryRun(
+                modelName: "ui-test-summary-model",
+                totalItems: 1,
+                analysisRunID: runID
+            )
+            try database.finishSummaryRun(
+                id: summaryRunID,
+                status: "succeeded",
+                successCount: 1,
+                failureCount: 0,
+                inputMeanTokens: 800,
+                inputMaxTokens: 900,
+                outputMeanTokens: 180,
+                outputMaxTokens: 220,
+                averageItemDurationSeconds: 2.5
+            )
+        } catch {
+            logStore.addError(source: .app, context: "Failed to seed UI test analysis run", error: error)
+        }
+
+        logStore.add(level: .log, source: .app, message: "ui test log message")
+        logStore.add(level: .error, source: .app, message: "ui test error message")
     }
 
     private func setupStatusItem() {
@@ -595,6 +655,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     @objc private func openSettings() {
+        openSettingsWindow(initialTab: .screenshotAnalysis)
+    }
+
+    private func openSettingsWindow(initialTab: SettingsTab) {
         guard let settingsStore, let screenshotService, let analysisService, let dailyReportSummaryService, let logStore else { return }
         if let window = settingsWindow {
             activateAndShow(window)
@@ -609,7 +673,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 analysisService: analysisService,
                 dailyReportSummaryService: dailyReportSummaryService,
                 windowState: windowState,
-                logStore: logStore
+                logStore: logStore,
+                selectedTab: initialTab
             )
         )
         let window = NSWindow(contentViewController: controller)

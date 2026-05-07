@@ -9,6 +9,12 @@ final class SettingsWindowState: ObservableObject {
     @Published var discardUnsavedDatabasePassphrase = false
 }
 
+enum SettingsTab: Hashable {
+    case screenshotAnalysis
+    case workContentSummary
+    case general
+}
+
 struct SettingsView: View {
     private enum ModelCopyDestination: String, Identifiable {
         case workContentSummary
@@ -81,8 +87,27 @@ struct SettingsView: View {
     @State private var pendingModelCopyDestination: ModelCopyDestination?
     @State private var pendingDatabasePassphrase = ""
     @State private var pendingDatabaseEncryptionAction: DatabaseEncryptionAction?
+    @State private var selectedTab: SettingsTab
 
     @State private var showIntervalTooltip = false
+
+    init(
+        settingsStore: SettingsStore,
+        screenshotService: ScreenshotService,
+        analysisService: AnalysisService,
+        dailyReportSummaryService: DailyReportSummaryService,
+        windowState: SettingsWindowState,
+        logStore: AppLogStore?,
+        selectedTab: SettingsTab = .screenshotAnalysis
+    ) {
+        self.settingsStore = settingsStore
+        self.screenshotService = screenshotService
+        self.analysisService = analysisService
+        self.dailyReportSummaryService = dailyReportSummaryService
+        self.windowState = windowState
+        self.logStore = logStore
+        _selectedTab = State(initialValue: selectedTab)
+    }
 
     private var language: AppLanguage {
         settingsStore.appLanguage
@@ -109,15 +134,18 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             screenshotAnalysisTab
                 .tabItem { Text(text(.settingsTabScreenshotAnalysis)) }
+                .tag(SettingsTab.screenshotAnalysis)
 
             workContentSummaryTab
                 .tabItem { Text(text(.settingsTabWorkContentSummary)) }
+                .tag(SettingsTab.workContentSummary)
 
             generalTab
                 .tabItem { Text(text(.settingsTabGeneral)) }
+                .tag(SettingsTab.general)
         }
         .accessibilityIdentifier("settings.root")
         .padding(20)
@@ -976,6 +1004,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
             Text(text(.settingsGeneralTitle))
                 .font(.title2.weight(.semibold))
+                .accessibilityIdentifier("settings.tab.general")
 
             VStack(alignment: .leading, spacing: 0) {
                 proportionalFieldRow(text(.settingsLanguage), tooltip: text(.settingsLanguageTooltip)) { fieldWidth in
@@ -1016,7 +1045,6 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, Layout.tabHorizontalPadding)
         .padding(.vertical, Layout.tabVerticalPadding)
-        .accessibilityIdentifier("settings.tab.general")
     }
 
     private var databaseSettingsSection: some View {
@@ -1034,8 +1062,17 @@ struct SettingsView: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .accessibilityLabel(text(.settingsDatabaseEncryption))
+                    .accessibilityIdentifier("settings.databaseEncryptionToggle")
                 }
                 .frame(width: fieldWidth, alignment: .trailing)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    handleDatabaseEncryptionToggle(!settingsStore.databaseEncryptionEnabled)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(text(.settingsDatabaseEncryption))
+                .accessibilityIdentifier("settings.databaseEncryptionToggle")
+                .accessibilityValue(settingsStore.databaseEncryptionEnabled ? "On" : "Off")
             }
 
             if settingsStore.databaseEncryptionEnabled {

@@ -143,3 +143,30 @@ nonisolated final class KeychainStore: KeychainStoring {
         return .failure(account: account, operation: .update, status: status)
     }
 }
+
+nonisolated final class InMemoryKeychainStore: KeychainStoring {
+    private let lock = NSLock()
+    private var values: [String: String] = [:]
+
+    func readString(for account: String) -> KeychainReadResult {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let value = values[account] else {
+            return .notFound(account: account)
+        }
+        return .success(account: account, value: value)
+    }
+
+    @discardableResult
+    func set(_ value: String, for account: String) -> KeychainWriteResult {
+        lock.lock()
+        defer { lock.unlock() }
+        if value.isEmpty {
+            values.removeValue(forKey: account)
+            return .success(account: account, operation: .delete)
+        }
+        let operation: KeychainWriteOperation = values[account] == nil ? .add : .update
+        values[account] = value
+        return .success(account: account, operation: operation)
+    }
+}

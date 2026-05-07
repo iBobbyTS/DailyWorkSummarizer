@@ -18,7 +18,9 @@ struct AppLogsView: View {
         VStack(spacing: 16) {
             Picker("", selection: $selectedFilter) {
                 ForEach(AppLogFilter.allCases) { filter in
-                    Text(filter.title(in: language)).tag(filter)
+                    Text(filter.title(in: language))
+                        .tag(filter)
+                        .accessibilityIdentifier("logs.filter.\(filter.rawValue)")
                 }
             }
             .pickerStyle(.segmented)
@@ -79,6 +81,7 @@ struct AppLogsView: View {
                     logStore.removeAll()
                 }
                 .disabled(logStore.entries.isEmpty)
+                .accessibilityIdentifier("logs.clearAllButton")
             }
         }
         .accessibilityIdentifier("logs.root")

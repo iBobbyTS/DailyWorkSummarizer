@@ -59,60 +59,20 @@ final class AnalysisRunsViewModel: ObservableObject {
     }
 }
 
-private struct WeightedColumnLayout: Layout {
-    let weights: [CGFloat]
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let totalWidth = proposal.width ?? 0
-        let widths = computeWidths(total: totalWidth)
-        var maxHeight: CGFloat = 0
-        for (index, subview) in subviews.enumerated() {
-            let size = subview.sizeThatFits(.init(width: widths[index], height: nil))
-            maxHeight = max(maxHeight, size.height)
-        }
-        return CGSize(width: totalWidth, height: maxHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let totalWidth = bounds.width
-        let widths = computeWidths(total: totalWidth)
-        var x: CGFloat = bounds.minX
-        for (index, subview) in subviews.enumerated() {
-            let w = widths[index]
-            subview.place(
-                at: CGPoint(x: x, y: bounds.minY),
-                anchor: .topLeading,
-                proposal: .init(width: w, height: nil)
-            )
-            x += w
-        }
-    }
-
-    private func computeWidths(total: CGFloat) -> [CGFloat] {
-        weights.map { max($0 * total, 50) }
-    }
-}
-
 struct AnalysisRunsView: View {
     @ObservedObject var viewModel: AnalysisRunsViewModel
 
-    private let columnWeights: [CGFloat] = [
-        100 / 910,
-        140 / 910,
-        70 / 910,
-        80 / 910,
-        90 / 910,
-        90 / 910,
-        100 / 910,
-        100 / 910,
-        140 / 910,
+    private let columnWidths: [CGFloat] = [
+        126,
+        190,
+        86,
+        94,
+        116,
+        116,
+        126,
+        126,
+        280,
     ]
-
-    private let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MM/dd HH:mm"
-        return f
-    }()
 
     private let durationFormatter: NumberFormatter = {
         let f = NumberFormatter()
@@ -135,10 +95,13 @@ struct AnalysisRunsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VStack(spacing: 0) {
-                    headerRow
-                    Divider()
-                    ScrollView([.vertical]) {
-                        rows
+                    ScrollView([.horizontal, .vertical]) {
+                        VStack(spacing: 0) {
+                            headerRow
+                            Divider()
+                            rows
+                        }
+                        .frame(width: tableWidth, alignment: .leading)
                     }
                 }
                 .font(.system(size: 12))
@@ -150,28 +113,33 @@ struct AnalysisRunsView: View {
         .onAppear { viewModel.reload() }
     }
 
+    private var tableWidth: CGFloat {
+        columnWidths.reduce(0, +)
+    }
+
     private var headerRow: some View {
-        WeightedColumnLayout(weights: columnWeights) {
-            headerCell(L10n.string(.analysisRunsColumnTime, language: viewModel.language))
-            headerCell(L10n.string(.analysisRunsColumnModel, language: viewModel.language))
-            headerCell(L10n.string(.analysisRunsColumnStatus, language: viewModel.language))
-            headerCell(L10n.string(.analysisRunsColumnSuccess, language: viewModel.language))
-            headerCell(L10n.string(.analysisRunsColumnAnalysisDuration, language: viewModel.language))
-            headerCell(L10n.string(.analysisRunsColumnSummaryDuration, language: viewModel.language))
-            headerCell(L10n.string(.analysisRunsColumnAnalysisTokens, language: viewModel.language))
-            headerCell(L10n.string(.analysisRunsColumnSummaryTokens, language: viewModel.language))
-            headerCell(L10n.string(.analysisRunsColumnError, language: viewModel.language))
+        HStack(spacing: 0) {
+            headerCell(L10n.string(.analysisRunsColumnTime, language: viewModel.language), width: columnWidths[0])
+            headerCell(L10n.string(.analysisRunsColumnModel, language: viewModel.language), width: columnWidths[1])
+            headerCell(L10n.string(.analysisRunsColumnStatus, language: viewModel.language), width: columnWidths[2])
+            headerCell(L10n.string(.analysisRunsColumnSuccess, language: viewModel.language), width: columnWidths[3])
+            headerCell(L10n.string(.analysisRunsColumnAnalysisDuration, language: viewModel.language), width: columnWidths[4])
+            headerCell(L10n.string(.analysisRunsColumnSummaryDuration, language: viewModel.language), width: columnWidths[5])
+            headerCell(L10n.string(.analysisRunsColumnAnalysisTokens, language: viewModel.language), width: columnWidths[6])
+            headerCell(L10n.string(.analysisRunsColumnSummaryTokens, language: viewModel.language), width: columnWidths[7])
+            headerCell(L10n.string(.analysisRunsColumnError, language: viewModel.language), width: columnWidths[8])
         }
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private func headerCell(_ title: String) -> some View {
+    private func headerCell(_ title: String, width: CGFloat) -> some View {
         Text(title)
             .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .lineLimit(2)
             .padding(.horizontal, 6)
             .padding(.vertical, 8)
+            .frame(width: width, alignment: .leading)
     }
 
     private var rows: some View {
@@ -185,26 +153,27 @@ struct AnalysisRunsView: View {
 
     private func rowContent(for run: AnalysisRunRecord) -> some View {
         let summaryRun = viewModel.summaryRunsByAnalysisID[run.id]
-        return WeightedColumnLayout(weights: columnWeights) {
-            cell(dateFormatter.string(from: run.createdAt))
-            cell(run.modelName)
-            cell(statusText(run.status))
-            cell("\(run.successCount)/\(run.failureCount)")
-            cell(durationText(run.averageItemDurationSeconds))
-            cell(durationText(summaryRun?.averageItemDurationSeconds))
-            cell(tokensText(avg: run.totalTokensAvg, max: run.totalTokensMax))
-            cell(tokensText(avg: summaryRun?.totalTokensAvg, max: summaryRun?.totalTokensMax))
-            cell(run.errorMessage)
+        return HStack(spacing: 0) {
+            cell(L10n.analysisRunTimeFormatter(language: viewModel.language).string(from: run.createdAt), width: columnWidths[0])
+            cell(run.modelName, width: columnWidths[1])
+            cell(statusText(run.status), width: columnWidths[2])
+            cell("\(run.successCount)/\(run.failureCount)", width: columnWidths[3])
+            cell(durationText(run.averageItemDurationSeconds), width: columnWidths[4])
+            cell(durationText(summaryRun?.averageItemDurationSeconds), width: columnWidths[5])
+            cell(tokensText(avg: run.totalTokensAvg, max: run.totalTokensMax), width: columnWidths[6])
+            cell(tokensText(avg: summaryRun?.totalTokensAvg, max: summaryRun?.totalTokensMax), width: columnWidths[7])
+            cell(run.errorMessage, width: columnWidths[8])
         }
-        .frame(maxWidth: .infinity)
     }
 
-    private func cell(_ text: String?) -> some View {
+    private func cell(_ text: String?, width: CGFloat) -> some View {
         Text(text ?? "—")
             .font(.system(size: 12))
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .lineLimit(2)
+            .truncationMode(.tail)
             .padding(.horizontal, 6)
             .padding(.vertical, 6)
+            .frame(width: width, alignment: .leading)
     }
 
     private func statusText(_ status: String) -> String {

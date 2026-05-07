@@ -5,9 +5,9 @@ protocol CredentialProviding: AnyObject, Sendable {
 }
 
 final class KeychainCredentialProvider: CredentialProviding {
-    private let keychain: KeychainStore
+    private let keychain: KeychainStoring
 
-    init(keychain: KeychainStore) {
+    init(keychain: KeychainStoring) {
         self.keychain = keychain
     }
 

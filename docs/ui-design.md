@@ -88,6 +88,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - The Analysis Runs window is opened from a dedicated menu item below Show Logs, maintaining menu bar consistency with the existing logs and reports entry points.
 - The view uses a dense scrollable table (horizontal + vertical) with fixed-width columns so all columns remain readable at typical window sizes.
 - Column order matches the data priority: time, model, status, success/failure, analysis duration, summary duration, analysis tokens, summary tokens, and error.
+- Time cells use the app language's localized short date/time order instead of a hard-coded numeric pattern.
 - Summary-related columns (summary duration, summary tokens) display linked `summary_runs` data when the summary run was triggered by that analysis run. If no summary run is linked, the cell shows an em dash (`—`).
 - The Auto-Refresh behavior relies on `appDatabaseDidChange` notifications so the table stays current without polling.
 

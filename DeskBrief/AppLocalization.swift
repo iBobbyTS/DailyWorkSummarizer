@@ -1064,6 +1064,10 @@ nonisolated enum L10n {
         dateFormatter(template: "yMdHm", language: language, timeZone: .current)
     }
 
+    static func analysisRunTimeFormatter(language: AppLanguage = .current) -> DateFormatter {
+        dateFormatter(template: "MdHm", language: language, timeZone: .current)
+    }
+
     static func timestampFormatter(language: AppLanguage = .current) -> DateFormatter {
         let formatter = DateFormatter()
         formatter.locale = language.locale

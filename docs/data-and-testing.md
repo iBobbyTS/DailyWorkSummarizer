@@ -165,7 +165,7 @@ xcodebuild build \
 - When settings-model fields change, hand-written test initializers are a common failure point.
 - `DeskBriefTests` is one serialized Swift Testing suite split across themed `extension DeskBriefTests` files. Shared fixtures, mock sessions, low-level SQLite inspection helpers, and `MockURLProtocol` live in `TestSupport.swift`.
 - Memory-backed pending screenshots exist only during process lifetime, so tests that exercise the memory storage path must create `PendingScreenshot` values directly in `PendingScreenshotStore` rather than writing files to the screenshots directory. On tear-down, the store is cleared and no cleanup of the filesystem screenshot directory is needed for the memory path.
-- `DeskBriefUITests` uses `--deskbrief-ui-testing` plus isolated support directory, UserDefaults suite, and Keychain service environment variables. That launch mode disables background services and supports hooks for opening settings, reports, and logs windows, so smoke tests do not touch real user data.
+- `DeskBriefUITests` uses `--deskbrief-ui-testing` plus isolated support directory, UserDefaults suite, and Keychain service environment variables. That launch mode disables background services and supports hooks for opening settings, reports, logs, and analysis-runs windows. UI tests can add `--deskbrief-seed-ui-test-data` to populate isolated analysis-run and log records without touching real user data.
 - UI launch performance uses `XCTClockMetric` with explicit app termination between iterations to avoid flaky missing launch metrics for a menu-bar accessory app.
 
 ## Useful inspection commands

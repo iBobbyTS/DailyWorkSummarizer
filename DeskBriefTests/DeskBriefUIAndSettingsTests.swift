@@ -34,6 +34,23 @@ extension DeskBriefTests {
         #expect(L10n.reportDayDisplayText(for: dayStart, language: .english) == "Apr 27, 2026·Monday")
     }
 
+    @Test func analysisRunTimeFormatterUsesLocalizedDateOrder() async throws {
+        let date = makeScreenshotDate(year: 2026, month: 4, day: 27, hour: 9, minute: 5)
+
+        #expect(L10n.analysisRunTimeFormatter(language: .simplifiedChinese).string(from: date) == "4/27 09:05")
+        #expect(L10n.analysisRunTimeFormatter(language: .english).string(from: date) == "4/27, 09:05")
+    }
+
+    @Test func inMemoryKeychainStoreSupportsUITestCredentialFlow() async throws {
+        let keychain = InMemoryKeychainStore()
+
+        #expect(keychain.readString(for: "database-passphrase.main") == .notFound(account: "database-passphrase.main"))
+        #expect(keychain.set("test-passphrase", for: "database-passphrase.main").isSuccess)
+        #expect(keychain.readString(for: "database-passphrase.main") == .success(account: "database-passphrase.main", value: "test-passphrase"))
+        #expect(keychain.set("", for: "database-passphrase.main").isSuccess)
+        #expect(keychain.readString(for: "database-passphrase.main") == .notFound(account: "database-passphrase.main"))
+    }
+
     @Test func legendHoverRectsBridgeRowsWithoutCoveringTrailingEmptySpace() async throws {
         let rects = LegendHoverGeometry.hoverRects(for: [
             CGRect(x: 90, y: 0, width: 70, height: 30),
