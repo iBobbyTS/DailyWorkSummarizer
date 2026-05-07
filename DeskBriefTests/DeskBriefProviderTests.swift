@@ -623,6 +623,23 @@ extension DeskBriefTests {
         #expect(MockURLProtocol.requestCount == 0)
     }
 
+    @Test func keychainCredentialProviderPropagatesMalformedAPIKey() async throws {
+        let keychain = FakeKeychainStore(queuedReadResults: [
+            .malformedData(account: AppDefaults.apiKeyAccount)
+        ])
+        let provider = KeychainCredentialProvider(keychain: keychain)
+
+        do {
+            _ = try provider.apiKey(for: AppDefaults.apiKeyAccount)
+            Issue.record("Expected malformed API key error")
+        } catch let error as KeychainReadError {
+            #expect(error.result == .malformedData(account: AppDefaults.apiKeyAccount))
+            #expect(error.localizedDescription.contains("not valid UTF-8"))
+        } catch {
+            Issue.record("Expected malformed API key error, got \(error)")
+        }
+    }
+
     @Test func nextAnalysisDateFallsToTomorrowWhenTodayIsMissed() async throws {
         var calendar = Calendar.reportCalendar
         calendar.timeZone = TimeZone(identifier: "America/Edmonton") ?? .current

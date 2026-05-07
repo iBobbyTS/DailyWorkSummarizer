@@ -38,6 +38,7 @@ nonisolated enum KeychainReadResult: Equatable {
     case success(account: String, value: String)
     case notFound(account: String)
     case failure(account: String, status: OSStatus)
+    case malformedData(account: String)
 
     var value: String? {
         guard case .success(_, let value) = self else {
@@ -46,11 +47,15 @@ nonisolated enum KeychainReadResult: Equatable {
         return value
     }
 
-    var statusDescription: String? {
-        guard case .failure(_, let status) = self else {
+    var failureDescription: String? {
+        switch self {
+        case .failure(_, let status):
+            return SecCopyErrorMessageString(status, nil) as String? ?? "OSStatus \(status)"
+        case .malformedData:
+            return "Keychain item data is not valid UTF-8"
+        case .success, .notFound:
             return nil
         }
-        return SecCopyErrorMessageString(status, nil) as String? ?? "OSStatus \(status)"
     }
 }
 
@@ -58,10 +63,14 @@ nonisolated struct KeychainReadError: LocalizedError {
     let result: KeychainReadResult
 
     var errorDescription: String? {
-        guard case .failure(let account, _) = result else {
+        switch result {
+        case .failure(let account, _):
+            return "Keychain read failed for \(account): \(result.failureDescription ?? "unknown error")"
+        case .malformedData(let account):
+            return "Keychain read failed for \(account): \(result.failureDescription ?? "unknown error")"
+        case .success, .notFound:
             return nil
         }
-        return "Keychain read failed for \(account): \(result.statusDescription ?? "unknown error")"
     }
 }
 
@@ -98,10 +107,14 @@ nonisolated final class KeychainStore: KeychainStoring {
         if status == errSecItemNotFound {
             return .notFound(account: account)
         }
-        guard status == errSecSuccess, let data = item as? Data else {
+        guard status == errSecSuccess else {
             return .failure(account: account, status: status)
         }
-        return .success(account: account, value: String(data: data, encoding: .utf8) ?? "")
+        guard let data = item as? Data,
+              let value = String(data: data, encoding: .utf8) else {
+            return .malformedData(account: account)
+        }
+        return .success(account: account, value: value)
     }
 
     @discardableResult

@@ -38,6 +38,8 @@ enum DatabaseError: LocalizedError, Equatable {
         switch self {
         case .missingPassphrase, .invalidPassphrase, .encryptedDatabaseUnreadable:
             return true
+        case .keychainReadFailed(.malformedData):
+            return true
         case .openDatabase, .keychainReadFailed, .keychainWriteFailed, .databaseStateRestoreFailed, .prepareStatement, .execute:
             return false
         }
@@ -472,11 +474,13 @@ struct DatabasePassphraseStore {
     func load() throws -> DatabasePassphrase? {
         switch keychain.readString(for: Self.account) {
         case .success(_, let value):
-            return try? DatabasePassphrase(value)
+            return try DatabasePassphrase(value)
         case .notFound:
             return nil
         case .failure(let account, let status):
             throw DatabaseError.keychainReadFailed(.failure(account: account, status: status))
+        case .malformedData(let account):
+            throw DatabaseError.keychainReadFailed(.malformedData(account: account))
         }
     }
 

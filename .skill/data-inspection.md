@@ -38,6 +38,7 @@
   - 数据库：service `com.iBobby.DeskBrief`，account `database-passphrase.main`
   - 截屏分析：`model-api-key.screenshot-analysis`
   - 工作内容总结：`model-api-key.work-content-summary`
+  - Keychain item 必须能按 UTF-8 解码；读到无法解码的 Data 时按凭据损坏处理，不要当作缺失密钥或空 API key。
 
 数据库检查注意：
 

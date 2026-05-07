@@ -256,6 +256,16 @@ extension DeskBriefTests {
         #expect(L10n.string(.alertDatabasePassphraseInvalidMessage, language: .simplifiedChinese).contains("数据库文件无法读取"))
         #expect(L10n.string(.alertDatabasePassphraseInvalidMessage, language: .english).contains("database file could not be read"))
         #expect(L10n.string(
+            .settingsKeychainLoadFailedMessage,
+            language: .simplifiedChinese,
+            arguments: ["截屏分析", "not valid UTF-8"]
+        ).contains("重新保存"))
+        #expect(L10n.string(
+            .settingsKeychainLoadFailedMessage,
+            language: .english,
+            arguments: ["Screenshot Analysis", "not valid UTF-8"]
+        ).contains("save that key again"))
+        #expect(L10n.string(
             .alertDatabasePassphraseInvalidRetryMessage,
             language: .simplifiedChinese,
             arguments: ["SQLITE_NOTADB"]
@@ -373,6 +383,21 @@ extension DeskBriefTests {
         #expect(alert.informativeText.contains("database file could not be read"))
         #expect(alert.informativeText.contains("SQLITE_NOTADB"))
         #expect(alert.buttons.map(\.title) == ["Enter Key", "Delete Database", "Quit"])
+    }
+
+    @MainActor
+    @Test func databaseRecoveryAlertShowsMalformedKeychainDetail() async throws {
+        let delegate = AppDelegate()
+        let error = DatabaseError.keychainReadFailed(.malformedData(account: AppDefaults.databasePassphraseAccount))
+
+        let alert = delegate.makeDatabaseRecoveryAlert(
+            messageKey: .alertDatabasePassphraseInvalidMessage,
+            detail: error.localizedDescription,
+            language: .english
+        )
+
+        #expect(alert.informativeText.contains(AppDefaults.databasePassphraseAccount))
+        #expect(alert.informativeText.contains("not valid UTF-8"))
     }
 
     @Test func summaryInstructionEditorKeepsTextAwayFromClippingEdge() async throws {
@@ -772,6 +797,37 @@ extension DeskBriefTests {
         #expect(keychain.string(for: AppDefaults.workContentSummaryAPIKeyAccount) == "work-key")
         #expect(alert.title == "Failed to Save API Key")
         #expect(alert.message.contains("Work Content Summary"))
+    }
+
+    @MainActor
+    @Test func settingsStoreLogsMalformedAPIKeyOnLoad() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        userDefaults.set(AppLanguage.english.rawValue, forKey: AppLanguage.userDefaultsKey)
+        let keychain = FakeKeychainStore(queuedReadResults: [
+            .malformedData(account: AppDefaults.apiKeyAccount),
+            .notFound(account: AppDefaults.workContentSummaryAPIKeyAccount)
+        ])
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let logStore = AppLogStore(database: database)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain, logStore: logStore)
+        let logs = try database.fetchAppLogs(limit: nil).map(\.message)
+        let alert = try #require(store.persistenceAlert)
+
+        #expect(store.apiKey.isEmpty)
+        #expect(alert.title == "Failed to Load API Key")
+        #expect(alert.message.contains("save that key again"))
+        #expect(alert.message.contains("not valid UTF-8"))
+        #expect(logs.contains { $0.contains("Failed to load API key for Screenshot Analysis") })
+        #expect(logs.contains { $0.contains("save that key again") })
+        #expect(logs.contains { $0.contains("not valid UTF-8") })
     }
 
     @Test func analysisPromptIncludesSummaryInstructionAndJSONContract() async throws {

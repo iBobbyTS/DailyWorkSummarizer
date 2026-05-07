@@ -66,6 +66,22 @@ private enum DatabaseRecoveryChoice {
     case quit
 }
 
+extension DatabasePassphraseStore {
+    func recoveryMessageKey(after initialError: DatabaseError) -> L10n.Key {
+        if case .missingPassphrase = initialError {
+            return .alertDatabasePassphraseMissingMessage
+        }
+
+        do {
+            return try load() == nil
+                ? .alertDatabasePassphraseMissingMessage
+                : .alertDatabasePassphraseInvalidMessage
+        } catch {
+            return .alertDatabasePassphraseInvalidMessage
+        }
+    }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
@@ -318,9 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     ) throws -> AppDatabase {
         let databaseURL = try databaseURL(for: launchConfiguration)
         let passphraseStore = DatabasePassphraseStore(keychain: keychain)
-        var messageKey: L10n.Key = (try passphraseStore.load()) == nil
-            ? .alertDatabasePassphraseMissingMessage
-            : .alertDatabasePassphraseInvalidMessage
+        var messageKey: L10n.Key = passphraseStore.recoveryMessageKey(after: initialError)
         var recoveryDetail: String? = initialError.localizedDescription
 
         while true {

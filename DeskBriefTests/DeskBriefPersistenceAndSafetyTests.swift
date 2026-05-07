@@ -190,6 +190,9 @@ extension DeskBriefTests {
         #expect(DatabaseError.encryptedDatabaseUnreadable("err").isDatabaseRecoveryCandidate)
         #expect(DatabaseError.keychainReadFailed(.failure(account: "a", status: -1)) == DatabaseError.keychainReadFailed(.failure(account: "a", status: -1)))
         #expect(DatabaseError.keychainReadFailed(.failure(account: "a", status: -1)) != DatabaseError.keychainReadFailed(.failure(account: "a", status: -2)))
+        #expect(DatabaseError.keychainReadFailed(.malformedData(account: "a")) == DatabaseError.keychainReadFailed(.malformedData(account: "a")))
+        #expect(DatabaseError.keychainReadFailed(.malformedData(account: "a")) != DatabaseError.keychainReadFailed(.malformedData(account: "b")))
+        #expect(DatabaseError.keychainReadFailed(.malformedData(account: "a")).isDatabaseRecoveryCandidate)
         #expect(DatabaseError.keychainWriteFailed(.failure(account: "a", operation: .update, status: -1)) == DatabaseError.keychainWriteFailed(.failure(account: "a", operation: .update, status: -1)))
         #expect(DatabaseError.databaseStateRestoreFailed(operation: "op", originalError: "a", restoreError: "b") == DatabaseError.databaseStateRestoreFailed(operation: "op", originalError: "a", restoreError: "b"))
         #expect(DatabaseError.databaseStateRestoreFailed(operation: "op", originalError: "a", restoreError: "b") != DatabaseError.databaseStateRestoreFailed(operation: "op", originalError: "a", restoreError: "c"))
@@ -502,6 +505,36 @@ extension DeskBriefTests {
         } catch {
             Issue.record("Expected keychain read failure, got \(error)")
         }
+    }
+
+    @Test func encryptedDatabasePropagatesMalformedKeychainPassphraseForExistingFile() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        let keychain = FakeKeychainStore()
+        _ = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
+        let malformedKeychain = FakeKeychainStore(queuedReadResults: [
+            .malformedData(account: AppDefaults.databasePassphraseAccount)
+        ])
+
+        do {
+            _ = try AppDatabase(databaseURL: databaseURL, keychain: malformedKeychain, encryptionEnabled: true)
+            Issue.record("Expected malformed keychain passphrase")
+        } catch DatabaseError.keychainReadFailed(let result) {
+            #expect(result == .malformedData(account: AppDefaults.databasePassphraseAccount))
+        } catch {
+            Issue.record("Expected malformed keychain passphrase, got \(error)")
+        }
+    }
+
+    @Test func malformedKeychainPassphraseUsesInvalidRecoveryMessage() async throws {
+        let keychain = FakeKeychainStore(queuedReadResults: [
+            .malformedData(account: AppDefaults.databasePassphraseAccount)
+        ])
+        let store = DatabasePassphraseStore(keychain: keychain)
+        let error = DatabaseError.keychainReadFailed(.malformedData(account: AppDefaults.databasePassphraseAccount))
+
+        #expect(store.recoveryMessageKey(after: error) == .alertDatabasePassphraseInvalidMessage)
     }
 
     @Test func encryptedDatabaseRejectsWrongPassphrase() async throws {

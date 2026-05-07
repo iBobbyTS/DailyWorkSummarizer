@@ -263,6 +263,11 @@ final class SettingsStore: ObservableObject {
     private var isRollingBackScreenshotAPIKey = false
     private var isRollingBackWorkContentSummaryAPIKey = false
 
+    private struct LoadedAPIKey {
+        let value: String
+        let alert: SettingsPersistenceAlert?
+    }
+
     init(
         database: AppDatabase,
         userDefaults: UserDefaults = .standard,
@@ -304,7 +309,13 @@ final class SettingsStore: ObservableObject {
         )
         let savedBaseURL = readString(key: Keys.apiBaseURL) ?? ""
         let savedModelName = readString(key: Keys.modelName) ?? ""
-        let savedAPIKey = keychain.string(for: AppDefaults.apiKeyAccount)
+        let savedAPIKey = Self.loadAPIKey(
+            from: keychain,
+            account: AppDefaults.apiKeyAccount,
+            profileName: L10n.string(.settingsTabScreenshotAnalysis, language: savedAppLanguage),
+            language: savedAppLanguage,
+            logStore: logStore
+        )
         let savedLMStudioContextLength: Int = read(key: Keys.lmStudioContextLength, fallback: AppDefaults.lmStudioContextLength)
 
         let savedScreenshotAnalysisLMStudioExplicitLoadUnloadModel: Bool = read(key: Keys.screenshotAnalysisLMStudioExplicitLoadUnloadModel, fallback: AppDefaults.lmStudioExplicitLoadUnloadModel)
@@ -321,7 +332,13 @@ final class SettingsStore: ObservableObject {
         )
         let savedWorkContentSummaryBaseURL = readString(key: Keys.workContentSummaryAPIBaseURL) ?? ""
         let savedWorkContentSummaryModelName = readString(key: Keys.workContentSummaryModelName) ?? ""
-        let savedWorkContentSummaryAPIKey = keychain.string(for: AppDefaults.workContentSummaryAPIKeyAccount)
+        let savedWorkContentSummaryAPIKey = Self.loadAPIKey(
+            from: keychain,
+            account: AppDefaults.workContentSummaryAPIKeyAccount,
+            profileName: L10n.string(.settingsTabWorkContentSummary, language: savedAppLanguage),
+            language: savedAppLanguage,
+            logStore: logStore
+        )
         let savedWorkContentSummaryLMStudioContextLength: Int = read(key: Keys.workContentSummaryLMStudioContextLength, fallback: AppDefaults.lmStudioContextLength)
         let savedWorkContentSummaryLMStudioExplicitLoadUnloadModel: Bool = read(key: Keys.workContentSummaryLMStudioExplicitLoadUnloadModel, fallback: AppDefaults.lmStudioExplicitLoadUnloadModel)
         let savedWorkContentSummaryMemoryCheckEnabled: Bool = read(key: Keys.workContentSummaryMemoryCheckEnabled, fallback: AppDefaults.memoryCheckEnabled)
@@ -347,14 +364,14 @@ final class SettingsStore: ObservableObject {
         provider = savedProvider
         apiBaseURL = savedBaseURL
         modelName = savedModelName
-        apiKey = savedAPIKey
+        apiKey = savedAPIKey.value
         lmStudioContextLength = max(4096, min(65536, savedLMStudioContextLength))
         screenshotAnalysisLMStudioExplicitLoadUnloadModel = savedScreenshotAnalysisLMStudioExplicitLoadUnloadModel
         imageAnalysisMethod = savedImageAnalysisMethod
         workContentSummaryProvider = savedWorkContentSummaryProvider
         workContentSummaryAPIBaseURL = savedWorkContentSummaryBaseURL
         workContentSummaryModelName = savedWorkContentSummaryModelName
-        workContentSummaryAPIKey = savedWorkContentSummaryAPIKey
+        workContentSummaryAPIKey = savedWorkContentSummaryAPIKey.value
         workContentSummaryLMStudioContextLength = max(4096, min(65536, savedWorkContentSummaryLMStudioContextLength))
         workContentSummaryLMStudioExplicitLoadUnloadModel = savedWorkContentSummaryLMStudioExplicitLoadUnloadModel
         screenshotAnalysisMemoryCheckEnabled = savedScreenshotAnalysisMemoryCheckEnabled
@@ -373,6 +390,7 @@ final class SettingsStore: ObservableObject {
         if savedRules.isEmpty || initialRules != categoryRules {
             persistCategoryRules(categoryRules, context: "Failed to initialize category rules")
         }
+        persistenceAlert = savedAPIKey.alert ?? savedWorkContentSummaryAPIKey.alert
     }
 
     var snapshot: AppSettingsSnapshot {
@@ -521,6 +539,13 @@ final class SettingsStore: ObservableObject {
                 error: KeychainReadError(result: .failure(account: account, status: status))
             )
             return ""
+        case .malformedData(let account):
+            logStore?.addError(
+                source: .settings,
+                context: "Failed to read current database passphrase",
+                error: KeychainReadError(result: .malformedData(account: account))
+            )
+            return ""
         }
     }
 
@@ -660,6 +685,48 @@ final class SettingsStore: ObservableObject {
                 arguments: [errorMessage]
             )
         )
+    }
+
+    private static func loadAPIKey(
+        from keychain: KeychainStoring,
+        account: String,
+        profileName: String,
+        language: AppLanguage,
+        logStore: AppLogStore?
+    ) -> LoadedAPIKey {
+        switch keychain.readString(for: account) {
+        case .success(_, let value):
+            return LoadedAPIKey(value: value, alert: nil)
+        case .notFound:
+            return LoadedAPIKey(value: "", alert: nil)
+        case .failure(let account, let status):
+            let result = KeychainReadResult.failure(account: account, status: status)
+            let alert = handleKeychainLoadFailure(result, profileName: profileName, language: language, logStore: logStore)
+            return LoadedAPIKey(value: "", alert: alert)
+        case .malformedData(let account):
+            let alert = handleKeychainLoadFailure(.malformedData(account: account), profileName: profileName, language: language, logStore: logStore)
+            return LoadedAPIKey(value: "", alert: alert)
+        }
+    }
+
+    private static func handleKeychainLoadFailure(
+        _ result: KeychainReadResult,
+        profileName: String,
+        language: AppLanguage,
+        logStore: AppLogStore?
+    ) -> SettingsPersistenceAlert {
+        let error = KeychainReadError(result: result)
+        let errorMessage = CredentialSanitizer.sanitizeForError(error.localizedDescription)
+        let title = L10n.string(.settingsKeychainLoadFailedTitle, language: language)
+        let message = L10n.string(
+            .settingsKeychainLoadFailedMessage,
+            language: language,
+            arguments: [profileName, errorMessage]
+        )
+        let alert = SettingsPersistenceAlert(title: title, message: message)
+        logStore?.addError(source: .settings, context: "Failed to load API key for \(profileName)", error: error)
+        logStore?.add(level: .error, source: .settings, message: alert.message)
+        return alert
     }
 
     private func handleKeychainWriteFailure(_ result: KeychainWriteResult, profileName: String) {

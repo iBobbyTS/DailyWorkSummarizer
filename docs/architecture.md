@@ -48,7 +48,7 @@ The app is centered around a small set of long-lived services created at launch 
 - `MenuBarApp` boots through `AppDelegate`.
 - The app reads `databaseEncryptionEnabled` from UserDefaults before opening the database. If the setting is missing, the default is `false` and `SettingsStore` writes that explicit value back after startup. When enabled, it loads or creates the database passphrase in Keychain and opens or creates the SQLCipher database. When disabled, it opens the same database file as plaintext SQLite and does not require the Keychain database passphrase.
 - Business persistence runs through GRDB `DatabaseQueue`, records, the Query Interface, and the schema builder after the database is opened. SQLCipher-specific SQL is kept in the database management path for passphrases, export, integrity checks, and file conversion.
-- If an existing encrypted database cannot be opened because the passphrase is missing or invalid, startup presents a recovery alert that can accept a manual key, delete only the database files, or quit.
+- If an existing encrypted database cannot be opened because the passphrase is missing, invalid, or stored in Keychain as malformed non-UTF-8 data, startup presents a recovery alert that includes the underlying detail and can accept a manual key, delete only the database files, or quit. Malformed Keychain data is shown as a credential problem rather than being collapsed into a missing-key state.
 - Settings are loaded from UserDefaults and Keychain.
 - Services are created and started.
 - The menu bar UI reflects pending screenshots, the single active run state, force-unload actions, and the log viewer entry point.
@@ -159,7 +159,7 @@ The app intentionally keeps two model profiles:
 This separation allows the app to use different providers, credentials, or model sizes for image-heavy analysis and text-only summarization.
 For LM Studio handoff, two profiles are considered the same loaded model only when their normalized chat endpoint, trimmed model name, and context length are equal. API keys are used for requests but are not part of the equivalence check.
 Each profile also carries its own LM Studio lifecycle toggle so the app can skip explicit load/unload calls when the model is already resident in the background.
-API key writes are treated as durable settings changes: `SettingsStore` records Keychain write or delete failures in `app_logs`, rolls the affected setting back to the last persisted value, and exposes a `SettingsPersistenceAlert` so `SettingsView` can block with a localized alert instead of letting the user leave with an unsaved credential.
+API key reads require valid UTF-8 Keychain data. Malformed or unreadable API key items are logged as settings errors, leave the visible settings field empty until the user saves the key again, and surface as Keychain read errors when runtime model requests resolve credentials from Keychain. API key writes are treated as durable settings changes: `SettingsStore` records Keychain write or delete failures in `app_logs`, rolls the affected setting back to the last persisted value, and exposes a `SettingsPersistenceAlert` so `SettingsView` can block with a localized alert instead of letting the user leave with an unsaved credential.
 
 ## State propagation
 

@@ -19,6 +19,8 @@ final class KeychainCredentialProvider: CredentialProviding {
             return ""
         case .failure(let account, let status):
             throw KeychainReadError(result: .failure(account: account, status: status))
+        case .malformedData(let account):
+            throw KeychainReadError(result: .malformedData(account: account))
         }
     }
 }
