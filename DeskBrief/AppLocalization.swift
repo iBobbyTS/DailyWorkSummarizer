@@ -1485,7 +1485,7 @@ nonisolated enum L10n {
 }
 
 extension UserDefaults {
-    func objectWithFallback(newKey: String, oldKey: String) -> Any? {
+    nonisolated func objectWithFallback(newKey: String, oldKey: String) -> Any? {
         if let value = object(forKey: newKey) {
             return value
         }

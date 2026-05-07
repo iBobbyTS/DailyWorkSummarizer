@@ -5,7 +5,7 @@ import SwiftUI
 
 @MainActor
 final class SettingsWindowState: ObservableObject {
-    @Published var hasUnsavedDatabasePassphrase = false
+    var hasUnsavedDatabasePassphrase = false
     @Published var discardUnsavedDatabasePassphrase = false
 }
 
@@ -154,7 +154,9 @@ struct SettingsView: View {
             guard shouldDiscard else { return }
             pendingDatabasePassphrase = ""
             windowState.hasUnsavedDatabasePassphrase = false
-            windowState.discardUnsavedDatabasePassphrase = false
+            DispatchQueue.main.async {
+                windowState.discardUnsavedDatabasePassphrase = false
+            }
         }
         .onDisappear {
             removePreviewFile()
@@ -1772,18 +1774,18 @@ private struct InfoTooltipButton: View {
     }
 
     private func parsedTooltip(_ raw: String) -> some View {
-        let parts = raw.components(separatedBy: "*")
-        var result = Text("")
-        for (i, part) in parts.enumerated() {
+        var result = AttributedString()
+        for (index, part) in raw.components(separatedBy: "*").enumerated() {
             guard !part.isEmpty else { continue }
-            if i.isMultiple(of: 2) {
-                result = result + Text(part)
-            } else {
-                result = result + Text(part).bold()
+            var segment = AttributedString(part)
+            if !index.isMultiple(of: 2) {
+                segment.font = .body.bold()
             }
+            result.append(segment)
         }
         return VStack(alignment: .leading, spacing: 8) {
-            result.fixedSize(horizontal: false, vertical: true)
+            Text(result)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding()
         .frame(width: 280)

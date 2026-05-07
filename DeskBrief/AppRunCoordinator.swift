@@ -1,6 +1,6 @@
 import Foundation
 
-enum AnalysisTrigger: Equatable {
+nonisolated enum AnalysisTrigger: Equatable {
     case manual
     case scheduled
     case realtime

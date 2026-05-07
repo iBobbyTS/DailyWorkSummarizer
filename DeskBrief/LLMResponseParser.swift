@@ -1,6 +1,6 @@
 import Foundation
 
-enum LLMResponseParser {
+nonisolated enum LLMResponseParser {
     static func responseCandidates(from rawText: String) -> [String] {
         let formalReply = extractFormalReply(from: rawText)
         let orderedCandidates = [formalReply, rawText]

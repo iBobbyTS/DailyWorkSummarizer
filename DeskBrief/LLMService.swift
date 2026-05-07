@@ -100,7 +100,7 @@ private final class LLMURLSessionDataTaskBox: @unchecked Sendable {
     private let lock = NSLock()
     private nonisolated(unsafe) var _task: URLSessionDataTask?
 
-    var task: URLSessionDataTask? {
+    nonisolated var task: URLSessionDataTask? {
         get { lock.withLock { _task } }
         set { lock.withLock { _task = newValue } }
     }
