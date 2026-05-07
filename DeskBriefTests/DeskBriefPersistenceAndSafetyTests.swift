@@ -164,6 +164,80 @@ extension DeskBriefTests {
         #expect(keychain.string(for: AppDefaults.databasePassphraseAccount).isEmpty)
     }
 
+    @Test func databaseSchemaInitializesCurrentVersionForNewDatabase() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        _ = try AppDatabase(databaseURL: databaseURL)
+
+        #expect(try fetchInt("PRAGMA user_version;", databaseURL: databaseURL) == Int(DatabaseSchema.currentVersion))
+        #expect(try columnNames(in: "summary_runs", databaseURL: databaseURL).contains("analysis_run_id"))
+    }
+
+    @Test func databaseSchemaAcceptsCompleteLegacyVersionZeroDatabaseAndSetsCurrentVersion() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        let legacyDatabase = try AppDatabase(databaseURL: databaseURL)
+        try legacyDatabase.insertAppLog(AppLogEntry(level: .log, source: .app, message: "legacy"))
+        try DatabaseSchema.setVersion(connection: legacyDatabase.connection, version: 0)
+
+        let reopened = try AppDatabase(databaseURL: databaseURL)
+        let logs = try reopened.fetchAppLogs(limit: nil)
+
+        #expect(logs.map(\.message) == ["legacy"])
+        #expect(try DatabaseSchema.loadVersion(connection: reopened.connection) == DatabaseSchema.currentVersion)
+    }
+
+    @Test func databaseSchemaRejectsFutureUserVersion() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        try DatabaseSchema.setVersion(connection: database.connection, version: DatabaseSchema.currentVersion + 1)
+
+        do {
+            _ = try AppDatabase(databaseURL: databaseURL)
+            Issue.record("Expected future database schema version to be rejected")
+        } catch DatabaseError.execute(let message) {
+            #expect(message.contains("unsupported database schema version"))
+        } catch {
+            Issue.record("Expected future database schema version error, got \(error)")
+        }
+    }
+
+    @Test func databaseSchemaRejectsLegacyDatabaseWithMissingRequiredColumn() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        do {
+            _ = try AppDatabase(databaseURL: databaseURL)
+        }
+        try executeSQLite(
+            """
+            ALTER TABLE app_logs RENAME TO app_logs_old;
+            CREATE TABLE app_logs (
+                id TEXT PRIMARY KEY,
+                created_at DOUBLE NOT NULL,
+                level TEXT NOT NULL,
+                source TEXT NOT NULL
+            );
+            DROP TABLE app_logs_old;
+            PRAGMA user_version = 0;
+            """,
+            databaseURL: databaseURL
+        )
+
+        do {
+            _ = try AppDatabase(databaseURL: databaseURL)
+            Issue.record("Expected incomplete legacy database schema to be rejected")
+        } catch DatabaseError.execute(let message) {
+            #expect(message.contains("missing columns message"))
+        } catch {
+            Issue.record("Expected missing column schema validation error, got \(error)")
+        }
+    }
+
     @Test func encryptedDatabaseCreatesAndReopensWithStoredPassphrase() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         defer { removeTemporaryDatabaseFiles(at: databaseURL) }
