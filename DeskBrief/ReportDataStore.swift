@@ -1,5 +1,5 @@
 import Foundation
-import SQLCipher
+import GRDB
 
 final class ReportDataStore: @unchecked Sendable {
     private let connection: DatabaseConnection
@@ -9,82 +9,52 @@ final class ReportDataStore: @unchecked Sendable {
     }
 
     func fetchCategoryRules() throws -> [CategoryRule] {
-        try connection.withLock { lock in
-            try lock.ensureTableExists("category_rules")
-            let stmt = try lock.prepareStatement("""
-                SELECT id, name, description, color_hex
-                FROM category_rules ORDER BY sort_order ASC;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            var result: [CategoryRule] = []
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                result.append(CategoryRule(
-                    id: UUID(uuidString: lock.string(at: 0, from: stmt)) ?? UUID(),
-                    name: lock.string(at: 1, from: stmt),
-                    description: lock.string(at: 2, from: stmt),
-                    colorHex: lock.string(at: 3, from: stmt)
-                ))
-            }
-            return result
+        try connection.read { db in
+            try ensureTableExists(CategoryRuleRow.databaseTableName, db: db)
+            return try CategoryRuleRow
+                .order(CategoryRuleRow.Columns.sortOrder)
+                .fetchAll(db)
+                .map { row in
+                    CategoryRule(
+                        id: UUID(uuidString: row.id) ?? UUID(),
+                        name: row.name,
+                        description: row.description,
+                        colorHex: row.colorHex
+                    )
+                }
         }
     }
 
     func replaceCategoryRules(_ rules: [CategoryRule]) throws {
-        try connection.withLock { lock in
-            try lock.beginTransaction()
-            do {
-                try lock.execute("DELETE FROM category_rules;")
-                let stmt = try lock.prepareStatement("""
-                    INSERT INTO category_rules (id, name, description, color_hex, sort_order)
-                    VALUES (?, ?, ?, ?, ?);
-                """)
-                defer { sqlite3_finalize(stmt) }
-
-                for (index, rule) in rules.enumerated() {
-                    sqlite3_reset(stmt)
-                    sqlite3_clear_bindings(stmt)
-                    try lock.bind(rule.id.uuidString, at: 1, to: stmt)
-                    try lock.bind(rule.name, at: 2, to: stmt)
-                    try lock.bind(rule.description, at: 3, to: stmt)
-                    try lock.bind(rule.colorHex, at: 4, to: stmt)
-                    sqlite3_bind_int64(stmt, 5, Int64(index))
-
-                    guard sqlite3_step(stmt) == SQLITE_DONE else {
-                        throw DatabaseError.execute("insert category_rule failed")
-                    }
-                }
-                try lock.commitTransaction()
-                postChangeNotification()
-            } catch {
-                let opError = error
-                do { try lock.rollbackTransaction() } catch {
-                    throw DatabaseError.execute(
-                        "transaction failed: \(String(describing: opError)); rollback failed: \(String(describing: error))"
-                    )
-                }
-                throw opError
+        try connection.write { db in
+            try CategoryRuleRow.deleteAll(db)
+            for (index, rule) in rules.enumerated() {
+                try CategoryRuleRow(
+                    id: rule.id.uuidString,
+                    name: rule.name,
+                    description: rule.description,
+                    colorHex: rule.colorHex,
+                    sortOrder: index
+                ).insert(db)
             }
+            postChangeNotification()
         }
     }
 
     func fetchDailyReport(for dayStart: Date) throws -> DailyReportRecord? {
-        try connection.withLock { lock in
-            let stmt = try lock.prepareStatement("""
-                SELECT day_start, daily_summary_text, category_summaries_json, is_temporary
-                FROM daily_reports WHERE day_start = ? LIMIT 1;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            sqlite3_bind_double(stmt, 1, dayStart.timeIntervalSince1970)
-
-            guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        try connection.read { db in
+            guard let row = try DailyReportRow
+                .filter(DailyReportRow.Columns.dayStart == dayStart.timeIntervalSince1970)
+                .limit(1)
+                .fetchOne(db) else {
+                return nil
+            }
 
             return DailyReportRecord(
-                dayStart: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 0)),
-                dailySummaryText: lock.string(at: 1, from: stmt),
-                categorySummaries: try decodeCategorySummaries(from: lock.string(at: 2, from: stmt)),
-                isTemporary: sqlite3_column_int64(stmt, 3) != 0
+                dayStart: Date(timeIntervalSince1970: row.dayStart),
+                dailySummaryText: row.dailySummaryText,
+                categorySummaries: try decodeCategorySummaries(from: row.categorySummariesJSON),
+                isTemporary: row.isTemporary != 0
             )
         }
     }
@@ -95,78 +65,59 @@ final class ReportDataStore: @unchecked Sendable {
         categorySummaries: [String: String],
         isTemporary: Bool = false
     ) throws {
-        try connection.withLock { lock in
-            let stmt = try lock.prepareStatement("""
-                INSERT INTO daily_reports (day_start, daily_summary_text, category_summaries_json, is_temporary)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(day_start) DO UPDATE SET
-                    daily_summary_text = excluded.daily_summary_text,
-                    category_summaries_json = excluded.category_summaries_json,
-                    is_temporary = excluded.is_temporary;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            sqlite3_bind_double(stmt, 1, dayStart.timeIntervalSince1970)
-            try lock.bind(dailySummaryText, at: 2, to: stmt)
-            try lock.bind(try encodeCategorySummaries(categorySummaries), at: 3, to: stmt)
-            sqlite3_bind_int64(stmt, 4, isTemporary ? 1 : 0)
-
-            guard sqlite3_step(stmt) == SQLITE_DONE else {
-                throw DatabaseError.execute("upsert daily_report failed")
+        try connection.write { db in
+            let dayStartValue = dayStart.timeIntervalSince1970
+            if let existing = try DailyReportRow
+                .filter(DailyReportRow.Columns.dayStart == dayStartValue)
+                .limit(1)
+                .fetchOne(db) {
+                try DailyReportRow
+                    .filter(DailyReportRow.Columns.id == existing.id)
+                    .updateAll(db, [
+                        DailyReportRow.Columns.dailySummaryText.set(to: dailySummaryText),
+                        DailyReportRow.Columns.categorySummariesJSON.set(to: try encodeCategorySummaries(categorySummaries)),
+                        DailyReportRow.Columns.isTemporary.set(to: isTemporary ? 1 : 0),
+                    ])
+            } else {
+                try DailyReportRow(
+                    id: nil,
+                    dayStart: dayStartValue,
+                    dailySummaryText: dailySummaryText,
+                    categorySummariesJSON: try encodeCategorySummaries(categorySummaries),
+                    isTemporary: isTemporary ? 1 : 0
+                ).insert(db)
             }
             postChangeNotification()
         }
     }
 
     func fetchDailyWorkBlockSummaries() throws -> [DailyWorkBlockSummaryRecord] {
-        try connection.withLock { lock in
-            try lock.ensureTableExists("daily_work_block_summaries")
-            let stmt = try lock.prepareStatement("""
-                SELECT id, category_name, start_at, end_at, summary_text
-                FROM daily_work_block_summaries
-                ORDER BY start_at ASC, end_at ASC, id ASC;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            var records: [DailyWorkBlockSummaryRecord] = []
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                records.append(DailyWorkBlockSummaryRecord(
-                    id: sqlite3_column_int64(stmt, 0),
-                    categoryName: lock.string(at: 1, from: stmt),
-                    startAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 2)),
-                    endAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3)),
-                    summaryText: lock.string(at: 4, from: stmt)
-                ))
-            }
-            return records
+        try connection.read { db in
+            try ensureTableExists(DailyWorkBlockSummaryRow.databaseTableName, db: db)
+            return try DailyWorkBlockSummaryRow
+                .order(
+                    DailyWorkBlockSummaryRow.Columns.startAt,
+                    DailyWorkBlockSummaryRow.Columns.endAt,
+                    DailyWorkBlockSummaryRow.Columns.id
+                )
+                .fetchAll(db)
+                .map(Self.dailyWorkBlockSummaryRecord)
         }
     }
 
     func fetchDailyWorkBlockSummaries(intersecting interval: DateInterval) throws -> [DailyWorkBlockSummaryRecord] {
-        try connection.withLock { lock in
-            try lock.ensureTableExists("daily_work_block_summaries")
-            let stmt = try lock.prepareStatement("""
-                SELECT id, category_name, start_at, end_at, summary_text
-                FROM daily_work_block_summaries
-                WHERE start_at < ? AND end_at > ?
-                ORDER BY start_at ASC, end_at ASC, id ASC;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            sqlite3_bind_double(stmt, 1, interval.end.timeIntervalSince1970)
-            sqlite3_bind_double(stmt, 2, interval.start.timeIntervalSince1970)
-
-            var records: [DailyWorkBlockSummaryRecord] = []
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                records.append(DailyWorkBlockSummaryRecord(
-                    id: sqlite3_column_int64(stmt, 0),
-                    categoryName: lock.string(at: 1, from: stmt),
-                    startAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 2)),
-                    endAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3)),
-                    summaryText: lock.string(at: 4, from: stmt)
-                ))
-            }
-            return records
+        try connection.read { db in
+            try ensureTableExists(DailyWorkBlockSummaryRow.databaseTableName, db: db)
+            return try DailyWorkBlockSummaryRow
+                .filter(DailyWorkBlockSummaryRow.Columns.startAt < interval.end.timeIntervalSince1970)
+                .filter(DailyWorkBlockSummaryRow.Columns.endAt > interval.start.timeIntervalSince1970)
+                .order(
+                    DailyWorkBlockSummaryRow.Columns.startAt,
+                    DailyWorkBlockSummaryRow.Columns.endAt,
+                    DailyWorkBlockSummaryRow.Columns.id
+                )
+                .fetchAll(db)
+                .map(Self.dailyWorkBlockSummaryRecord)
         }
     }
 
@@ -176,23 +127,28 @@ final class ReportDataStore: @unchecked Sendable {
         endAt: Date,
         summaryText: String
     ) throws {
-        try connection.withLock { lock in
-            let stmt = try lock.prepareStatement("""
-                INSERT INTO daily_work_block_summaries (category_name, start_at, end_at, summary_text)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(start_at, end_at) DO UPDATE SET
-                    category_name = excluded.category_name,
-                    summary_text = excluded.summary_text;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            try lock.bind(categoryName, at: 1, to: stmt)
-            sqlite3_bind_double(stmt, 2, startAt.timeIntervalSince1970)
-            sqlite3_bind_double(stmt, 3, endAt.timeIntervalSince1970)
-            try lock.bind(summaryText, at: 4, to: stmt)
-
-            guard sqlite3_step(stmt) == SQLITE_DONE else {
-                throw DatabaseError.execute("upsert daily_work_block_summary failed")
+        try connection.write { db in
+            let startValue = startAt.timeIntervalSince1970
+            let endValue = endAt.timeIntervalSince1970
+            if let existing = try DailyWorkBlockSummaryRow
+                .filter(DailyWorkBlockSummaryRow.Columns.startAt == startValue)
+                .filter(DailyWorkBlockSummaryRow.Columns.endAt == endValue)
+                .limit(1)
+                .fetchOne(db) {
+                try DailyWorkBlockSummaryRow
+                    .filter(DailyWorkBlockSummaryRow.Columns.id == existing.id)
+                    .updateAll(db, [
+                        DailyWorkBlockSummaryRow.Columns.categoryName.set(to: categoryName),
+                        DailyWorkBlockSummaryRow.Columns.summaryText.set(to: summaryText),
+                    ])
+            } else {
+                try DailyWorkBlockSummaryRow(
+                    id: nil,
+                    categoryName: categoryName,
+                    startAt: startValue,
+                    endAt: endValue,
+                    summaryText: summaryText
+                ).insert(db)
             }
             postChangeNotification()
         }
@@ -201,32 +157,22 @@ final class ReportDataStore: @unchecked Sendable {
     func deleteDailyWorkBlockSummaries(ids: [Int64]) throws {
         guard !ids.isEmpty else { return }
 
-        try connection.withLock { lock in
-            try lock.beginTransaction()
-            do {
-                let stmt = try lock.prepareStatement("DELETE FROM daily_work_block_summaries WHERE id = ?;")
-                defer { sqlite3_finalize(stmt) }
-
-                for id in ids {
-                    sqlite3_reset(stmt)
-                    sqlite3_clear_bindings(stmt)
-                    sqlite3_bind_int64(stmt, 1, id)
-                    guard sqlite3_step(stmt) == SQLITE_DONE else {
-                        throw DatabaseError.execute("delete daily_work_block_summary failed")
-                    }
-                }
-                try lock.commitTransaction()
-                postChangeNotification()
-            } catch {
-                let opError = error
-                do { try lock.rollbackTransaction() } catch {
-                    throw DatabaseError.execute(
-                        "transaction failed: \(String(describing: opError)); rollback failed: \(String(describing: error))"
-                    )
-                }
-                throw opError
-            }
+        try connection.write { db in
+            try DailyWorkBlockSummaryRow
+                .filter(ids.contains(DailyWorkBlockSummaryRow.Columns.id))
+                .deleteAll(db)
+            postChangeNotification()
         }
+    }
+
+    nonisolated private static func dailyWorkBlockSummaryRecord(_ row: DailyWorkBlockSummaryRow) -> DailyWorkBlockSummaryRecord {
+        DailyWorkBlockSummaryRecord(
+            id: row.id ?? 0,
+            categoryName: row.categoryName,
+            startAt: Date(timeIntervalSince1970: row.startAt),
+            endAt: Date(timeIntervalSince1970: row.endAt),
+            summaryText: row.summaryText
+        )
     }
 
     private func encodeCategorySummaries(_ value: [String: String]) throws -> String {
@@ -241,6 +187,12 @@ final class ReportDataStore: @unchecked Sendable {
             throw DatabaseError.execute("daily report category summaries are not valid UTF-8")
         }
         return try JSONDecoder().decode([String: String].self, from: data)
+    }
+
+    private func ensureTableExists(_ tableName: String, db: Database) throws {
+        guard try db.tableExists(tableName) else {
+            throw DatabaseError.prepareStatement("missing table \(tableName)")
+        }
     }
 
     private func postChangeNotification() {

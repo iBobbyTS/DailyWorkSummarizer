@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import SQLCipher
 
 enum DatabaseOpenMode: Equatable {
@@ -8,186 +9,107 @@ enum DatabaseOpenMode: Equatable {
 
 final class DatabaseConnection: @unchecked Sendable {
     let databaseURL: URL
-    private let queue = DispatchQueue(label: "DeskBrief.Database")
-    private(set) var handle: OpaquePointer?
+    private var dbQueue: DatabaseQueue
     private var openMode: DatabaseOpenMode
 
     init(databaseURL: URL, mode: DatabaseOpenMode) throws {
         self.databaseURL = databaseURL
         self.openMode = mode
-        self.handle = try Self.openHandle(databaseURL: databaseURL, mode: mode)
+        self.dbQueue = try Self.openQueue(databaseURL: databaseURL, mode: mode)
     }
 
     deinit {
-        queue.sync {
-            closeLocked()
-        }
+        try? dbQueue.close()
     }
 
-    func prepareStatement(_ sql: String) throws -> OpaquePointer? {
-        try queue.sync {
-            try prepareStatementLocked(sql)
-        }
+    func read<T>(_ block: (Database) throws -> T) throws -> T {
+        try dbQueue.read(block)
     }
 
-    func execute(_ sql: String) throws {
-        try queue.sync {
-            try executeLocked(sql)
-        }
+    func write<T>(_ block: (Database) throws -> T) throws -> T {
+        try dbQueue.write(block)
     }
 
-    func withLock<T>(_ block: (DatabaseLock) throws -> T) rethrows -> T {
-        try queue.sync {
-            try block(DatabaseLock(connection: self))
-        }
-    }
-
-    func lock() -> DatabaseLock {
-        DatabaseLock(connection: self)
+    func writeWithoutTransaction<T>(_ block: (Database) throws -> T) throws -> T {
+        try dbQueue.writeWithoutTransaction(block)
     }
 
     func rekey(to passphrase: DatabasePassphrase) throws {
-        try queue.sync {
-            try executeLocked("PRAGMA rekey = \(Self.sqlLiteral(passphrase.value));")
-            openMode = .encrypted(passphrase)
-            try validateReadableLocked()
+        try dbQueue.barrierWriteWithoutTransaction { db in
+            try db.changePassphrase(passphrase.value)
+            try Self.validateReadable(db)
         }
+        openMode = .encrypted(passphrase)
     }
 
     func exportDatabase(to targetURL: URL, mode targetMode: DatabaseOpenMode) throws {
-        try queue.sync {
-            try exportDatabaseLocked(to: targetURL, mode: targetMode)
+        try dbQueue.barrierWriteWithoutTransaction { db in
+            try exportDatabaseLocked(db: db, to: targetURL, mode: targetMode)
         }
     }
 
     func replaceDatabaseFile(with sourceURL: URL, reopenMode: DatabaseOpenMode) throws {
-        try queue.sync {
-            closeLocked()
-            let fileManager = FileManager.default
-            let backupURL = databaseURL.deletingLastPathComponent()
-                .appendingPathComponent("\(databaseURL.lastPathComponent).replace-backup-\(UUID().uuidString)")
+        try dbQueue.close()
+        let fileManager = FileManager.default
+        let backupURL = databaseURL.deletingLastPathComponent()
+            .appendingPathComponent("\(databaseURL.lastPathComponent).replace-backup-\(UUID().uuidString)")
 
-            if fileManager.fileExists(atPath: databaseURL.path) {
-                try fileManager.moveItem(at: databaseURL, to: backupURL)
-            }
-            for sidecarURL in AppDatabase.databaseSidecarURLs(for: databaseURL)
-                where fileManager.fileExists(atPath: sidecarURL.path) {
-                try fileManager.removeItem(at: sidecarURL)
-            }
-
-            do {
-                try fileManager.moveItem(at: sourceURL, to: databaseURL)
-                handle = try Self.openHandle(databaseURL: databaseURL, mode: reopenMode)
-                openMode = reopenMode
-                if fileManager.fileExists(atPath: backupURL.path) {
-                    try fileManager.removeItem(at: backupURL)
-                }
-            } catch {
-                if fileManager.fileExists(atPath: databaseURL.path) {
-                    try? fileManager.removeItem(at: databaseURL)
-                }
-                if fileManager.fileExists(atPath: backupURL.path) {
-                    try? fileManager.moveItem(at: backupURL, to: databaseURL)
-                }
-                handle = try? Self.openHandle(databaseURL: databaseURL, mode: openMode)
-                throw error
-            }
+        if fileManager.fileExists(atPath: databaseURL.path) {
+            try fileManager.moveItem(at: databaseURL, to: backupURL)
         }
-    }
-
-    func prepareStatementLocked(_ sql: String) throws -> OpaquePointer? {
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw DatabaseError.prepareStatement(errorMessage)
-        }
-        return statement
-    }
-
-    func executeLocked(_ sql: String) throws {
-        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
-            throw DatabaseError.execute(errorMessage)
-        }
-    }
-
-    func int64ValueLocked(_ sql: String) throws -> Int64 {
-        let stmt = try prepareStatementLocked(sql)
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_step(stmt) == SQLITE_ROW else {
-            throw DatabaseError.execute("expected row for \(sql)")
-        }
-        return sqlite3_column_int64(stmt, 0)
-    }
-
-    func stringValueLocked(_ sql: String) throws -> String {
-        let stmt = try prepareStatementLocked(sql)
-        defer { sqlite3_finalize(stmt) }
-        guard sqlite3_step(stmt) == SQLITE_ROW else {
-            throw DatabaseError.execute("expected row for \(sql)")
-        }
-        guard let text = sqlite3_column_text(stmt, 0) else {
-            return ""
-        }
-        return String(cString: text)
-    }
-
-    private static func openHandle(databaseURL: URL, mode: DatabaseOpenMode) throws -> OpaquePointer? {
-        var opened: OpaquePointer?
-        guard sqlite3_open(databaseURL.path, &opened) == SQLITE_OK else {
-            let message = opened.map { String(cString: sqlite3_errmsg($0)) } ?? "unknown error"
-            sqlite3_close(opened)
-            throw DatabaseError.openDatabase(message)
+        for sidecarURL in AppDatabase.databaseSidecarURLs(for: databaseURL)
+            where fileManager.fileExists(atPath: sidecarURL.path) {
+            try fileManager.removeItem(at: sidecarURL)
         }
 
         do {
-            if case .encrypted(let passphrase) = mode {
-                try applyPassphrase(passphrase, to: opened)
+            try fileManager.moveItem(at: sourceURL, to: databaseURL)
+            dbQueue = try Self.openQueue(databaseURL: databaseURL, mode: reopenMode)
+            openMode = reopenMode
+            if fileManager.fileExists(atPath: backupURL.path) {
+                try fileManager.removeItem(at: backupURL)
             }
-            try execute("PRAGMA foreign_keys = ON;", handle: opened)
-            try validateReadable(handle: opened)
-            return opened
         } catch {
-            sqlite3_close(opened)
+            if fileManager.fileExists(atPath: databaseURL.path) {
+                try? fileManager.removeItem(at: databaseURL)
+            }
+            if fileManager.fileExists(atPath: backupURL.path) {
+                try? fileManager.moveItem(at: backupURL, to: databaseURL)
+            }
+            dbQueue = try Self.openQueue(databaseURL: databaseURL, mode: openMode)
             throw error
         }
     }
 
-    private static func applyPassphrase(_ passphrase: DatabasePassphrase, to handle: OpaquePointer?) throws {
-        let bytes = Array(passphrase.value.utf8)
-        let rc = bytes.withUnsafeBufferPointer { buffer in
-            sqlite3_key(handle, buffer.baseAddress, Int32(buffer.count))
+    private static func openQueue(databaseURL: URL, mode: DatabaseOpenMode) throws -> DatabaseQueue {
+        var configuration = Configuration()
+        configuration.prepareDatabase { db in
+            if case .encrypted(let passphrase) = mode {
+                try db.usePassphrase(passphrase.value)
+            }
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+            try validateReadable(db)
         }
-        guard rc == SQLITE_OK else {
-            let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite key failed"
-            throw DatabaseError.invalidPassphrase(message)
-        }
-    }
 
-    private static func execute(_ sql: String, handle: OpaquePointer?) throws {
-        guard sqlite3_exec(handle, sql, nil, nil, nil) == SQLITE_OK else {
-            let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "database not open"
-            throw DatabaseError.execute(message)
-        }
-    }
-
-    private static func validateReadable(handle: OpaquePointer?) throws {
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, "SELECT count(*) FROM sqlite_master;", -1, &statement, nil) == SQLITE_OK else {
-            let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "database not open"
-            throw DatabaseError.invalidPassphrase(message)
-        }
-        defer { sqlite3_finalize(statement) }
-
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "database not readable"
-            throw DatabaseError.invalidPassphrase(message)
+        do {
+            return try DatabaseQueue(path: databaseURL.path, configuration: configuration)
+        } catch {
+            throw mapOpenError(error, mode: mode)
         }
     }
 
-    private func validateReadableLocked() throws {
-        try Self.validateReadable(handle: handle)
+    private static func mapOpenError(_ error: Error, mode: DatabaseOpenMode) -> Error {
+        guard case .encrypted = mode else {
+            return DatabaseError.openDatabase(error.localizedDescription)
+        }
+        return DatabaseError.invalidPassphrase(error.localizedDescription)
     }
 
-    private func exportDatabaseLocked(to targetURL: URL, mode targetMode: DatabaseOpenMode) throws {
+    nonisolated private static func validateReadable(_ db: Database) throws {
+        _ = try Int.fetchOne(db, sql: "SELECT count(*) FROM sqlite_master;")
+    }
+
+    private func exportDatabaseLocked(db: Database, to targetURL: URL, mode targetMode: DatabaseOpenMode) throws {
         let fileManager = FileManager.default
         if fileManager.fileExists(atPath: targetURL.path) {
             try fileManager.removeItem(at: targetURL)
@@ -201,17 +123,18 @@ final class DatabaseConnection: @unchecked Sendable {
             targetKey = passphrase.value
         }
 
-        let currentUserVersion = try int64ValueLocked("PRAGMA user_version;")
-        let schemaCounts = try schemaCountsLocked()
-        let targetPath = Self.sqlLiteral(targetURL.path)
-        let targetKeyLiteral = Self.sqlLiteral(targetKey)
-        try executeLocked("ATTACH DATABASE \(targetPath) AS converted KEY \(targetKeyLiteral);")
+        let currentUserVersion = try Int64.fetchOne(db, sql: "PRAGMA user_version;") ?? 0
+        let schemaCounts = try schemaCounts(db)
+        try db.execute(
+            sql: "ATTACH DATABASE ? AS converted KEY ?;",
+            arguments: [targetURL.path, targetKey]
+        )
         do {
-            try executeLocked("SELECT sqlcipher_export('converted');")
-            try executeLocked("PRAGMA converted.user_version = \(currentUserVersion);")
-            try executeLocked("DETACH DATABASE converted;")
+            try db.execute(sql: "SELECT sqlcipher_export('converted');")
+            try db.execute(sql: "PRAGMA converted.user_version = \(currentUserVersion);")
+            try db.execute(sql: "DETACH DATABASE converted;")
         } catch {
-            try? executeLocked("DETACH DATABASE converted;")
+            try? db.execute(sql: "DETACH DATABASE converted;")
             throw error
         }
 
@@ -223,16 +146,13 @@ final class DatabaseConnection: @unchecked Sendable {
         )
     }
 
-    private func schemaCountsLocked() throws -> [String: Int64] {
+    private func schemaCounts(_ db: Database) throws -> [String: Int64] {
         var counts: [String: Int64] = [:]
-        for tableName in Self.validationTableNames {
-            let exists = try int64ValueLocked(
-                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = \(Self.sqlLiteral(tableName));"
-            )
-            guard exists > 0 else {
-                continue
-            }
-            counts[tableName] = try int64ValueLocked("SELECT count(*) FROM \(Self.quotedIdentifier(tableName));")
+        for tableName in Self.validationTableNames where try db.tableExists(tableName) {
+            counts[tableName] = try Int64.fetchOne(
+                db,
+                sql: "SELECT count(*) FROM \(tableName.quotedDatabaseIdentifier);"
+            ) ?? 0
         }
         return counts
     }
@@ -243,72 +163,30 @@ final class DatabaseConnection: @unchecked Sendable {
         expectedUserVersion: Int64,
         expectedSchemaCounts: [String: Int64]
     ) throws {
-        let validationHandle = try openHandle(databaseURL: url, mode: mode)
-        defer { sqlite3_close(validationHandle) }
+        let validationQueue = try openQueue(databaseURL: url, mode: mode)
+        defer { try? validationQueue.close() }
 
-        let integrity = try stringValue("PRAGMA integrity_check;", handle: validationHandle)
-        guard integrity == "ok" else {
-            throw DatabaseError.execute("converted database integrity_check failed: \(integrity)")
-        }
+        try validationQueue.read { db in
+            let integrity = try String.fetchOne(db, sql: "PRAGMA integrity_check;") ?? ""
+            guard integrity == "ok" else {
+                throw DatabaseError.execute("converted database integrity_check failed: \(integrity)")
+            }
 
-        let userVersion = try int64Value("PRAGMA user_version;", handle: validationHandle)
-        guard userVersion == expectedUserVersion else {
-            throw DatabaseError.execute("converted database user_version mismatch: \(userVersion) != \(expectedUserVersion)")
-        }
+            let userVersion = try Int64.fetchOne(db, sql: "PRAGMA user_version;") ?? 0
+            guard userVersion == expectedUserVersion else {
+                throw DatabaseError.execute("converted database user_version mismatch: \(userVersion) != \(expectedUserVersion)")
+            }
 
-        for (tableName, expectedCount) in expectedSchemaCounts {
-            let actualCount = try int64Value(
-                "SELECT count(*) FROM \(quotedIdentifier(tableName));",
-                handle: validationHandle
-            )
-            guard actualCount == expectedCount else {
-                throw DatabaseError.execute("converted database row count mismatch for \(tableName): \(actualCount) != \(expectedCount)")
+            for (tableName, expectedCount) in expectedSchemaCounts {
+                let actualCount = try Int64.fetchOne(
+                    db,
+                    sql: "SELECT count(*) FROM \(tableName.quotedDatabaseIdentifier);"
+                ) ?? 0
+                guard actualCount == expectedCount else {
+                    throw DatabaseError.execute("converted database row count mismatch for \(tableName): \(actualCount) != \(expectedCount)")
+                }
             }
         }
-    }
-
-    private static func int64Value(_ sql: String, handle: OpaquePointer?) throws -> Int64 {
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
-            let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "database not open"
-            throw DatabaseError.prepareStatement(message)
-        }
-        defer { sqlite3_finalize(statement) }
-
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            throw DatabaseError.execute("expected row for \(sql)")
-        }
-        return sqlite3_column_int64(statement, 0)
-    }
-
-    private static func stringValue(_ sql: String, handle: OpaquePointer?) throws -> String {
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
-            let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "database not open"
-            throw DatabaseError.prepareStatement(message)
-        }
-        defer { sqlite3_finalize(statement) }
-
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            throw DatabaseError.execute("expected row for \(sql)")
-        }
-        guard let text = sqlite3_column_text(statement, 0) else {
-            return ""
-        }
-        return String(cString: text)
-    }
-
-    private func closeLocked() {
-        sqlite3_close(handle)
-        handle = nil
-    }
-
-    private static func sqlLiteral(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "''"))'"
-    }
-
-    private static func quotedIdentifier(_ value: String) -> String {
-        "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
     }
 
     private static let validationTableNames = [
@@ -320,107 +198,4 @@ final class DatabaseConnection: @unchecked Sendable {
         "daily_work_block_summaries",
         "app_logs",
     ]
-
-    func bind(_ value: String?, at index: Int32, to statement: OpaquePointer?) throws {
-        guard let value else {
-            guard sqlite3_bind_null(statement, index) == SQLITE_OK else {
-                throw DatabaseError.execute("failed to bind null at index \(index)")
-            }
-            return
-        }
-
-        let utf8 = value.utf8CString
-        let byteCount = utf8.count * MemoryLayout<CChar>.stride
-        guard let buffer = sqlite3_malloc64(sqlite3_uint64(byteCount)) else {
-            throw DatabaseError.execute("failed to allocate memory for text binding at index \(index)")
-        }
-
-        let dest = UnsafeMutableRawPointer(buffer).assumingMemoryBound(to: CChar.self)
-        utf8.withUnsafeBufferPointer { src in
-            dest.initialize(from: src.baseAddress!, count: utf8.count)
-        }
-
-        let rc = sqlite3_bind_text(statement, index, dest, -1, sqlite3_free)
-        guard rc == SQLITE_OK else {
-            sqlite3_free(buffer)
-            throw DatabaseError.execute("failed to bind text at index \(index): \(rc)")
-        }
-    }
-
-    func string(at index: Int32, from statement: OpaquePointer?) -> String {
-        guard let value = sqlite3_column_text(statement, index) else {
-            return ""
-        }
-        return String(cString: value)
-    }
-
-    func ensureTableExistsLocked(_ tableName: String) throws {
-        let stmt = try prepareStatementLocked(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1;"
-        )
-        defer { sqlite3_finalize(stmt) }
-        try bind(tableName, at: 1, to: stmt)
-        guard sqlite3_step(stmt) == SQLITE_ROW else {
-            throw DatabaseError.prepareStatement("missing table \(tableName)")
-        }
-    }
-
-    func changes() -> Int32 {
-        guard let handle else { return 0 }
-        return sqlite3_changes(handle)
-    }
-
-    private var errorMessage: String {
-        guard let handle else { return "database not open" }
-        return String(cString: sqlite3_errmsg(handle))
-    }
-}
-
-struct DatabaseLock {
-    fileprivate let connection: DatabaseConnection
-
-    func prepareStatement(_ sql: String) throws -> OpaquePointer? {
-        try connection.prepareStatementLocked(sql)
-    }
-
-    func execute(_ sql: String) throws {
-        try connection.executeLocked(sql)
-    }
-
-    func bind(_ value: String?, at index: Int32, to statement: OpaquePointer?) throws {
-        try connection.bind(value, at: index, to: statement)
-    }
-
-    func string(at index: Int32, from statement: OpaquePointer?) -> String {
-        connection.string(at: index, from: statement)
-    }
-
-    func ensureTableExists(_ tableName: String) throws {
-        try connection.ensureTableExistsLocked(tableName)
-    }
-
-    func int64Value(_ sql: String) throws -> Int64 {
-        try connection.int64ValueLocked(sql)
-    }
-
-    func changes() -> Int32 {
-        connection.changes()
-    }
-
-    func lastInsertRowid() -> Int64 {
-        guard let handle = connection.handle else { return 0 }
-        return sqlite3_last_insert_rowid(handle)
-    }
-
-    func beginTransaction() throws {
-        try execute("BEGIN IMMEDIATE TRANSACTION")
-    }
-
-    func commitTransaction() throws {
-        try execute("COMMIT TRANSACTION")
-    }
-
-    func rollbackTransaction() throws {
-        try execute("ROLLBACK TRANSACTION")
-    }
 }

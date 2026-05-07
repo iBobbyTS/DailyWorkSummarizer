@@ -5,7 +5,7 @@
 The app is centered around a small set of long-lived services created at launch by `AppDelegate`:
 
 - `AppDatabase`
-  SQLite persistence, SQLCipher-backed encryption mode, plaintext mode, runtime encryption conversion, and current schema setup.
+  GRDB-backed business persistence, SQLCipher-backed encryption mode, plaintext mode, runtime encryption conversion, and current schema setup.
 - `SettingsStore`
   UserDefaults and Keychain-backed settings state exposed to SwiftUI.
 - `ScreenshotService`
@@ -39,7 +39,7 @@ The app is centered around a small set of long-lived services created at launch 
 - `AnalysisRunsView` / `AnalysisRunsViewModel`
   Dedicated SwiftUI window showing a scrollable table of past analysis runs and their linked summary runs, with model, success/failure counts, token statistics, timing, and error messages. The view model subscribes to `appDatabaseDidChange` and reloads automatically.
 - `AppLogStore`
-  SQLite-backed runtime log list used by the menu-bar log window and the shared sink for non-fatal runtime failures.
+  Database-backed runtime log list used by the menu-bar log window and the shared sink for non-fatal runtime failures.
 
 ## High-level flow
 
@@ -47,6 +47,7 @@ The app is centered around a small set of long-lived services created at launch 
 
 - `MenuBarApp` boots through `AppDelegate`.
 - The app reads `databaseEncryptionEnabled` from UserDefaults before opening the database. If the setting is missing, the default is `false` and `SettingsStore` writes that explicit value back after startup. When enabled, it loads or creates the database passphrase in Keychain and opens or creates the SQLCipher database. When disabled, it opens the same database file as plaintext SQLite and does not require the Keychain database passphrase.
+- Business persistence runs through GRDB `DatabaseQueue`, records, the Query Interface, and the schema builder after the database is opened. SQLCipher-specific SQL is kept in the database management path for passphrases, export, integrity checks, and file conversion.
 - If an existing encrypted database cannot be opened because the passphrase is missing or invalid, startup presents a recovery alert that can accept a manual key, delete only the database files, or quit.
 - Settings are loaded from UserDefaults and Keychain.
 - Services are created and started.
@@ -166,7 +167,7 @@ API key writes are treated as durable settings changes: `SettingsStore` records 
 - `AnalysisService` and `DailyReportSummaryService` both post status-change notifications so the menu bar can update current-state text and force-unload button availability without polling.
 - `SettingsStore` is the authoritative source for user-editable configuration at runtime.
 - Services consume immutable snapshots when starting work to avoid mid-run drift.
-- `AppLogStore` is the authoritative source for runtime log entries shown in the UI; it reloads from SQLite after each mutation and emits `appLogsDidChange`.
+- `AppLogStore` is the authoritative source for runtime log entries shown in the UI; it reloads from the GRDB-backed store after each mutation and emits `appLogsDidChange`.
 - Services should not silently swallow filesystem, database, screenshot, model-lifecycle, or report-loading failures. Expected parse probes and cancellation sleeps can stay local, but ignored operational failures should be classified as user-ignorable `log` entries or actionable `error` entries in `AppLogStore`.
 - `SystemAppNotificationService` requests notification authorization only when a message is first sent. Denied permission or notification delivery failures are logged through `AppLogStore` and must not change analysis or summary run outcomes.
 

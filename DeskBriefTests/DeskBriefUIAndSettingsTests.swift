@@ -229,9 +229,10 @@ extension DeskBriefTests {
     @Test func databaseSettingsStringsAreLocalized() async throws {
         #expect(L10n.string(.settingsDatabaseSectionTitle, language: .simplifiedChinese) == "数据库设置")
         #expect(L10n.string(.settingsDatabaseEncryption, language: .simplifiedChinese) == "数据库加密")
-        #expect(L10n.string(.settingsDatabasePassphrase, language: .english) == "Database Key")
+        #expect(L10n.string(.settingsDatabasePassphrase, language: .english) == "Change Database Key")
         #expect(L10n.string(.settingsDatabaseOpenLocation, language: .english) == "Open Database Location")
         #expect(L10n.string(.settingsDatabaseEncryptionTooltip, language: .simplifiedChinese).contains("*关闭*"))
+        #expect(L10n.string(.settingsDatabaseEncryptionTooltip, language: .simplifiedChinese).contains("每次打开app时自动解密数据库"))
         #expect(L10n.string(.settingsDatabasePassphraseTooltip, language: .english).contains("Keychain Access"))
     }
 

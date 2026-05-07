@@ -37,10 +37,10 @@ The app stores runtime data under Application Support:
 
 ## Persistence model
 
-### SQLite / SQLCipher
+### GRDB / SQLite / SQLCipher
 
-SQLite is the source of truth for captured work history, analysis outputs, and generated daily reports. Runtime access goes through SQLCipher when database encryption is enabled; a missing or invalid database passphrase blocks startup before services are created.
-The system `sqlite3` CLI is expected to fail against an encrypted runtime database unless it is pointed at a plaintext backup, an unencrypted test fixture, or a database whose encryption has been turned off in Settings. Encrypted runtime database inspection should use a SQLCipher-linked helper that loads the passphrase from Keychain.
+SQLite is the source of truth for captured work history, analysis outputs, and generated daily reports. Business schema setup and CRUD use GRDB `DatabaseQueue`, record types, the Query Interface, and the GRDB schema builder. Runtime access goes through SQLCipher only when database encryption is enabled; a missing or invalid database passphrase blocks startup before services are created.
+The system `sqlite3` CLI is expected to fail against an encrypted runtime database unless it is pointed at a plaintext backup, an unencrypted test fixture, or a database whose encryption has been turned off in Settings. These `sqlite3` commands are inspection helpers, not the app's business persistence path. Encrypted runtime database inspection should use a SQLCipher-linked helper that loads the passphrase from Keychain.
 Settings can convert the database between encrypted and plaintext modes immediately. Plaintext-to-encrypted and encrypted-to-plaintext conversion exports through SQLCipher into a temporary database, verifies `integrity_check`, `user_version`, and key table row counts, then replaces the SQLite file and sidecars. Encrypted key changes use `PRAGMA rekey`.
 It also stores lightweight runtime logs in `app_logs`, capped to the latest 1000 entries.
 Away intervals caused by missing captures are not persisted; report views derive those display-only `离开` blocks from bounded gaps between adjacent successful analysis results. Fully dark screenshots can be persisted as `离开` results so their capture time is retained without sending the image to a model.
@@ -162,7 +162,7 @@ xcodebuild build \
 - Sandboxed CLI environments may print CoreSimulator warnings even for macOS targets.
 - Distributed-notification warnings from `xcodebuild` are common in restricted environments and do not automatically indicate a product bug.
 - When settings-model fields change, hand-written test initializers are a common failure point.
-- `DeskBriefTests` is one serialized Swift Testing suite split across themed `extension DeskBriefTests` files. Shared fixtures, mock sessions, SQLite helpers, and `MockURLProtocol` live in `TestSupport.swift`.
+- `DeskBriefTests` is one serialized Swift Testing suite split across themed `extension DeskBriefTests` files. Shared fixtures, mock sessions, low-level SQLite inspection helpers, and `MockURLProtocol` live in `TestSupport.swift`.
 - Memory-backed pending screenshots exist only during process lifetime, so tests that exercise the memory storage path must create `PendingScreenshot` values directly in `PendingScreenshotStore` rather than writing files to the screenshots directory. On tear-down, the store is cleared and no cleanup of the filesystem screenshot directory is needed for the memory path.
 - `DeskBriefUITests` uses `--deskbrief-ui-testing` plus isolated support directory, UserDefaults suite, and Keychain service environment variables. That launch mode disables background services and supports hooks for opening settings, reports, and logs windows, so smoke tests do not touch real user data.
 - UI launch performance uses `XCTClockMetric` with explicit app termination between iterations to avoid flaky missing launch metrics for a menu-bar accessory app.
@@ -233,12 +233,12 @@ ls -lah "$HOME/Library/Application Support/DeskBrief/screenshots" | tail
 
 ## Persistence safety changes (2026-05-05)
 
-### F9: Parameterized LIMIT in log queries
-`fetchAppLogs(limit:)` uses `LIMIT ?` with `sqlite3_bind_int64` instead of string interpolation. `limit <= 0` returns an empty array; `nil` omits the LIMIT clause.
-`pruneAppLogsIfNeeded(lock:maxEntries:)` uses the same pattern. `maxEntries <= 0` still deletes all entries.
+### F9: Log query limits
+`fetchAppLogs(limit:)` is implemented through GRDB Query Interface limits. `limit <= 0` returns an empty array; `nil` omits the LIMIT clause.
+`pruneAppLogsIfNeeded(db:maxEntries:)` uses the same ordering semantics. `maxEntries <= 0` still deletes all entries.
 
-### F14: SQLite text binding with sqlite3_malloc64 + sqlite3_free
-`DatabaseConnection.bind(_:at:to:)` allocates a buffer with `sqlite3_malloc64`, copies the Swift string's UTF-8 bytes, and passes `sqlite3_free` as the `sqlite3_bind_text` destructor. On allocation or bind failure it throws `DatabaseError.execute(...)`. Callers use `try lock.bind(...)`.
+### F14: Text binding
+Business stores no longer bind Swift strings manually with `sqlite3_*`; GRDB handles parameters for runtime persistence. The remaining low-level SQLite helpers are test and inspection utilities, while SQLCipher management SQL stays concentrated in `DatabaseConnection`.
 
 ### F16: Error enum Equatable conformance
 All custom error enums now conform to `Equatable`:

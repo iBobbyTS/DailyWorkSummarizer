@@ -888,7 +888,7 @@ struct DailyReportSummaryRuntimeState {
     )
 }
 
-enum AppLogLevel: String, Codable, CaseIterable, Identifiable {
+nonisolated enum AppLogLevel: String, Codable, CaseIterable, Identifiable {
     case error
     case log
 
@@ -904,7 +904,7 @@ enum AppLogLevel: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum AppLogSource: String, Codable {
+nonisolated enum AppLogSource: String, Codable {
     case analysis = "analysis"
     case lmStudio = "lm_studio"
     case screenshot = "screenshot"
@@ -914,7 +914,7 @@ enum AppLogSource: String, Codable {
     case app = "app"
 }
 
-enum AppLogFilter: String, CaseIterable, Identifiable {
+nonisolated enum AppLogFilter: String, CaseIterable, Identifiable {
     case all
     case error
     case log
@@ -946,7 +946,7 @@ enum AppLogFilter: String, CaseIterable, Identifiable {
     }
 }
 
-struct AppLogEntry: Identifiable, Hashable {
+nonisolated struct AppLogEntry: Identifiable, Hashable {
     let id: UUID
     let createdAt: Date
     let level: AppLogLevel

@@ -1,5 +1,5 @@
 import Foundation
-import SQLCipher
+import GRDB
 
 final class AnalysisDataStore: @unchecked Sendable {
     private let connection: DatabaseConnection
@@ -13,35 +13,32 @@ final class AnalysisDataStore: @unchecked Sendable {
         totalItems: Int,
         status: String = "running"
     ) throws -> Int64 {
-        try connection.withLock { lock in
-            let stmt = try lock.prepareStatement("""
-                INSERT INTO analysis_runs (status, model_name, total_items, created_at)
-                VALUES (?, ?, ?, ?);
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            let now = Date().timeIntervalSince1970
-            try lock.bind(status, at: 1, to: stmt)
-            try lock.bind(modelName, at: 2, to: stmt)
-            sqlite3_bind_int64(stmt, 3, Int64(totalItems))
-            sqlite3_bind_double(stmt, 4, now)
-
-            guard sqlite3_step(stmt) == SQLITE_DONE else {
-                throw DatabaseError.execute("insert analysis_run failed")
-            }
-            return lock.lastInsertRowid()
+        try connection.write { db in
+            let row = AnalysisRunRow(
+                id: nil,
+                status: status,
+                modelName: modelName,
+                totalItems: totalItems,
+                successCount: 0,
+                failureCount: 0,
+                inputMeanTokens: nil,
+                inputMaxTokens: nil,
+                outputMeanTokens: nil,
+                outputMaxTokens: nil,
+                averageItemDurationSeconds: nil,
+                errorMessage: nil,
+                createdAt: Date().timeIntervalSince1970
+            )
+            try row.insert(db)
+            return db.lastInsertedRowID
         }
     }
 
     func updateAnalysisRunTotalItems(id: Int64, totalItems: Int) throws {
-        try connection.withLock { lock in
-            let stmt = try lock.prepareStatement("UPDATE analysis_runs SET total_items = ? WHERE id = ?;")
-            defer { sqlite3_finalize(stmt) }
-            sqlite3_bind_int64(stmt, 1, Int64(totalItems))
-            sqlite3_bind_int64(stmt, 2, id)
-            guard sqlite3_step(stmt) == SQLITE_DONE else {
-                throw DatabaseError.execute("update analysis_run total_items failed")
-            }
+        try connection.write { db in
+            try AnalysisRunRow
+                .filter(AnalysisRunRow.Columns.id == id)
+                .updateAll(db, AnalysisRunRow.Columns.totalItems.set(to: totalItems))
             postChangeNotification()
         }
     }
@@ -58,85 +55,44 @@ final class AnalysisDataStore: @unchecked Sendable {
         averageItemDurationSeconds: Double? = nil,
         errorMessage: String? = nil
     ) throws {
-        try connection.withLock { lock in
-            let stmt = try lock.prepareStatement("""
-                UPDATE analysis_runs
-                SET status = ?, success_count = ?, failure_count = ?,
-                    input_mean_tokens = ?, input_max_tokens = ?,
-                    output_mean_tokens = ?, output_max_tokens = ?,
-                    average_item_duration_seconds = ?, error_message = ?
-                WHERE id = ?;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            try lock.bind(status, at: 1, to: stmt)
-            sqlite3_bind_int64(stmt, 2, Int64(successCount))
-            sqlite3_bind_int64(stmt, 3, Int64(failureCount))
-            if let inputMeanTokens { sqlite3_bind_double(stmt, 4, inputMeanTokens) } else { sqlite3_bind_null(stmt, 4) }
-            if let inputMaxTokens { sqlite3_bind_int64(stmt, 5, Int64(inputMaxTokens)) } else { sqlite3_bind_null(stmt, 5) }
-            if let outputMeanTokens { sqlite3_bind_double(stmt, 6, outputMeanTokens) } else { sqlite3_bind_null(stmt, 6) }
-            if let outputMaxTokens { sqlite3_bind_int64(stmt, 7, Int64(outputMaxTokens)) } else { sqlite3_bind_null(stmt, 7) }
-            if let averageItemDurationSeconds { sqlite3_bind_double(stmt, 8, averageItemDurationSeconds) } else { sqlite3_bind_null(stmt, 8) }
-            try lock.bind(errorMessage, at: 9, to: stmt)
-            sqlite3_bind_int64(stmt, 10, id)
-
-            guard sqlite3_step(stmt) == SQLITE_DONE else {
-                throw DatabaseError.execute("update analysis_run finish failed")
-            }
+        try connection.write { db in
+            try AnalysisRunRow
+                .filter(AnalysisRunRow.Columns.id == id)
+                .updateAll(db, [
+                    AnalysisRunRow.Columns.status.set(to: status),
+                    AnalysisRunRow.Columns.successCount.set(to: successCount),
+                    AnalysisRunRow.Columns.failureCount.set(to: failureCount),
+                    AnalysisRunRow.Columns.inputMeanTokens.set(to: inputMeanTokens),
+                    AnalysisRunRow.Columns.inputMaxTokens.set(to: inputMaxTokens),
+                    AnalysisRunRow.Columns.outputMeanTokens.set(to: outputMeanTokens),
+                    AnalysisRunRow.Columns.outputMaxTokens.set(to: outputMaxTokens),
+                    AnalysisRunRow.Columns.averageItemDurationSeconds.set(to: averageItemDurationSeconds),
+                    AnalysisRunRow.Columns.errorMessage.set(to: errorMessage),
+                ])
             postChangeNotification()
         }
     }
 
     func fetchAnalysisRuns() throws -> [AnalysisRunRecord] {
-        try connection.withLock { lock in
-            try lock.ensureTableExists("analysis_runs")
-            let stmt = try lock.prepareStatement("""
-                SELECT id, status, model_name, total_items,
-                       success_count, failure_count,
-                       input_mean_tokens, input_max_tokens,
-                       output_mean_tokens, output_max_tokens,
-                       average_item_duration_seconds, error_message, created_at
-                FROM analysis_runs ORDER BY id DESC LIMIT 200;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            var records: [AnalysisRunRecord] = []
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let id = sqlite3_column_int64(stmt, 0)
-                records.append(AnalysisRunRecord(
-                    id: id,
-                    status: lock.string(at: 1, from: stmt),
-                    modelName: lock.string(at: 2, from: stmt),
-                    totalItems: Int(sqlite3_column_int64(stmt, 3)),
-                    successCount: Int(sqlite3_column_int64(stmt, 4)),
-                    failureCount: Int(sqlite3_column_int64(stmt, 5)),
-                    inputMeanTokens: sqlite3_column_type(stmt, 6) == SQLITE_NULL ? nil : sqlite3_column_double(stmt, 6),
-                    inputMaxTokens: sqlite3_column_type(stmt, 7) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(stmt, 7)),
-                    outputMeanTokens: sqlite3_column_type(stmt, 8) == SQLITE_NULL ? nil : sqlite3_column_double(stmt, 8),
-                    outputMaxTokens: sqlite3_column_type(stmt, 9) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(stmt, 9)),
-                    averageItemDurationSeconds: sqlite3_column_type(stmt, 10) == SQLITE_NULL ? nil : sqlite3_column_double(stmt, 10),
-                    errorMessage: sqlite3_column_type(stmt, 11) == SQLITE_NULL ? nil : lock.string(at: 11, from: stmt),
-                    createdAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 12))
-                ))
-            }
-            return records
+        try connection.read { db in
+            try ensureTableExists(AnalysisRunRow.databaseTableName, db: db)
+            return try AnalysisRunRow
+                .order(AnalysisRunRow.Columns.id.desc)
+                .limit(200)
+                .fetchAll(db)
+                .map(Self.analysisRunRecord)
         }
     }
 
     func fetchLatestAnalysisAverageDurationSeconds() throws -> Double? {
-        try connection.withLock { lock in
-            try lock.ensureTableExists("analysis_runs")
-            let stmt = try lock.prepareStatement("""
-                SELECT average_item_duration_seconds FROM analysis_runs
-                WHERE average_item_duration_seconds IS NOT NULL
-                ORDER BY id DESC LIMIT 1;
-            """)
-            defer { sqlite3_finalize(stmt) }
-            guard sqlite3_step(stmt) == SQLITE_ROW,
-                  sqlite3_column_type(stmt, 0) != SQLITE_NULL else {
-                return nil
-            }
-            return sqlite3_column_double(stmt, 0)
+        try connection.read { db in
+            try ensureTableExists(AnalysisRunRow.databaseTableName, db: db)
+            return try AnalysisRunRow
+                .filter(AnalysisRunRow.Columns.averageItemDurationSeconds != nil)
+                .order(AnalysisRunRow.Columns.id.desc)
+                .limit(1)
+                .fetchOne(db)?
+                .averageItemDurationSeconds
         }
     }
 
@@ -146,24 +102,25 @@ final class AnalysisDataStore: @unchecked Sendable {
         analysisRunID: Int64? = nil,
         status: String = "running"
     ) throws -> Int64 {
-        try connection.withLock { lock in
-            let stmt = try lock.prepareStatement("""
-                INSERT INTO summary_runs (analysis_run_id, status, model_name, total_items, created_at)
-                VALUES (?, ?, ?, ?, ?);
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            let now = Date().timeIntervalSince1970
-            if let analysisRunID { sqlite3_bind_int64(stmt, 1, analysisRunID) } else { sqlite3_bind_null(stmt, 1) }
-            try lock.bind(status, at: 2, to: stmt)
-            try lock.bind(modelName, at: 3, to: stmt)
-            sqlite3_bind_int64(stmt, 4, Int64(totalItems))
-            sqlite3_bind_double(stmt, 5, now)
-
-            guard sqlite3_step(stmt) == SQLITE_DONE else {
-                throw DatabaseError.execute("insert summary_run failed")
-            }
-            return lock.lastInsertRowid()
+        try connection.write { db in
+            let row = SummaryRunRow(
+                id: nil,
+                analysisRunID: analysisRunID,
+                status: status,
+                modelName: modelName,
+                totalItems: totalItems,
+                successCount: 0,
+                failureCount: 0,
+                inputMeanTokens: nil,
+                inputMaxTokens: nil,
+                outputMeanTokens: nil,
+                outputMaxTokens: nil,
+                averageItemDurationSeconds: nil,
+                errorMessage: nil,
+                createdAt: Date().timeIntervalSince1970
+            )
+            try row.insert(db)
+            return db.lastInsertedRowID
         }
     }
 
@@ -179,69 +136,32 @@ final class AnalysisDataStore: @unchecked Sendable {
         averageItemDurationSeconds: Double? = nil,
         errorMessage: String? = nil
     ) throws {
-        try connection.withLock { lock in
-            let stmt = try lock.prepareStatement("""
-                UPDATE summary_runs
-                SET status = ?, success_count = ?, failure_count = ?,
-                    input_mean_tokens = ?, input_max_tokens = ?,
-                    output_mean_tokens = ?, output_max_tokens = ?,
-                    average_item_duration_seconds = ?, error_message = ?
-                WHERE id = ?;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            try lock.bind(status, at: 1, to: stmt)
-            sqlite3_bind_int64(stmt, 2, Int64(successCount))
-            sqlite3_bind_int64(stmt, 3, Int64(failureCount))
-            if let inputMeanTokens { sqlite3_bind_double(stmt, 4, inputMeanTokens) } else { sqlite3_bind_null(stmt, 4) }
-            if let inputMaxTokens { sqlite3_bind_int64(stmt, 5, Int64(inputMaxTokens)) } else { sqlite3_bind_null(stmt, 5) }
-            if let outputMeanTokens { sqlite3_bind_double(stmt, 6, outputMeanTokens) } else { sqlite3_bind_null(stmt, 6) }
-            if let outputMaxTokens { sqlite3_bind_int64(stmt, 7, Int64(outputMaxTokens)) } else { sqlite3_bind_null(stmt, 7) }
-            if let averageItemDurationSeconds { sqlite3_bind_double(stmt, 8, averageItemDurationSeconds) } else { sqlite3_bind_null(stmt, 8) }
-            try lock.bind(errorMessage, at: 9, to: stmt)
-            sqlite3_bind_int64(stmt, 10, id)
-
-            guard sqlite3_step(stmt) == SQLITE_DONE else {
-                throw DatabaseError.execute("update summary_run finish failed")
-            }
+        try connection.write { db in
+            try SummaryRunRow
+                .filter(SummaryRunRow.Columns.id == id)
+                .updateAll(db, [
+                    SummaryRunRow.Columns.status.set(to: status),
+                    SummaryRunRow.Columns.successCount.set(to: successCount),
+                    SummaryRunRow.Columns.failureCount.set(to: failureCount),
+                    SummaryRunRow.Columns.inputMeanTokens.set(to: inputMeanTokens),
+                    SummaryRunRow.Columns.inputMaxTokens.set(to: inputMaxTokens),
+                    SummaryRunRow.Columns.outputMeanTokens.set(to: outputMeanTokens),
+                    SummaryRunRow.Columns.outputMaxTokens.set(to: outputMaxTokens),
+                    SummaryRunRow.Columns.averageItemDurationSeconds.set(to: averageItemDurationSeconds),
+                    SummaryRunRow.Columns.errorMessage.set(to: errorMessage),
+                ])
             postChangeNotification()
         }
     }
 
     func fetchSummaryRuns() throws -> [SummaryRunRecord] {
-        try connection.withLock { lock in
-            try lock.ensureTableExists("summary_runs")
-            let stmt = try lock.prepareStatement("""
-                SELECT id, analysis_run_id, status, model_name, total_items,
-                       success_count, failure_count,
-                       input_mean_tokens, input_max_tokens,
-                       output_mean_tokens, output_max_tokens,
-                       average_item_duration_seconds, error_message, created_at
-                FROM summary_runs ORDER BY id DESC LIMIT 200;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            var records: [SummaryRunRecord] = []
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let id = sqlite3_column_int64(stmt, 0)
-                records.append(SummaryRunRecord(
-                    id: id,
-                    analysisRunID: sqlite3_column_type(stmt, 1) == SQLITE_NULL ? nil : sqlite3_column_int64(stmt, 1),
-                    status: lock.string(at: 2, from: stmt),
-                    modelName: lock.string(at: 3, from: stmt),
-                    totalItems: Int(sqlite3_column_int64(stmt, 4)),
-                    successCount: Int(sqlite3_column_int64(stmt, 5)),
-                    failureCount: Int(sqlite3_column_int64(stmt, 6)),
-                    inputMeanTokens: sqlite3_column_type(stmt, 7) == SQLITE_NULL ? nil : sqlite3_column_double(stmt, 7),
-                    inputMaxTokens: sqlite3_column_type(stmt, 8) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(stmt, 8)),
-                    outputMeanTokens: sqlite3_column_type(stmt, 9) == SQLITE_NULL ? nil : sqlite3_column_double(stmt, 9),
-                    outputMaxTokens: sqlite3_column_type(stmt, 10) == SQLITE_NULL ? nil : Int(sqlite3_column_int64(stmt, 10)),
-                    averageItemDurationSeconds: sqlite3_column_type(stmt, 11) == SQLITE_NULL ? nil : sqlite3_column_double(stmt, 11),
-                    errorMessage: sqlite3_column_type(stmt, 12) == SQLITE_NULL ? nil : lock.string(at: 12, from: stmt),
-                    createdAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 13))
-                ))
-            }
-            return records
+        try connection.read { db in
+            try ensureTableExists(SummaryRunRow.databaseTableName, db: db)
+            return try SummaryRunRow
+                .order(SummaryRunRow.Columns.id.desc)
+                .limit(200)
+                .fetchAll(db)
+                .map(Self.summaryRunRecord)
         }
     }
 
@@ -251,99 +171,51 @@ final class AnalysisDataStore: @unchecked Sendable {
         summaryText: String?,
         durationMinutesSnapshot: Int
     ) throws -> AnalysisResultInsertOutcome {
-        try connection.withLock { lock in
-            let stmt = try lock.prepareStatement("""
-                INSERT OR IGNORE INTO analysis_results (captured_at, category_name, summary_text, duration_minutes_snapshot)
-                VALUES (?, ?, ?, ?);
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            sqlite3_bind_double(stmt, 1, capturedAt.timeIntervalSince1970)
-            try lock.bind(categoryName, at: 2, to: stmt)
-            try lock.bind(summaryText, at: 3, to: stmt)
-            sqlite3_bind_int64(stmt, 4, Int64(durationMinutesSnapshot))
-
-            guard sqlite3_step(stmt) == SQLITE_DONE else {
-                throw DatabaseError.execute("insert analysis_result failed")
-            }
-            return lock.changes() > 0 ? .inserted : .duplicate
+        try connection.write { db in
+            let row = AnalysisResultRow(
+                id: nil,
+                capturedAt: capturedAt.timeIntervalSince1970,
+                categoryName: categoryName,
+                summaryText: summaryText,
+                durationMinutesSnapshot: durationMinutesSnapshot
+            )
+            try row.insert(db, onConflict: .ignore)
+            return db.changesCount > 0 ? .inserted : .duplicate
         }
     }
 
     func fetchReportSourceItems() throws -> [ReportSourceItem] {
-        try connection.withLock { lock in
-            try lock.ensureTableExists("analysis_results")
-            let stmt = try lock.prepareStatement("""
-                SELECT id, captured_at, category_name, duration_minutes_snapshot AS duration_minutes
-                FROM analysis_results
-                WHERE category_name IS NOT NULL
-                ORDER BY captured_at DESC, id DESC;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            var items: [ReportSourceItem] = []
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                items.append(ReportSourceItem(
-                    id: sqlite3_column_int64(stmt, 0),
-                    capturedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
-                    categoryName: lock.string(at: 2, from: stmt),
-                    durationMinutes: Int(sqlite3_column_int64(stmt, 3))
-                ))
-            }
-            return items
+        try connection.read { db in
+            try ensureTableExists(AnalysisResultRow.databaseTableName, db: db)
+            return try AnalysisResultRow
+                .filter(AnalysisResultRow.Columns.categoryName != nil)
+                .order(AnalysisResultRow.Columns.capturedAt.desc, AnalysisResultRow.Columns.id.desc)
+                .fetchAll(db)
+                .compactMap(Self.reportSourceItem)
         }
     }
 
     func fetchReportActivityItems() throws -> [DailyReportActivityItem] {
-        try connection.withLock { lock in
-            try lock.ensureTableExists("analysis_results")
-            let stmt = try lock.prepareStatement("""
-                SELECT id, captured_at, category_name, duration_minutes_snapshot AS duration_minutes, summary_text AS item_summary_text
-                FROM analysis_results
-                WHERE category_name IS NOT NULL
-                ORDER BY captured_at ASC, id ASC;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            var items: [DailyReportActivityItem] = []
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let itemSummaryText = sqlite3_column_type(stmt, 4) == SQLITE_NULL
-                    ? nil : lock.string(at: 4, from: stmt)
-                items.append(DailyReportActivityItem(
-                    id: sqlite3_column_int64(stmt, 0),
-                    capturedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
-                    categoryName: lock.string(at: 2, from: stmt),
-                    durationMinutes: Int(sqlite3_column_int64(stmt, 3)),
-                    itemSummaryText: itemSummaryText
-                ))
-            }
-            return items
+        try connection.read { db in
+            try ensureTableExists(AnalysisResultRow.databaseTableName, db: db)
+            return try AnalysisResultRow
+                .filter(AnalysisResultRow.Columns.categoryName != nil)
+                .order(AnalysisResultRow.Columns.capturedAt, AnalysisResultRow.Columns.id)
+                .fetchAll(db)
+                .compactMap(Self.dailyReportActivityItem)
         }
     }
 
     func fetchLatestReportActivityItem(before date: Date) throws -> DailyReportActivityItem? {
-        try connection.withLock { lock in
-            try lock.ensureTableExists("analysis_results")
-            let stmt = try lock.prepareStatement("""
-                SELECT id, captured_at, category_name, duration_minutes_snapshot AS duration_minutes, summary_text AS item_summary_text
-                FROM analysis_results
-                WHERE category_name IS NOT NULL AND captured_at < ?
-                ORDER BY captured_at DESC, id DESC LIMIT 1;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            sqlite3_bind_double(stmt, 1, date.timeIntervalSince1970)
-
-            guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
-            let itemSummaryText = sqlite3_column_type(stmt, 4) == SQLITE_NULL
-                ? nil : lock.string(at: 4, from: stmt)
-            return DailyReportActivityItem(
-                id: sqlite3_column_int64(stmt, 0),
-                capturedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
-                categoryName: lock.string(at: 2, from: stmt),
-                durationMinutes: Int(sqlite3_column_int64(stmt, 3)),
-                itemSummaryText: itemSummaryText
-            )
+        try connection.read { db in
+            try ensureTableExists(AnalysisResultRow.databaseTableName, db: db)
+            return try AnalysisResultRow
+                .filter(AnalysisResultRow.Columns.categoryName != nil)
+                .filter(AnalysisResultRow.Columns.capturedAt < date.timeIntervalSince1970)
+                .order(AnalysisResultRow.Columns.capturedAt.desc, AnalysisResultRow.Columns.id.desc)
+                .limit(1)
+                .fetchOne(db)
+                .flatMap(Self.dailyReportActivityItem)
         }
     }
 
@@ -352,44 +224,43 @@ final class AnalysisDataStore: @unchecked Sendable {
         calendar: Calendar = .reportCalendar
     ) throws -> [DailyReportActivityItem] {
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
-        return try connection.withLock { lock in
-            try lock.ensureTableExists("analysis_results")
-            let stmt = try lock.prepareStatement("""
-                SELECT id, captured_at, category_name, duration_minutes_snapshot AS duration_minutes, summary_text AS item_summary_text
-                FROM analysis_results
-                WHERE category_name IS NOT NULL
-                  AND (
-                    (captured_at >= ? AND captured_at < ?)
-                    OR id = (
-                        SELECT id FROM analysis_results
-                        WHERE category_name IS NOT NULL AND captured_at < ?
-                        ORDER BY captured_at DESC, id DESC LIMIT 1
+        return try connection.read { db in
+            try ensureTableExists(AnalysisResultRow.databaseTableName, db: db)
+            let request = SQLRequest<AnalysisResultRow>(
+                sql: """
+                    SELECT id, captured_at, category_name, summary_text, duration_minutes_snapshot
+                    FROM analysis_results
+                    WHERE category_name IS NOT NULL
+                      AND (
+                        (captured_at >= ? AND captured_at < ?)
+                        OR id = (
+                            SELECT id FROM analysis_results
+                            WHERE category_name IS NOT NULL AND captured_at < ?
+                            ORDER BY captured_at DESC, id DESC LIMIT 1
+                        )
+                      )
+                    ORDER BY captured_at ASC, id ASC;
+                    """,
+                arguments: [
+                    dayStart.timeIntervalSince1970,
+                    dayEnd.timeIntervalSince1970,
+                    dayStart.timeIntervalSince1970,
+                ]
+            )
+            return try request
+                .fetchAll(db)
+                .compactMap { row in
+                    guard let item = Self.dailyReportActivityItem(row) else { return nil }
+                    return Self.clippedDailyReportActivityItem(
+                        id: item.id,
+                        capturedAt: item.capturedAt,
+                        categoryName: item.categoryName,
+                        durationMinutes: item.durationMinutes,
+                        itemSummaryText: item.itemSummaryText,
+                        intervalStart: dayStart,
+                        intervalEnd: dayEnd
                     )
-                  )
-                ORDER BY captured_at ASC, id ASC;
-            """)
-            defer { sqlite3_finalize(stmt) }
-
-            sqlite3_bind_double(stmt, 1, dayStart.timeIntervalSince1970)
-            sqlite3_bind_double(stmt, 2, dayEnd.timeIntervalSince1970)
-            sqlite3_bind_double(stmt, 3, dayStart.timeIntervalSince1970)
-
-            var items: [DailyReportActivityItem] = []
-            while sqlite3_step(stmt) == SQLITE_ROW {
-                let itemSummaryText = sqlite3_column_type(stmt, 4) == SQLITE_NULL
-                    ? nil : lock.string(at: 4, from: stmt)
-                guard let item = Self.clippedDailyReportActivityItem(
-                    id: sqlite3_column_int64(stmt, 0),
-                    capturedAt: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 1)),
-                    categoryName: lock.string(at: 2, from: stmt),
-                    durationMinutes: Int(sqlite3_column_int64(stmt, 3)),
-                    itemSummaryText: itemSummaryText,
-                    intervalStart: dayStart,
-                    intervalEnd: dayEnd
-                ) else { continue }
-                items.append(item)
-            }
-            return items
+                }
         }
     }
 
@@ -415,7 +286,65 @@ final class AnalysisDataStore: @unchecked Sendable {
         }
     }
 
-    private static func clippedDailyReportActivityItem(
+    nonisolated private static func analysisRunRecord(_ row: AnalysisRunRow) -> AnalysisRunRecord {
+        AnalysisRunRecord(
+            id: row.id ?? 0,
+            status: row.status,
+            modelName: row.modelName,
+            totalItems: row.totalItems,
+            successCount: row.successCount,
+            failureCount: row.failureCount,
+            inputMeanTokens: row.inputMeanTokens,
+            inputMaxTokens: row.inputMaxTokens,
+            outputMeanTokens: row.outputMeanTokens,
+            outputMaxTokens: row.outputMaxTokens,
+            averageItemDurationSeconds: row.averageItemDurationSeconds,
+            errorMessage: row.errorMessage,
+            createdAt: Date(timeIntervalSince1970: row.createdAt)
+        )
+    }
+
+    nonisolated private static func summaryRunRecord(_ row: SummaryRunRow) -> SummaryRunRecord {
+        SummaryRunRecord(
+            id: row.id ?? 0,
+            analysisRunID: row.analysisRunID,
+            status: row.status,
+            modelName: row.modelName,
+            totalItems: row.totalItems,
+            successCount: row.successCount,
+            failureCount: row.failureCount,
+            inputMeanTokens: row.inputMeanTokens,
+            inputMaxTokens: row.inputMaxTokens,
+            outputMeanTokens: row.outputMeanTokens,
+            outputMaxTokens: row.outputMaxTokens,
+            averageItemDurationSeconds: row.averageItemDurationSeconds,
+            errorMessage: row.errorMessage,
+            createdAt: Date(timeIntervalSince1970: row.createdAt)
+        )
+    }
+
+    nonisolated private static func reportSourceItem(_ row: AnalysisResultRow) -> ReportSourceItem? {
+        guard let categoryName = row.categoryName else { return nil }
+        return ReportSourceItem(
+            id: row.id ?? 0,
+            capturedAt: Date(timeIntervalSince1970: row.capturedAt),
+            categoryName: categoryName,
+            durationMinutes: row.durationMinutesSnapshot
+        )
+    }
+
+    nonisolated private static func dailyReportActivityItem(_ row: AnalysisResultRow) -> DailyReportActivityItem? {
+        guard let categoryName = row.categoryName else { return nil }
+        return DailyReportActivityItem(
+            id: row.id ?? 0,
+            capturedAt: Date(timeIntervalSince1970: row.capturedAt),
+            categoryName: categoryName,
+            durationMinutes: row.durationMinutesSnapshot,
+            itemSummaryText: row.summaryText
+        )
+    }
+
+    nonisolated private static func clippedDailyReportActivityItem(
         id: Int64,
         capturedAt: Date,
         categoryName: String,
@@ -435,6 +364,12 @@ final class AnalysisDataStore: @unchecked Sendable {
             durationMinutes: max(Int((clippedEnd.timeIntervalSince(clippedStart) / 60.0).rounded()), 1),
             itemSummaryText: itemSummaryText
         )
+    }
+
+    private func ensureTableExists(_ tableName: String, db: Database) throws {
+        guard try db.tableExists(tableName) else {
+            throw DatabaseError.prepareStatement("missing table \(tableName)")
+        }
     }
 
     private func postChangeNotification() {

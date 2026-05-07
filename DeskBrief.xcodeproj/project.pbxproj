@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B0DB00012EE6000000000001 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = B0DB00002EE6000000000001 /* GRDB */; };
+		B0DB00032EE6000000000001 /* SQLCipher in Frameworks */ = {isa = PBXBuildFile; productRef = B0DB00022EE6000000000001 /* SQLCipher */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		B0CF56922EDDF6CF002571D5 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -46,11 +51,6 @@
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
-
-/* Begin PBXBuildFile section */
-		B0DB00012EE6000000000001 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = B0DB00002EE6000000000001 /* GRDB */; };
-		B0DB00032EE6000000000001 /* SQLCipher in Frameworks */ = {isa = PBXBuildFile; productRef = B0DB00022EE6000000000001 /* SQLCipher */; };
-/* End PBXBuildFile section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		B0CF567F2EDDF6CE002571D5 /* Frameworks */ = {
@@ -279,30 +279,6 @@
 			targetProxy = B0CF569C2EDDF6CF002571D5 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		B0DB00042EE6000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "git@github.com:iBobbyTS/GRDB.swift.git";
-			requirement = {
-				branch = "deskbrief-sqlcipher";
-				kind = branch;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		B0DB00002EE6000000000001 /* GRDB */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0DB00042EE6000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
-			productName = GRDB;
-		};
-		B0DB00022EE6000000000001 /* SQLCipher */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = B0DB00042EE6000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
-			productName = SQLCipher;
-		};
-/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		B0CF56A32EDDF6CF002571D5 /* Debug */ = {
@@ -618,6 +594,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B0DB00042EE6000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "git@github.com:iBobbyTS/GRDB.swift.git";
+			requirement = {
+				branch = "deskbrief-sqlcipher";
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B0DB00002EE6000000000001 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0DB00042EE6000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+		B0DB00022EE6000000000001 /* SQLCipher */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B0DB00042EE6000000000001 /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = SQLCipher;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = B0CF567A2EDDF6CE002571D5 /* Project object */;
 }

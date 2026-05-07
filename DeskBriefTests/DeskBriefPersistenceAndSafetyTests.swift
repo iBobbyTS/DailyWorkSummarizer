@@ -309,9 +309,7 @@ extension DeskBriefTests {
         let database = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
         try database.insertAppLog(AppLogEntry(level: .log, source: .app, message: "rekey"))
         userDefaults.set(true, forKey: "com.deskbrief.settings.databaseEncryptionEnabled")
-        let userVersionBefore = try database.connection.withLock { lock in
-            try lock.int64Value("PRAGMA user_version;")
-        }
+        let userVersionBefore = try DatabaseSchema.loadVersion(connection: database.connection)
         let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
 
         try store.updateDatabasePassphrase(to: newPassphrase)
@@ -324,9 +322,7 @@ extension DeskBriefTests {
 
         let reloaded = try AppDatabase(databaseURL: databaseURL, passphrase: newPassphrase)
         #expect(try reloaded.fetchAppLogs(limit: nil).map(\.message) == ["rekey"])
-        let userVersionAfter = try reloaded.connection.withLock { lock in
-            try lock.int64Value("PRAGMA user_version;")
-        }
+        let userVersionAfter = try DatabaseSchema.loadVersion(connection: reloaded.connection)
         #expect(userVersionAfter == userVersionBefore)
         #expect(keychain.string(for: AppDefaults.databasePassphraseAccount) == newPassphrase.value)
     }

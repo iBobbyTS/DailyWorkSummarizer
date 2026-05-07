@@ -42,6 +42,7 @@
 数据库检查注意：
 
 - 运行库默认是明文 SQLite；只有用户在 设置-通用-数据库设置 开启数据库加密后，运行库才使用 SQLCipher。
+- App 内部业务表建表、CRUD 和查询走 GRDB `DatabaseQueue` / Record / Query Interface；不要再新增业务 store 层 `sqlite3_*` 查询。低层 SQL 仅用于 SQLCipher 管理、迁移/检查工具和测试辅助。
 - 加密状态下，系统 `sqlite3` 只能用于明文备份或测试临时库；直接读加密运行库预期会失败。
 - 明文状态下，可以直接用系统 `sqlite3` 读取运行库。注意这也意味着任何能读到这个文件的 App 都可以读数据。
 - 检查加密运行库时，优先创建 `/private/tmp` 下的临时 Swift/SQLCipher 工具，通过 Keychain 读取 `database-passphrase.main` 后打开数据库。不要把这类一次性检查工具提交到仓库。
