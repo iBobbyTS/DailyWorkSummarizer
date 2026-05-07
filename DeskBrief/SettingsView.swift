@@ -617,17 +617,17 @@ struct SettingsView: View {
 
                                 if memoryCheckEnabled.wrappedValue {
                                     VStack(alignment: .leading, spacing: 4) {
-                                        Text("\(text(.memoryTotalRam)) \(formatGB(SystemMemoryInfo.totalGB)) GiB")
+                                        Text(text(.memoryTotalRam) + memorySizeText(SystemMemoryInfo.totalGB))
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
-                                        Text("\(text(.memoryAvailableRam)) \(formatGB(SystemMemoryInfo.currentAvailableGB)) GiB")
+                                        Text(text(.memoryAvailableRam) + memorySizeText(SystemMemoryInfo.currentAvailableGB))
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
                                     .padding(.horizontal, Layout.cardRowHorizontalPadding)
 
                                     HStack(spacing: 8) {
-                                        Text("1 GiB")
+                                        Text(memorySizeText(1))
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                         Slider(value: memoryThresholdGB, in: 1.0...max(1.1, SystemMemoryInfo.totalGB), step: 1)
@@ -639,7 +639,7 @@ struct SettingsView: View {
                                         )
                                         .textFieldStyle(.roundedBorder)
                                         .frame(width: 56)
-                                        Text("GiB")
+                                        Text(text(.memoryUnitGiB))
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                     }
@@ -1184,6 +1184,10 @@ struct SettingsView: View {
     private func formatGB(_ gb: Double?) -> String {
         guard let gb else { return "—" }
         return String(format: "%.1f", gb)
+    }
+
+    private func memorySizeText(_ gb: Double?) -> String {
+        text(.memorySizeGiB, arguments: [formatGB(gb)])
     }
 
     private func text(_ key: L10n.Key) -> String {

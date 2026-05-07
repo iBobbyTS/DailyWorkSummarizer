@@ -253,6 +253,13 @@ extension DeskBriefTests {
         #expect(L10n.string(.settingsDatabasePassphraseTooltip, language: .english).contains("Keychain Access"))
     }
 
+    @Test func memoryCheckSizeUnitStringsAreLocalized() async throws {
+        #expect(L10n.string(.memorySizeGiB, language: .simplifiedChinese, arguments: ["1.0"]) == "1.0 GiB")
+        #expect(L10n.string(.memorySizeGiB, language: .english, arguments: ["2.5"]) == "2.5 GiB")
+        #expect(L10n.string(.memoryUnitGiB, language: .simplifiedChinese) == "GiB")
+        #expect(L10n.string(.memoryUnitGiB, language: .english) == "GiB")
+    }
+
     @MainActor
     @Test func databasePassphraseConfirmAvailabilityRequiresNewNonEmptyValue() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
@@ -287,6 +294,25 @@ extension DeskBriefTests {
         #expect(state.hasUnsavedDatabasePassphrase)
         state.discardUnsavedDatabasePassphrase = true
         #expect(state.discardUnsavedDatabasePassphrase)
+    }
+
+    @MainActor
+    @Test func unsavedDatabasePassphraseCloseAlertMarksDiscardActionDestructive() async throws {
+        let delegate = AppDelegate()
+
+        let chineseAlert = delegate.makeUnsavedDatabasePassphraseAlert(language: .simplifiedChinese)
+        #expect(chineseAlert.buttons.count == 2)
+        #expect(chineseAlert.buttons[0].title == "继续编辑")
+        #expect(!chineseAlert.buttons[0].hasDestructiveAction)
+        #expect(chineseAlert.buttons[1].title == "继续关闭（不保存）")
+        #expect(chineseAlert.buttons[1].hasDestructiveAction)
+
+        let englishAlert = delegate.makeUnsavedDatabasePassphraseAlert(language: .english)
+        #expect(englishAlert.buttons.count == 2)
+        #expect(englishAlert.buttons[0].title == "Keep Editing")
+        #expect(!englishAlert.buttons[0].hasDestructiveAction)
+        #expect(englishAlert.buttons[1].title == "Close Without Saving")
+        #expect(englishAlert.buttons[1].hasDestructiveAction)
     }
 
     @Test func summaryInstructionEditorKeepsTextAwayFromClippingEdge() async throws {

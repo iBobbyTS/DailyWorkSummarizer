@@ -333,6 +333,8 @@ nonisolated enum L10n {
         case memoryCheckTitle
         case memoryTotalRam
         case memoryAvailableRam
+        case memorySizeGiB
+        case memoryUnitGiB
         case memoryThresholdTooltip
         case menuAnalysisRuns
         case windowAnalysisRuns
@@ -666,6 +668,8 @@ nonisolated enum L10n {
             .memoryCheckTitle: "加载模型前进行可用内存检查",
             .memoryTotalRam: "总内存：",
             .memoryAvailableRam: "当前可用内存：",
+            .memorySizeGiB: "%@ GiB",
+            .memoryUnitGiB: "GiB",
             .memoryThresholdTooltip: "系统可用内存低于此阈值时不会加载模型",
             .menuAnalysisRuns: "分析记录",
             .windowAnalysisRuns: "分析记录",
@@ -997,6 +1001,8 @@ nonisolated enum L10n {
             .memoryCheckTitle: "Check available memory before loading model",
             .memoryTotalRam: "Total RAM: ",
             .memoryAvailableRam: "Available: ",
+            .memorySizeGiB: "%@ GiB",
+            .memoryUnitGiB: "GiB",
             .memoryThresholdTooltip: "Model will not be loaded when available memory falls below this threshold",
             .menuAnalysisRuns: "Analysis Runs",
             .windowAnalysisRuns: "Analysis Runs",

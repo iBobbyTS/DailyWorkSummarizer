@@ -5,6 +5,54 @@ import Testing
 
 @MainActor
 extension DeskBriefTests {
+    @Test func credentialSanitizerRedactsExpandedSensitiveFields() async throws {
+        let raw = """
+        {
+          "api_key": "sk-json",
+          "apiKey": "camel-json",
+          "access_token": "access-json",
+          "refresh_token": "refresh-json",
+          "client_secret": "client-json",
+          "password": "password-json",
+          "message": "safe"
+        }
+        api_key=sk-query&access_token=access-query&client_secret=client-query
+        token: plain-token
+        Authorization: Bearer auth-token
+        x-api-key: header-key
+        """
+
+        let sanitized = CredentialSanitizer.sanitize(raw)
+
+        #expect(!sanitized.contains("sk-json"))
+        #expect(!sanitized.contains("camel-json"))
+        #expect(!sanitized.contains("access-json"))
+        #expect(!sanitized.contains("refresh-json"))
+        #expect(!sanitized.contains("client-json"))
+        #expect(!sanitized.contains("password-json"))
+        #expect(!sanitized.contains("sk-query"))
+        #expect(!sanitized.contains("access-query"))
+        #expect(!sanitized.contains("client-query"))
+        #expect(!sanitized.contains("plain-token"))
+        #expect(!sanitized.contains("auth-token"))
+        #expect(!sanitized.contains("header-key"))
+        #expect(sanitized.contains(#""message": "safe""#))
+        #expect(sanitized.contains(#""api_key": "<REDACTED>""#))
+        #expect(sanitized.contains("api_key=<REDACTED>"))
+        #expect(sanitized.contains("token: <REDACTED>"))
+    }
+
+    @Test func credentialSanitizerTruncatesAfterRedaction() async throws {
+        let secret = "sk-" + String(repeating: "x", count: 600)
+        let sanitized = CredentialSanitizer.sanitizeForError("api_key=\(secret)")
+
+        #expect(!sanitized.contains(secret))
+        #expect(sanitized == "api_key=<REDACTED>")
+
+        let longSafeMessage = String(repeating: "a", count: CredentialSanitizer.maxErrorBodyLength + 10)
+        #expect(CredentialSanitizer.sanitizeForError(longSafeMessage).count == CredentialSanitizer.maxErrorBodyLength + 3)
+    }
+
     // MARK: - F9: SQL LIMIT parameter binding
 
     @Test func fetchAppLogsWithPositiveLimitReturnsCorrectCount() async throws {

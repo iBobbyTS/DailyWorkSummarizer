@@ -2,6 +2,7 @@ import Foundation
 
 enum CredentialSanitizer {
     static let maxErrorBodyLength = 500
+    private static let sensitiveFieldPattern = #"(?:api[_-]?key|apiKey|x-api-key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|token|secret|password)"#
 
     static func sanitize(_ text: String) -> String {
         guard !text.isEmpty else { return text }
@@ -23,13 +24,25 @@ enum CredentialSanitizer {
         result = replacePattern(
             in: result,
             pattern: #"(?i)"(Authorization|authorization)"\s*:\s*"Bearer\s+[^"]*""#,
-            replacement: #""$1": "Bearer <REDACTED""#
+            replacement: #""$1": "Bearer <REDACTED>""#
         )
 
         result = replacePattern(
             in: result,
             pattern: #"(?i)"(x-api-key)"\s*:\s*"[^"]*""#,
-            replacement: #""$1": "<REDACTED""#
+            replacement: #""$1": "<REDACTED>""#
+        )
+
+        result = replacePattern(
+            in: result,
+            pattern: #"(?i)("(?:\#(sensitiveFieldPattern))"\s*:\s*")([^"]*)(")"#,
+            replacement: "$1<REDACTED>$3"
+        )
+
+        result = replacePattern(
+            in: result,
+            pattern: #"(?i)\b(\#(sensitiveFieldPattern))(\s*[=:]\s*)([^\s&;,]+)"#,
+            replacement: "$1$2<REDACTED>"
         )
 
         return result

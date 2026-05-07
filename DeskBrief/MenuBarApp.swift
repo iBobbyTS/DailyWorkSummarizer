@@ -262,17 +262,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
 
         let language = settingsStore.appLanguage
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = text(.settingsDatabasePassphraseUnsavedTitle, language: language)
-        alert.informativeText = text(.settingsDatabasePassphraseUnsavedMessage, language: language)
-        alert.addButton(withTitle: text(.settingsDatabasePassphraseContinueEditing, language: language))
-        alert.addButton(withTitle: text(.settingsDatabasePassphraseContinueClosing, language: language))
+        let alert = makeUnsavedDatabasePassphraseAlert(language: language)
         if alert.runModal() == .alertFirstButtonReturn {
             return false
         }
         settingsWindowState?.discardUnsavedDatabasePassphrase = true
         return true
+    }
+
+    func makeUnsavedDatabasePassphraseAlert(language: AppLanguage) -> NSAlert {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = text(.settingsDatabasePassphraseUnsavedTitle, language: language)
+        alert.informativeText = text(.settingsDatabasePassphraseUnsavedMessage, language: language)
+        alert.addButton(withTitle: text(.settingsDatabasePassphraseContinueEditing, language: language))
+        let closeButton = alert.addButton(withTitle: text(.settingsDatabasePassphraseContinueClosing, language: language))
+        closeButton.hasDestructiveAction = true
+        return alert
     }
 
     private func makeDatabase(for launchConfiguration: AppLaunchConfiguration, keychain: KeychainStoring) throws -> AppDatabase {
