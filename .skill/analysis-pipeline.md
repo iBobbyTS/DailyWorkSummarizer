@@ -118,4 +118,4 @@
 - LM Studio `/api/v1/chat` 的多模态文本项在不同版本里可能出现 `"text"` 和 `"message"` 两种 discriminator；项目里统一通过 `LMStudioAPI.fallbackMultimodalTextInputStyle` 做一次兼容重试，不要把这种重试散落到业务层。
 - OpenAI / Anthropic / Apple Intelligence 的请求或解析行为改动时，优先改 `LLMService.swift`，并同步更新 `docs/model-integration.md`。
 - 分析错误和调试日志相关改动时，要同时检查 `AppLogStore`、`MenuBarApp`、`AnalysisErrorsView.swift`、`docs/data-and-testing.md`。
-- 任何会读图片、跑 OCR、等待模型请求或循环处理大量截图的逻辑，都不要放回 `AnalysisService` 的主 actor 同步路径；优先放进 `AnalysisWorker`，必要时用 `Task.detached` 包住同步 CPU/IO 工作。
+- 任何会读图片、跑 OCR、等待模型请求或循环处理大量截图的逻辑，都不要放回 `AnalysisService` 的主 actor 同步路径；优先放进 `AnalysisWorker`。图片 IO、解码、亮度计算和 OCR 这类同步 CPU/IO 工作要走 `AnalysisWorker` 的 cancellable background helper，不要新增裸 `Task.detached`，否则用户停止分析时取消无法传递到后台子任务。

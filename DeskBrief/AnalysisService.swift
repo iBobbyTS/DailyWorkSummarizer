@@ -43,7 +43,8 @@ final class AnalysisService {
         session: URLSession? = nil,
         runCoordinator: AppRunCoordinator? = nil,
         notificationSender: AppNotificationSending? = nil,
-        credentialProvider: CredentialProviding? = nil
+        credentialProvider: CredentialProviding? = nil,
+        imageProcessingRuntime: AnalysisImageProcessingRuntime = .live
     ) {
         self.database = database
         self.settingsStore = settingsStore
@@ -56,7 +57,10 @@ final class AnalysisService {
         let resolvedSession = session ?? Self.makeIsolatedSession()
         self.session = resolvedSession
         self.llmService = LLMService(session: resolvedSession, credentialProvider: self.credentialProvider)
-        self.analysisWorker = AnalysisWorker(llmService: self.llmService)
+        self.analysisWorker = AnalysisWorker(
+            llmService: self.llmService,
+            imageProcessingRuntime: imageProcessingRuntime
+        )
 
         let lmStudioLifecycle = LMStudioModelLifecycle(session: resolvedSession, credentialProvider: credentialProvider) { [weak settingsStore, weak logStore] chinese, english in
             Task { @MainActor in

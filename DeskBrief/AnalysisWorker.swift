@@ -38,13 +38,78 @@ nonisolated struct ScreenshotBrightnessSignal: Equatable {
     }
 }
 
+nonisolated struct AnalysisImageProcessingRuntime: Sendable {
+    var recognizeText: @Sendable (
+        _ imageData: Data,
+        _ recognitionLanguages: [String],
+        _ invalidImageMessage: String
+    ) async throws -> String
+
+    static let live = AnalysisImageProcessingRuntime(
+        recognizeText: AnalysisWorker.recognizedText
+    )
+}
+
+private nonisolated final class CancellableImageProcessingTaskBox<Success: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: Task<Success, Error>?
+
+    func set(_ task: Task<Success, Error>) {
+        lock.lock()
+        self.task = task
+        lock.unlock()
+    }
+
+    func clear() {
+        lock.lock()
+        task = nil
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        let task = task
+        lock.unlock()
+        task?.cancel()
+    }
+}
+
+private nonisolated final class VisionTextRecognitionRequestBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var request: VNRecognizeTextRequest?
+
+    func set(_ request: VNRecognizeTextRequest) {
+        lock.lock()
+        self.request = request
+        lock.unlock()
+    }
+
+    func clear() {
+        lock.lock()
+        request = nil
+        lock.unlock()
+    }
+
+    func cancel() {
+        lock.lock()
+        let request = request
+        lock.unlock()
+        request?.cancel()
+    }
+}
+
 nonisolated final class AnalysisWorker: @unchecked Sendable {
     nonisolated static let minimumActiveScreenshotAveragePixelValue = 2.0
 
     private let llmService: LLMService
+    private let imageProcessingRuntime: AnalysisImageProcessingRuntime
 
-    init(llmService: LLMService) {
+    init(
+        llmService: LLMService,
+        imageProcessingRuntime: AnalysisImageProcessingRuntime = .live
+    ) {
         self.llmService = llmService
+        self.imageProcessingRuntime = imageProcessingRuntime
     }
 
     func analyzeImage(
@@ -237,7 +302,7 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         lengthRetry: ((String) async throws -> AnalysisExecutionResult)? = nil
     ) async throws -> AnalysisExecutionResult {
         try await validateImageData(imageData, language: settings.appLanguage)
-        if let brightnessSignal = await brightnessSignal(from: imageData),
+        if let brightnessSignal = try await brightnessSignal(from: imageData),
            !brightnessSignal.isVisuallyActive {
             return inactiveScreenshotResult()
         }
@@ -352,18 +417,21 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
     }
 
     private func imageData(from fileURL: URL) async throws -> Data {
-        try await Task.detached(priority: .utility) {
-            try Data(contentsOf: fileURL)
-        }.value
+        try await cancellableImageProcessingTask {
+            try Task.checkCancellation()
+            return try Data(contentsOf: fileURL)
+        }
     }
 
     private func validateImageData(_ imageData: Data, language: AppLanguage) async throws {
         let invalidImageMessage = localized(.analysisInvalidImageData, language: language)
-        try await Task.detached(priority: .utility) {
+        try await cancellableImageProcessingTask {
+            try Task.checkCancellation()
             guard Self.canDecodeImage(from: imageData) else {
                 throw AnalysisServiceError.invalidImageData(invalidImageMessage)
             }
-        }.value
+            try Task.checkCancellation()
+        }
     }
 
     nonisolated static func canDecodeImage(from imageData: Data) -> Bool {
@@ -374,10 +442,11 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         return true
     }
 
-    private func brightnessSignal(from imageData: Data) async -> ScreenshotBrightnessSignal? {
-        await Task.detached(priority: .utility) {
-            Self.brightnessSignal(from: imageData)
-        }.value
+    private func brightnessSignal(from imageData: Data) async throws -> ScreenshotBrightnessSignal? {
+        try await cancellableImageProcessingTask {
+            try Task.checkCancellation()
+            return try Self.cancellableBrightnessSignal(from: imageData)
+        }
     }
 
     nonisolated static func brightnessSignal(from imageData: Data) -> ScreenshotBrightnessSignal? {
@@ -389,13 +458,28 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         return brightnessSignal(from: cgImage)
     }
 
+    private nonisolated static func cancellableBrightnessSignal(from imageData: Data) throws -> ScreenshotBrightnessSignal? {
+        guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+            return nil
+        }
+
+        return try cancellableBrightnessSignal(from: cgImage)
+    }
+
     nonisolated static func brightnessSignal(from cgImage: CGImage) -> ScreenshotBrightnessSignal? {
+        try? cancellableBrightnessSignal(from: cgImage)
+    }
+
+    private nonisolated static func cancellableBrightnessSignal(from cgImage: CGImage) throws -> ScreenshotBrightnessSignal? {
         let width = cgImage.width
         let height = cgImage.height
         let pixelCount = width * height
         guard width > 0, height > 0, pixelCount > 0 else {
             return nil
         }
+
+        try Task.checkCancellation()
 
         let bytesPerPixel = 4
         let bytesPerRow = width * bytesPerPixel
@@ -418,12 +502,19 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
         context.interpolationQuality = .none
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
 
+        try Task.checkCancellation()
+
         var total: UInt64 = 0
-        for index in stride(from: 0, to: pixels.count, by: bytesPerPixel) {
+        for (iteration, index) in stride(from: 0, to: pixels.count, by: bytesPerPixel).enumerated() {
+            if iteration.isMultiple(of: 16_384) {
+                try Task.checkCancellation()
+            }
             total += UInt64(pixels[index])
             total += UInt64(pixels[index + 1])
             total += UInt64(pixels[index + 2])
         }
+
+        try Task.checkCancellation()
 
         let average = Double(total) / Double(pixelCount * 3)
         return ScreenshotBrightnessSignal(averageEightBitPixelValue: average)
@@ -432,38 +523,71 @@ nonisolated final class AnalysisWorker: @unchecked Sendable {
     private func recognizedText(from imageData: Data, language: AppLanguage) async throws -> String {
         let recognitionLanguages = Self.recognitionLanguages(for: language)
         let invalidImageMessage = localized(.analysisInvalidImageData, language: language)
-        return try await Task.detached(priority: .utility) {
-            try Self.recognizedText(
-                from: imageData,
-                recognitionLanguages: recognitionLanguages,
-                invalidImageMessage: invalidImageMessage
-            )
-        }.value
+        let recognizeText = imageProcessingRuntime.recognizeText
+        return try await cancellableImageProcessingTask {
+            try Task.checkCancellation()
+            let text = try await recognizeText(imageData, recognitionLanguages, invalidImageMessage)
+            try Task.checkCancellation()
+            return text
+        }
     }
 
-    private static func recognizedText(
+    nonisolated static func recognizedText(
         from imageData: Data,
         recognitionLanguages: [String],
         invalidImageMessage: String
-    ) throws -> String {
+    ) async throws -> String {
+        try Task.checkCancellation()
         guard let imageSource = CGImageSourceCreateWithData(imageData as CFData, nil),
               let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
             throw AnalysisServiceError.invalidImageData(invalidImageMessage)
         }
 
+        try Task.checkCancellation()
+
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
         request.recognitionLanguages = recognitionLanguages
+        let requestBox = VisionTextRecognitionRequestBox()
+        requestBox.set(request)
+        defer { requestBox.clear() }
 
         let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        try handler.perform([request])
+        try await withTaskCancellationHandler {
+            try handler.perform([request])
+        } onCancel: {
+            requestBox.cancel()
+        }
+        try Task.checkCancellation()
 
         return (request.results ?? [])
             .compactMap { $0.topCandidates(1).first?.string }
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: "\n")
+    }
+
+    private func cancellableImageProcessingTask<T: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        let taskBox = CancellableImageProcessingTaskBox<T>()
+        return try await withTaskCancellationHandler {
+            let task = Task.detached(priority: .utility) {
+                try Task.checkCancellation()
+                let value = try await operation()
+                try Task.checkCancellation()
+                return value
+            }
+            taskBox.set(task)
+            if Task.isCancelled {
+                taskBox.cancel()
+            }
+            defer { taskBox.clear() }
+            return try await task.value
+        } onCancel: {
+            taskBox.cancel()
+        }
     }
 
     private static func recognitionLanguages(for language: AppLanguage) -> [String] {
