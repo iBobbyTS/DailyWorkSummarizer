@@ -14,7 +14,7 @@ struct ScreenshotCaptureRuntime {
     var mouseLocation: () -> CGPoint?
     var frontmostAppIdentifier: () -> String?
     var preferredCaptureTarget: () -> ScreenshotCaptureTarget
-    var runScreenCapture: (_ arguments: [String]) throws -> Void
+    var runScreenCapture: (_ arguments: [String]) async throws -> Void
     var captureDisplayImage: (_ rect: CGRect) async throws -> CGImage
 }
 
@@ -77,7 +77,7 @@ final class ScreenshotService {
         await performCapture(scheduledAt: scheduledAt, settings: settings)
     }
 
-    func capturePreview() throws -> ScreenshotPreviewResult {
+    func capturePreview() async throws -> ScreenshotPreviewResult {
         guard captureRuntime.hasScreenCaptureAccess() else {
             throw NSError(
                 domain: "ScreenshotService",
@@ -92,7 +92,7 @@ final class ScreenshotService {
         let previewID = fileName(for: Date(), suffix: "-preview").replacingOccurrences(of: ".\(AppDefaults.screenshotFileExtension)", with: "")
         let finalURL = previewDirectory.appendingPathComponent("\(previewID).\(AppDefaults.screenshotFileExtension)")
 
-        try capturePreferredSingleDisplayJPEG(to: finalURL)
+        try await capturePreferredSingleDisplayJPEG(to: finalURL)
         guard let image = NSImage(contentsOf: finalURL) else {
             throw NSError(
                 domain: "ScreenshotService",
@@ -112,7 +112,7 @@ final class ScreenshotService {
         }
     }
 
-    func captureTemporaryMainDisplay() throws -> URL {
+    func captureTemporaryMainDisplay() async throws -> URL {
         guard captureRuntime.hasScreenCaptureAccess() else {
             throw NSError(
                 domain: "ScreenshotService",
@@ -125,7 +125,7 @@ final class ScreenshotService {
         try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
 
         let fileURL = tempDirectory.appendingPathComponent(fileName(for: Date(), suffix: "-model-test"))
-        try capturePreferredSingleDisplayJPEG(to: fileURL)
+        try await capturePreferredSingleDisplayJPEG(to: fileURL)
         return fileURL
     }
 
@@ -180,7 +180,7 @@ final class ScreenshotService {
                 let fileURL = directory.appendingPathComponent(
                     fileName(for: scheduledAt, intervalMinutes: settings.screenshotIntervalMinutes)
                 )
-                try capturePreferredSingleDisplayJPEG(to: fileURL)
+                try await capturePreferredSingleDisplayJPEG(to: fileURL)
                 if let currentMouseLocation {
                     saveLastMouseLocation(currentMouseLocation)
                 }
@@ -239,14 +239,14 @@ final class ScreenshotService {
         return formatter.string(from: date) + intervalComponent + suffix + ".\(AppDefaults.screenshotFileExtension)"
     }
 
-    private func capturePreferredSingleDisplayJPEG(to destinationURL: URL) throws {
+    private func capturePreferredSingleDisplayJPEG(to destinationURL: URL) async throws {
         let target = captureRuntime.preferredCaptureTarget()
         if let displayIndex = target.displayIndex {
-            try captureRuntime.runScreenCapture(["-x", "-D", "\(displayIndex)", "-t", "jpg", destinationURL.path])
+            try await captureRuntime.runScreenCapture(["-x", "-D", "\(displayIndex)", "-t", "jpg", destinationURL.path])
             return
         }
 
-        try captureRuntime.runScreenCapture(["-x", "-m", "-t", "jpg", destinationURL.path])
+        try await captureRuntime.runScreenCapture(["-x", "-m", "-t", "jpg", destinationURL.path])
     }
 
     /// Captures the preferred display directly to in-memory JPEG data.
@@ -400,7 +400,7 @@ final class ScreenshotService {
         return (screen.deviceDescription[key] as? NSNumber).map { CGDirectDisplayID($0.uint32Value) }
     }
 
-    fileprivate static func runScreenCapture(arguments: [String], commandFailedMessage: String) throws {
+    nonisolated fileprivate static func runScreenCapture(arguments: [String], commandFailedMessage: String) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         process.arguments = arguments
@@ -499,10 +499,15 @@ extension ScreenshotCaptureRuntime {
                 ScreenshotService.preferredCaptureTarget()
             },
             runScreenCapture: { arguments in
-                try ScreenshotService.runScreenCapture(
-                    arguments: arguments,
-                    commandFailedMessage: L10n.string(.screenshotCommandFailed, language: settingsStore.appLanguage)
-                )
+                let commandFailedMessage = await MainActor.run {
+                    L10n.string(.screenshotCommandFailed, language: settingsStore.appLanguage)
+                }
+                try await Task.detached {
+                    try ScreenshotService.runScreenCapture(
+                        arguments: arguments,
+                        commandFailedMessage: commandFailedMessage
+                    )
+                }.value
             },
             captureDisplayImage: { rect in
                 try await ScreenshotService.captureDisplayImage(in: rect)

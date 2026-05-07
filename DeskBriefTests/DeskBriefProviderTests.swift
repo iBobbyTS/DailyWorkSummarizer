@@ -581,6 +581,48 @@ extension DeskBriefTests {
         #expect(response.text == #"{"category":"专注工作","summary":"兼容旧版 LM Studio 多模态输入格式"}"#)
     }
 
+    @Test func llmServicePropagatesCredentialReadFailureWithoutSendingRequest() async throws {
+        final class FailingCredentialProvider: CredentialProviding {
+            func apiKey(for account: String) throws -> String {
+                throw KeychainReadError(result: .failure(account: account, status: OSStatus(-25308)))
+            }
+        }
+
+        let settings = makeModelSettings(
+            provider: .openAI,
+            apiBaseURL: "https://api.example.com",
+            modelName: "gpt-test",
+            apiKey: ""
+        )
+        defer { MockURLProtocol.reset() }
+        let session = makeMockSession { request in
+            MockURLProtocol.requestCount += 1
+            return try makeHTTPResponse(url: try #require(request.url), body: "{}")
+        }
+        let service = LLMService(session: session, credentialProvider: FailingCredentialProvider())
+
+        do {
+            _ = try await service.send(
+                LLMServiceRequest(
+                    settings: settings,
+                    appLanguage: .simplifiedChinese,
+                    prompt: "test",
+                    imageData: nil,
+                    maximumResponseTokens: 300,
+                    timeoutInterval: 120,
+                    keychainAccount: AppDefaults.apiKeyAccount
+                )
+            )
+            Issue.record("Expected credential read failure")
+        } catch let error as KeychainReadError {
+            #expect(error.result == .failure(account: AppDefaults.apiKeyAccount, status: OSStatus(-25308)))
+        } catch {
+            Issue.record("Expected credential read failure, got \(error)")
+        }
+
+        #expect(MockURLProtocol.requestCount == 0)
+    }
+
     @Test func nextAnalysisDateFallsToTomorrowWhenTodayIsMissed() async throws {
         var calendar = Calendar.reportCalendar
         calendar.timeZone = TimeZone(identifier: "America/Edmonton") ?? .current

@@ -1529,6 +1529,71 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func scheduledDiskCaptureYieldsMainActorWhileScreenCaptureIsPending() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        store.screenshotStorageLocation = .disk
+        let captureStarted = DispatchSemaphore(value: 0)
+        let releaseCapture = DispatchSemaphore(value: 0)
+        let runtime = ScreenshotCaptureRuntime(
+            hasScreenCaptureAccess: { true },
+            mouseLocation: { CGPoint(x: 42, y: 24) },
+            frontmostAppIdentifier: { "com.example.Editor" },
+            preferredCaptureTarget: {
+                ScreenshotCaptureTarget(displayIndex: 2, frame: CGRect(x: 10, y: 20, width: 30, height: 40))
+            },
+            runScreenCapture: { arguments in
+                captureStarted.signal()
+                #expect(await waitForSemaphore(releaseCapture, timeoutSeconds: 2))
+                guard let destination = arguments.last else { return }
+                try writeSolidTestScreenshot(to: URL(fileURLWithPath: destination), gray: 3)
+            },
+            captureDisplayImage: { _ in
+                Issue.record("Disk capture should not invoke the memory capture backend")
+                return try makeSolidTestCGImage(gray: 3)
+            }
+        )
+        let service = ScreenshotService(
+            database: database,
+            settingsStore: store,
+            userDefaults: userDefaults,
+            captureRuntime: runtime
+        )
+        let scheduledAt = makeScreenshotDate(year: 2026, month: 4, day: 26, hour: 10, minute: 0)
+
+        let captureTask = Task { @MainActor in
+            await service.captureScheduledScreenshotForTesting(scheduledAt: scheduledAt, settings: store.snapshot)
+        }
+
+        #expect(await waitForSemaphore(captureStarted, timeoutSeconds: 2))
+        var mainActorWasAvailable = false
+        await MainActor.run {
+            mainActorWasAvailable = true
+        }
+
+        #expect(mainActorWasAvailable)
+        releaseCapture.signal()
+        await captureTask.value
+        let pending = try database.pendingScreenshotStore.listPendingScreenshots(defaultDurationMinutes: 5)
+        #expect(pending.count == 1)
+    }
+
+    @MainActor
     @Test func scheduledMemoryCaptureUsesPreferredTargetAndPublishesPendingMemoryScreenshot() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory

@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-final class AnalysisDataStore: @unchecked Sendable {
+nonisolated final class AnalysisDataStore: @unchecked Sendable {
     private let connection: DatabaseConnection
 
     init(connection: DatabaseConnection) {

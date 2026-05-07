@@ -9,14 +9,23 @@ import UniformTypeIdentifiers
 
 final class FakeKeychainStore: KeychainStoring {
     private var values: [String: String]
+    var queuedReadResults: [KeychainReadResult] = []
     var queuedResults: [KeychainWriteResult] = []
 
-    init(values: [String: String] = [:]) {
+    init(values: [String: String] = [:], queuedReadResults: [KeychainReadResult] = []) {
         self.values = values
+        self.queuedReadResults = queuedReadResults
     }
 
-    func string(for account: String) -> String {
-        values[account] ?? ""
+    func readString(for account: String) -> KeychainReadResult {
+        if !queuedReadResults.isEmpty {
+            return queuedReadResults.removeFirst()
+        }
+
+        guard let value = values[account] else {
+            return .notFound(account: account)
+        }
+        return .success(account: account, value: value)
     }
 
     @discardableResult

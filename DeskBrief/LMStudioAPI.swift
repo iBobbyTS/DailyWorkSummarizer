@@ -92,11 +92,11 @@ final class LMStudioModelLifecycle {
         self.log = log
     }
 
-    private func resolvedAPIKey(for settings: ModelProfileSettings) -> String {
+    private func resolvedAPIKey(for settings: ModelProfileSettings) throws -> String {
         guard settings.apiKey.isEmpty else {
             return settings.apiKey
         }
-        return credentialProvider.apiKey(for: AppDefaults.apiKeyAccount)
+        return try credentialProvider.apiKey(for: AppDefaults.apiKeyAccount)
     }
 
     func load(settings: ModelProfileSettings) async throws -> LMStudioLoadedModel {
@@ -106,7 +106,7 @@ final class LMStudioModelLifecycle {
         }
 
         let loadURL = modelsURL.appendingPathComponent("load")
-        var request = makeJSONRequest(url: loadURL, method: "POST", apiKey: resolvedAPIKey(for: settings))
+        var request = makeJSONRequest(url: loadURL, method: "POST", apiKey: try resolvedAPIKey(for: settings))
         request.httpBody = try LMStudioAPI.buildLoadRequestBody(
             modelName: settings.modelName,
             contextLength: settings.lmStudioContextLength
@@ -164,7 +164,7 @@ final class LMStudioModelLifecycle {
         }
 
         let unloadURL = modelsURL.appendingPathComponent("unload")
-        var request = makeJSONRequest(url: unloadURL, method: "POST", apiKey: resolvedAPIKey(for: settings))
+        var request = makeJSONRequest(url: unloadURL, method: "POST", apiKey: try resolvedAPIKey(for: settings))
         request.httpBody = try JSONSerialization.data(withJSONObject: ["instance_id": resolvedInstanceID])
         record(
             chinese: "开始请求 LM Studio /api/v1/models/unload，instance_id=\(resolvedInstanceID)。",
@@ -201,7 +201,7 @@ final class LMStudioModelLifecycle {
             chinese: "开始请求 LM Studio /api/v1/models，用于匹配待卸载实例。",
             english: "Requesting LM Studio /api/v1/models to match the instance to unload."
         )
-        let request = makeJSONRequest(url: modelsURL, method: "GET", apiKey: resolvedAPIKey(for: settings))
+        let request = makeJSONRequest(url: modelsURL, method: "GET", apiKey: try resolvedAPIKey(for: settings))
         let result = try await performDataRequest(for: request)
         guard let response = result.response as? HTTPURLResponse else {
             record(

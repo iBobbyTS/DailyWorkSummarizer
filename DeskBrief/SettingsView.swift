@@ -24,12 +24,12 @@ struct SettingsView: View {
 
         var id: String {
             switch self {
-            case .enable(let passphrase):
-                return "enable:\(passphrase.value)"
+            case .enable:
+                return "enable"
             case .disable:
                 return "disable"
-            case .update(let passphrase):
-                return "update:\(passphrase.value)"
+            case .update:
+                return "update"
             }
         }
     }
@@ -1378,7 +1378,7 @@ struct SettingsView: View {
             do {
                 removePreviewFile()
 
-                let validationResult = try screenshotService.capturePreview()
+                let validationResult = try await screenshotService.capturePreview()
                 removeTemporaryFileIfExists(
                     validationResult.fileURL,
                     context: "Failed to remove screenshot validation preview"
@@ -1389,7 +1389,7 @@ struct SettingsView: View {
                     try await Task.sleep(for: .seconds(1))
                 }
 
-                let result = try screenshotService.capturePreview()
+                let result = try await screenshotService.capturePreview()
                 previewFileURL = result.fileURL
                 previewImage = result.image
                 previewError = nil
@@ -1444,7 +1444,7 @@ struct SettingsView: View {
                     try await Task.sleep(for: .seconds(1))
                 }
 
-                temporaryFileURL = try screenshotService.captureTemporaryMainDisplay()
+                temporaryFileURL = try await screenshotService.captureTemporaryMainDisplay()
                 guard let temporaryFileURL else {
                     throw NSError(
                         domain: "SettingsView",

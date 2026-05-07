@@ -7,7 +7,7 @@ enum DatabaseOpenMode: Equatable {
     case encrypted(DatabasePassphrase)
 }
 
-final class DatabaseConnection: @unchecked Sendable {
+nonisolated final class DatabaseConnection: @unchecked Sendable {
     let databaseURL: URL
     private var dbQueue: DatabaseQueue
     private var openMode: DatabaseOpenMode

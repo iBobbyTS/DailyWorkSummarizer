@@ -42,6 +42,18 @@ private struct WorkBlockSummaryWorkResult {
     var failureCount = 0
 }
 
+private struct DailyReportSummaryPreparation: Sendable {
+    let latestDayStart: Date?
+    let candidateBlocks: [DailyWorkBlock]
+    let targetDayStarts: Set<Date>?
+    let pendingDays: [Date]
+    let explicitDayStarts: [Date]
+
+    var totalCount: Int {
+        candidateBlocks.count + pendingDays.count + explicitDayStarts.count
+    }
+}
+
 enum DailyReportSummaryServiceError: LocalizedError, Equatable {
     case invalidConfiguration(String)
     case invalidResponse(String)
@@ -531,41 +543,9 @@ final class DailyReportSummaryService {
     ) async throws -> DailyReportSummaryExecutionResult {
         let snapshot = await MainActor.run { settingsStore.snapshot }
         let calendar = Calendar.reportCalendar(language: snapshot.appLanguage)
-        let reportableDayStarts = try fetchReportableActivityDayStarts(calendar: calendar)
-        let latestDayStart = reportableDayStarts.last
-
-        let targetDayStarts = request.workBlockScope.targetDayStarts
-        let candidateBlocks: [DailyWorkBlock]
-        switch request.workBlockScope {
-        case .all:
-            candidateBlocks = try candidateWorkBlocks(targetDayStarts: nil)
-        case .dayStarts(let dayStarts):
-            candidateBlocks = try candidateWorkBlocks(targetDayStarts: dayStarts)
-        case .none:
-            candidateBlocks = []
-        }
-
-        let pendingDays: [Date]
-        switch request.dailyReportScope {
-        case .allMissing:
-            pendingDays = try pendingReportableDayStarts(
-                in: reportableDayStarts,
-                before: latestDayStart ?? .distantPast
-            )
-        case .candidateDayStarts(let candidateDayStarts):
-            let reportableDayStartSet = Set(reportableDayStarts)
-            pendingDays = try pendingReportableDayStarts(
-                in: candidateDayStarts
-                    .filter { reportableDayStartSet.contains($0) }
-                    .sorted(),
-                before: latestDayStart ?? .distantPast
-            )
-        case .none:
-            pendingDays = []
-        }
-
-        let explicitDayStarts = request.explicitDayStarts.sorted()
-        let totalCount = candidateBlocks.count + pendingDays.count + explicitDayStarts.count
+        let preparation = try await prepareSummaryRequest(request, calendar: calendar)
+        let latestDayStart = preparation.latestDayStart
+        let totalCount = preparation.totalCount
         guard totalCount > 0 else {
             return DailyReportSummaryExecutionResult()
         }
@@ -603,9 +583,9 @@ final class DailyReportSummaryService {
                 var completedCount = 0
 
                 let workBlockResult = try await summarizeWorkBlocksWorkLocked(
-                    blocks: candidateBlocks,
+                    blocks: preparation.candidateBlocks,
                     snapshot: snapshot,
-                    targetDayStarts: targetDayStarts,
+                    targetDayStarts: preparation.targetDayStarts,
                     completedCountOffset: completedCount,
                     totalCount: totalCount
                 )
@@ -614,7 +594,7 @@ final class DailyReportSummaryService {
                 result.workBlockSummaryFailureCount += workBlockResult.failureCount
 
                 let dailyReportResult = try await summarizeDailyReportsWorkLocked(
-                    pendingDays: pendingDays,
+                    pendingDays: preparation.pendingDays,
                     snapshot: snapshot,
                     completedCountOffset: completedCount,
                     totalCount: totalCount
@@ -623,7 +603,7 @@ final class DailyReportSummaryService {
                 result.dailyReportFailureCount += dailyReportResult.failureCount
                 result.dailyReports.merge(dailyReportResult.dailyReports) { _, new in new }
 
-                for dayStart in explicitDayStarts {
+                for dayStart in preparation.explicitDayStarts {
                     if Task.isCancelled {
                         throw CancellationError()
                     }
@@ -705,6 +685,67 @@ final class DailyReportSummaryService {
             currentSummaryRunID = nil
             throw error
         }
+    }
+
+    private func prepareSummaryRequest(
+        _ request: DailyReportSummaryRequest,
+        calendar: Calendar
+    ) async throws -> DailyReportSummaryPreparation {
+        let workBlockScope = request.workBlockScope
+        let dailyReportScope = request.dailyReportScope
+        let explicitDayStarts = request.explicitDayStarts
+        let database = database
+
+        return try await Task.detached(priority: .utility) {
+            try Task.checkCancellation()
+            let reportableDayStarts = try Self.fetchReportableActivityDayStarts(
+                calendar: calendar,
+                database: database
+            )
+            let latestDayStart = reportableDayStarts.last
+
+            try Task.checkCancellation()
+            let targetDayStarts = workBlockScope.targetDayStarts
+            let candidateBlocks: [DailyWorkBlock]
+            switch workBlockScope {
+            case .all:
+                candidateBlocks = try Self.candidateWorkBlocks(targetDayStarts: nil, database: database)
+            case .dayStarts(let dayStarts):
+                candidateBlocks = try Self.candidateWorkBlocks(targetDayStarts: dayStarts, database: database)
+            case .none:
+                candidateBlocks = []
+            }
+
+            try Task.checkCancellation()
+            let pendingDays: [Date]
+            switch dailyReportScope {
+            case .allMissing:
+                pendingDays = try Self.pendingReportableDayStarts(
+                    in: reportableDayStarts,
+                    before: latestDayStart ?? .distantPast,
+                    database: database
+                )
+            case .candidateDayStarts(let candidateDayStarts):
+                let reportableDayStartSet = Set(reportableDayStarts)
+                pendingDays = try Self.pendingReportableDayStarts(
+                    in: candidateDayStarts
+                        .filter { reportableDayStartSet.contains($0) }
+                        .sorted(),
+                    before: latestDayStart ?? .distantPast,
+                    database: database
+                )
+            case .none:
+                pendingDays = []
+            }
+
+            return DailyReportSummaryPreparation(
+                latestDayStart: latestDayStart,
+                candidateBlocks: candidateBlocks,
+                targetDayStarts: targetDayStarts,
+                pendingDays: pendingDays,
+                explicitDayStarts: explicitDayStarts.sorted()
+            )
+        }.value
     }
 
     private func summarizeDailyReportsWorkLocked(
@@ -916,7 +957,10 @@ final class DailyReportSummaryService {
         return summary
     }
 
-    private func candidateWorkBlocks(targetDayStarts: Set<Date>?) throws -> [DailyWorkBlock] {
+    nonisolated private static func candidateWorkBlocks(
+        targetDayStarts: Set<Date>?,
+        database: AppDatabase
+    ) throws -> [DailyWorkBlock] {
         let activityItems = try database.fetchReportActivityItems()
         let blocks = DailyWorkBlockComposer.groupBlocks(from: activityItems)
 
@@ -992,7 +1036,11 @@ final class DailyReportSummaryService {
         }
 
         let calendar = Calendar.reportCalendar(language: language)
-        let activityItems = try fetchReportableActivityItems(for: dayStart, calendar: calendar)
+        let activityItems = try Self.fetchReportableActivityItems(
+            for: dayStart,
+            calendar: calendar,
+            database: database
+        )
         guard !activityItems.isEmpty,
               activityItems.allSatisfy(Self.hasNonEmptySummary) else {
             throw DailyReportSummaryServiceError.noActivity(
@@ -1168,12 +1216,19 @@ final class DailyReportSummaryService {
         )
     }
 
-    private func fetchReportableActivityItems(for dayStart: Date, calendar: Calendar) throws -> [DailyReportActivityItem] {
+    nonisolated private static func fetchReportableActivityItems(
+        for dayStart: Date,
+        calendar: Calendar,
+        database: AppDatabase
+    ) throws -> [DailyReportActivityItem] {
         try database.fetchDailyReportActivityItems(for: dayStart, calendar: calendar)
             .filter { Self.isReportableCategory($0.categoryName) }
     }
 
-    private func fetchReportableActivityDayStarts(calendar: Calendar) throws -> [Date] {
+    nonisolated private static func fetchReportableActivityDayStarts(
+        calendar: Calendar,
+        database: AppDatabase
+    ) throws -> [Date] {
         let dayStarts = try database.fetchReportActivityItems()
             .filter { Self.isReportableCategory($0.categoryName) && Self.hasNonEmptySummary($0) }
             .flatMap { Self.coveredDayStarts(for: $0, calendar: calendar) }
@@ -1203,9 +1258,10 @@ final class DailyReportSummaryService {
         return dayStarts
     }
 
-    private func pendingReportableDayStarts(
+    nonisolated private static func pendingReportableDayStarts(
         in dayStarts: [Date],
-        before dayStartExclusive: Date
+        before dayStartExclusive: Date,
+        database: AppDatabase
     ) throws -> [Date] {
         try dayStarts
             .filter { Self.shouldWriteFinalDailyReport(for: $0, latestReportableDayStart: dayStartExclusive) }
@@ -1217,16 +1273,16 @@ final class DailyReportSummaryService {
             }
     }
 
-    private static func isReportableCategory(_ categoryName: String) -> Bool {
+    nonisolated private static func isReportableCategory(_ categoryName: String) -> Bool {
         categoryName != AppDefaults.absenceCategoryName
     }
 
-    private static func hasNonEmptySummary(_ item: DailyReportActivityItem) -> Bool {
+    nonisolated private static func hasNonEmptySummary(_ item: DailyReportActivityItem) -> Bool {
         let text = item.itemSummaryText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return !text.isEmpty
     }
 
-    private static func shouldWriteFinalDailyReport(
+    nonisolated private static func shouldWriteFinalDailyReport(
         for dayStart: Date,
         latestReportableDayStart: Date?
     ) -> Bool {

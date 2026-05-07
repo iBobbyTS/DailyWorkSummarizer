@@ -590,7 +590,7 @@ struct ReportSourceItem: Identifiable {
     let durationMinutes: Int
 }
 
-struct DailyReportActivityItem: Identifiable, Hashable {
+struct DailyReportActivityItem: Identifiable, Hashable, Sendable {
     let id: Int64
     let capturedAt: Date
     let categoryName: String
@@ -614,7 +614,7 @@ struct DailyWorkBlockSummaryRecord: Identifiable, Hashable {
     }
 }
 
-struct DailyWorkBlock: Identifiable, Hashable {
+struct DailyWorkBlock: Identifiable, Hashable, Sendable {
     let categoryName: String
     let startAt: Date
     let endAt: Date
@@ -625,15 +625,15 @@ struct DailyWorkBlock: Identifiable, Hashable {
         "\(categoryName)-\(startAt.timeIntervalSince1970)-\(endAt.timeIntervalSince1970)"
     }
 
-    var durationMinutes: Int {
+    nonisolated var durationMinutes: Int {
         max(Int((endAt.timeIntervalSince(startAt) / 60.0).rounded()), 1)
     }
 
-    var interval: DateInterval {
+    nonisolated var interval: DateInterval {
         DateInterval(start: startAt, end: endAt)
     }
 
-    var nonEmptySourceSummaries: [String] {
+    nonisolated var nonEmptySourceSummaries: [String] {
         sourceItems.compactMap { item in
             let text = item.itemSummaryText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return text.isEmpty ? nil : text

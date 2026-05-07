@@ -6,6 +6,7 @@ enum DatabaseError: LocalizedError, Equatable {
     case openDatabase(String)
     case missingPassphrase(URL)
     case invalidPassphrase(String)
+    case keychainReadFailed(KeychainReadResult)
     case keychainWriteFailed(KeychainWriteResult)
     case prepareStatement(String)
     case execute(String)
@@ -18,6 +19,8 @@ enum DatabaseError: LocalizedError, Equatable {
             return "Missing database passphrase for \(url.path)"
         case .invalidPassphrase(let message):
             return message
+        case .keychainReadFailed(let result):
+            return KeychainReadError(result: result).localizedDescription
         case .keychainWriteFailed(let result):
             return KeychainWriteError(result: result).localizedDescription
         case .prepareStatement(let message), .execute(let message):
@@ -29,7 +32,7 @@ enum DatabaseError: LocalizedError, Equatable {
         switch self {
         case .missingPassphrase, .invalidPassphrase:
             return true
-        case .openDatabase, .keychainWriteFailed, .prepareStatement, .execute:
+        case .openDatabase, .keychainReadFailed, .keychainWriteFailed, .prepareStatement, .execute:
             return false
         }
     }
@@ -114,7 +117,7 @@ final class AppDatabase: @unchecked Sendable {
                     pendingImportURL: DatabasePassphraseImportFile.url(for: databaseURL)
                 )
             }
-            if let storedPassphrase = store.load() {
+            if let storedPassphrase = try store.load() {
                 return ResolvedDatabasePassphrase(openMode: .encrypted(storedPassphrase), passphrase: storedPassphrase)
             }
 
@@ -244,7 +247,7 @@ final class AppDatabase: @unchecked Sendable {
         try analysisStore.fetchReportSourceItems()
     }
 
-    func fetchReportActivityItems() throws -> [DailyReportActivityItem] {
+    nonisolated func fetchReportActivityItems() throws -> [DailyReportActivityItem] {
         try analysisStore.fetchReportActivityItems()
     }
 
@@ -252,7 +255,7 @@ final class AppDatabase: @unchecked Sendable {
         try analysisStore.fetchLatestReportActivityItem(before: date)
     }
 
-    func fetchDailyReportActivityItems(
+    nonisolated func fetchDailyReportActivityItems(
         for dayStart: Date,
         calendar: Calendar = .reportCalendar
     ) throws -> [DailyReportActivityItem] {
@@ -280,7 +283,7 @@ final class AppDatabase: @unchecked Sendable {
 
     // MARK: - Daily Reports
 
-    func fetchDailyReport(for dayStart: Date) throws -> DailyReportRecord? {
+    nonisolated func fetchDailyReport(for dayStart: Date) throws -> DailyReportRecord? {
         try reportStore.fetchDailyReport(for: dayStart)
     }
 
@@ -492,8 +495,15 @@ struct DatabasePassphraseStore {
         self.keychain = keychain
     }
 
-    func load() -> DatabasePassphrase? {
-        try? DatabasePassphrase(keychain.string(for: Self.account))
+    func load() throws -> DatabasePassphrase? {
+        switch keychain.readString(for: Self.account) {
+        case .success(_, let value):
+            return try? DatabasePassphrase(value)
+        case .notFound:
+            return nil
+        case .failure(let account, let status):
+            throw DatabaseError.keychainReadFailed(.failure(account: account, status: status))
+        }
     }
 
     func save(_ passphrase: DatabasePassphrase) throws {
@@ -504,7 +514,7 @@ struct DatabasePassphraseStore {
     }
 
     func loadOrCreate() throws -> DatabasePassphrase {
-        if let passphrase = load() {
+        if let passphrase = try load() {
             return passphrase
         }
         let passphrase = try DatabasePassphrase.generate()

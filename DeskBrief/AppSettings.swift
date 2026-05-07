@@ -510,7 +510,19 @@ final class SettingsStore: ObservableObject {
     }
 
     var currentDatabasePassphrase: String {
-        keychain.string(for: AppDefaults.databasePassphraseAccount)
+        switch keychain.readString(for: AppDefaults.databasePassphraseAccount) {
+        case .success(_, let value):
+            return value
+        case .notFound:
+            return ""
+        case .failure(let account, let status):
+            logStore?.addError(
+                source: .settings,
+                context: "Failed to read current database passphrase",
+                error: KeychainReadError(result: .failure(account: account, status: status))
+            )
+            return ""
+        }
     }
 
     func databasePassphraseCanBeUpdated(to value: String) -> Bool {
@@ -523,7 +535,9 @@ final class SettingsStore: ObservableObject {
     }
 
     func disableDatabaseEncryption() throws {
-        let currentPassphrase = try DatabasePassphrase(currentDatabasePassphrase)
+        guard let currentPassphrase = try DatabasePassphraseStore(keychain: keychain).load() else {
+            throw DatabaseError.missingPassphrase(database.databaseURL)
+        }
         try database.decryptDatabase()
         let result = keychain.set("", for: AppDefaults.databasePassphraseAccount)
         guard result.isSuccess else {
@@ -549,7 +563,9 @@ final class SettingsStore: ObservableObject {
     }
 
     func updateDatabasePassphrase(to passphrase: DatabasePassphrase) throws {
-        let currentPassphrase = try DatabasePassphrase(currentDatabasePassphrase)
+        guard let currentPassphrase = try DatabasePassphraseStore(keychain: keychain).load() else {
+            throw DatabaseError.missingPassphrase(database.databaseURL)
+        }
         try database.changeDatabasePassphrase(to: passphrase)
         do {
             try DatabasePassphraseStore(keychain: keychain).save(passphrase)

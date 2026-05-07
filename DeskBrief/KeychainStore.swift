@@ -34,9 +34,47 @@ nonisolated struct KeychainWriteError: LocalizedError {
     }
 }
 
+nonisolated enum KeychainReadResult: Equatable {
+    case success(account: String, value: String)
+    case notFound(account: String)
+    case failure(account: String, status: OSStatus)
+
+    var value: String? {
+        guard case .success(_, let value) = self else {
+            return nil
+        }
+        return value
+    }
+
+    var statusDescription: String? {
+        guard case .failure(_, let status) = self else {
+            return nil
+        }
+        return SecCopyErrorMessageString(status, nil) as String? ?? "OSStatus \(status)"
+    }
+}
+
+nonisolated struct KeychainReadError: LocalizedError {
+    let result: KeychainReadResult
+
+    var errorDescription: String? {
+        guard case .failure(let account, _) = result else {
+            return nil
+        }
+        return "Keychain read failed for \(account): \(result.statusDescription ?? "unknown error")"
+    }
+}
+
 nonisolated protocol KeychainStoring {
+    func readString(for account: String) -> KeychainReadResult
     func string(for account: String) -> String
     @discardableResult func set(_ value: String, for account: String) -> KeychainWriteResult
+}
+
+extension KeychainStoring {
+    nonisolated func string(for account: String) -> String {
+        readString(for: account).value ?? ""
+    }
 }
 
 nonisolated final class KeychainStore: KeychainStoring {
@@ -46,7 +84,7 @@ nonisolated final class KeychainStore: KeychainStoring {
         self.service = service
     }
 
-    func string(for account: String) -> String {
+    func readString(for account: String) -> KeychainReadResult {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -57,10 +95,13 @@ nonisolated final class KeychainStore: KeychainStoring {
 
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else {
-            return ""
+        if status == errSecItemNotFound {
+            return .notFound(account: account)
         }
-        return String(data: data, encoding: .utf8) ?? ""
+        guard status == errSecSuccess, let data = item as? Data else {
+            return .failure(account: account, status: status)
+        }
+        return .success(account: account, value: String(data: data, encoding: .utf8) ?? "")
     }
 
     @discardableResult

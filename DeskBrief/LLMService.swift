@@ -335,7 +335,7 @@ final class LLMService: @unchecked Sendable {
             throw LLMServiceError.invalidRemoteConfiguration
         }
 
-        let apiKey = resolvedAPIKey(for: request)
+        let apiKey = try resolvedAPIKey(for: request)
 
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
@@ -453,14 +453,14 @@ final class LLMService: @unchecked Sendable {
         }
     }
 
-    private func resolvedAPIKey(for request: LLMServiceRequest) -> String {
+    private func resolvedAPIKey(for request: LLMServiceRequest) throws -> String {
         guard request.settings.apiKey.isEmpty else {
             return request.settings.apiKey
         }
         guard let account = request.keychainAccount else {
             return ""
         }
-        return credentialProvider.apiKey(for: account)
+        return try credentialProvider.apiKey(for: account)
     }
 
     private func performLMStudioRequest(

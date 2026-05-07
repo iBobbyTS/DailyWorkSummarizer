@@ -28,7 +28,7 @@ enum AppRunDecision: Equatable {
     case queued
 }
 
-enum WorkBlockSummaryScope: Equatable {
+nonisolated enum WorkBlockSummaryScope: Equatable, Sendable {
     case none
     // Matches work blocks that intersect any of these report days, including blocks that cross midnight.
     case dayStarts(Set<Date>)
@@ -57,7 +57,7 @@ enum WorkBlockSummaryScope: Equatable {
     }
 }
 
-enum DailyReportGenerationScope: Equatable {
+nonisolated enum DailyReportGenerationScope: Equatable, Sendable {
     case none
     // Candidate days are only the input range; execution still filters out unreportable or unclosed days.
     case candidateDayStarts(Set<Date>)

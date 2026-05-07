@@ -295,7 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     ) throws -> AppDatabase {
         let databaseURL = try databaseURL(for: launchConfiguration)
         let passphraseStore = DatabasePassphraseStore(keychain: keychain)
-        var messageKey: L10n.Key = passphraseStore.load() == nil
+        var messageKey: L10n.Key = (try passphraseStore.load()) == nil
             ? .alertDatabasePassphraseMissingMessage
             : .alertDatabasePassphraseInvalidMessage
 

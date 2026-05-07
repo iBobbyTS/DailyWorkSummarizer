@@ -1,7 +1,7 @@
 import Foundation
 
 enum DailyWorkBlockComposer {
-    static func groupBlocks(
+    nonisolated static func groupBlocks(
         from items: [DailyReportActivityItem],
         tolerance: TimeInterval = 1
     ) -> [DailyWorkBlock] {

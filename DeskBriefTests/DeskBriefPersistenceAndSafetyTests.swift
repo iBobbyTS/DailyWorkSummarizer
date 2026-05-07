@@ -137,6 +137,8 @@ extension DeskBriefTests {
         #expect(DatabaseError.openDatabase("a") != DatabaseError.openDatabase("b"))
         #expect(DatabaseError.missingPassphrase(URL(fileURLWithPath: "/tmp/a.sqlite")) == DatabaseError.missingPassphrase(URL(fileURLWithPath: "/tmp/a.sqlite")))
         #expect(DatabaseError.invalidPassphrase("err") == DatabaseError.invalidPassphrase("err"))
+        #expect(DatabaseError.keychainReadFailed(.failure(account: "a", status: -1)) == DatabaseError.keychainReadFailed(.failure(account: "a", status: -1)))
+        #expect(DatabaseError.keychainReadFailed(.failure(account: "a", status: -1)) != DatabaseError.keychainReadFailed(.failure(account: "a", status: -2)))
         #expect(DatabaseError.keychainWriteFailed(.failure(account: "a", operation: .update, status: -1)) == DatabaseError.keychainWriteFailed(.failure(account: "a", operation: .update, status: -1)))
         #expect(DatabaseError.prepareStatement("err") == DatabaseError.prepareStatement("err"))
         #expect(DatabaseError.execute("err") == DatabaseError.execute("err"))
@@ -339,6 +341,27 @@ extension DeskBriefTests {
             Issue.record("Expected missing database passphrase")
         } catch DatabaseError.missingPassphrase(let url) {
             #expect(url == databaseURL)
+        }
+    }
+
+    @Test func encryptedDatabasePropagatesKeychainReadFailureForExistingFile() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        let keychain = FakeKeychainStore()
+        _ = try AppDatabase(databaseURL: databaseURL, keychain: keychain, encryptionEnabled: true)
+        let readStatus = OSStatus(-25308)
+        let failingKeychain = FakeKeychainStore(queuedReadResults: [
+            .failure(account: AppDefaults.databasePassphraseAccount, status: readStatus)
+        ])
+
+        do {
+            _ = try AppDatabase(databaseURL: databaseURL, keychain: failingKeychain, encryptionEnabled: true)
+            Issue.record("Expected keychain read failure")
+        } catch DatabaseError.keychainReadFailed(let result) {
+            #expect(result == .failure(account: AppDefaults.databasePassphraseAccount, status: readStatus))
+        } catch {
+            Issue.record("Expected keychain read failure, got \(error)")
         }
     }
 
