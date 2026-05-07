@@ -71,8 +71,9 @@ The app is centered around a small set of long-lived services created at launch 
   - **Disk** (default): saves a JPEG for the preferred display into Application Support, same as the original behavior.
   - **Memory**: encodes the screenshot as in-memory JPEG data and adds a `PendingScreenshot` value to `PendingScreenshotStore` without writing any file to the screenshots directory.
 - A `PendingScreenshot` is the unified representation of a pending screenshot regardless of its backing storage. The rest of the pipeline — idle detection, analysis scanning, and cleanup — treats disk-backed and memory-backed `PendingScreenshot` values identically.
-- `PendingScreenshotStore` is the combined manager that lists, removes, and counts both disk-backed and memory-backed pending screenshots. Analysis triggers, Clear Early Screenshots, and the automatic deletion timer all query the store instead of scanning the filesystem directly.
+- `PendingScreenshotStore` is the combined manager that lists, removes, and counts both disk-backed and memory-backed pending screenshots. Disk-backed IDs are root screenshot filenames and can be resolved back to files for deletion. Analysis triggers, Clear Early Screenshots, and the automatic deletion timer all query the store instead of scanning the filesystem directly.
 - Memory-backed screenshots exist only during the current process lifetime. They are discarded on app exit or system restart and are never written to the filesystem, SQLite, or Keychain.
+- Model-test screenshots are temporary files under `screenshots/temp/`; the active test path deletes them after use, and `ScreenshotService` removes leftover regular files from that directory at initialization.
 - A successful capture (disk or memory) emits a capture-saved notification. When the analysis startup mode is realtime, `AnalysisService` waits one second and triggers a pending-screenshot scan.
 
 ### 3. Screenshot analysis flow

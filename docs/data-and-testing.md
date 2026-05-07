@@ -95,6 +95,7 @@ Keychain stores the database passphrase only after database encryption is enable
 
 New database passphrases are 16-character random strings containing uppercase letters, lowercase letters, digits, and symbols. The current passphrase is not displayed in the app; users can inspect the Keychain item directly. Turning encryption off deletes `database-passphrase.main`.
 Keychain writes and deletes are not silent. If saving or deleting either API key fails, `SettingsStore` rolls the visible setting back to the last persisted value, writes a `settings` error to `app_logs`, and publishes a localized blocking alert for `SettingsView`. Database encryption changes also keep the file and Keychain in sync: if saving or deleting the database passphrase fails after a file conversion, the store attempts to restore the prior database encryption state before surfacing the error.
+Category-rule writes are also treated as durable settings changes. `SettingsStore` builds a candidate rule list, writes it to `category_rules`, and only then publishes the new `categoryRules` array used by settings UI and analysis snapshots. If the database write fails, the visible category list remains at the last saved value, the failure is logged, and `SettingsView` shows a localized blocking alert.
 
 ## File conventions
 
@@ -104,11 +105,12 @@ Keychain writes and deletes are not silent. If saving or deleting either API key
 - Model-test screenshots add a `-model-test` suffix.
 
 The filename is not just cosmetic: the app derives capture time and duration metadata from it when loading pending screenshot files.
+Model-test screenshots live in `screenshots/temp/` only while the test request is active. The normal model-test path deletes the file in `SettingsView` cleanup, and `ScreenshotService` removes leftover regular files from `temp/` on initialization so a crash or forced quit after capture does not leave sensitive JPEGs behind.
 The Clear Early Screenshots menu scans and deletes pending JPEG files in the screenshot directory root, and also clears memory-backed pending screenshots from `PendingScreenshotStore`. It does not inspect or remove files from the `preview/` or `temp/` subdirectories, and its count cache is in memory only.
 
 The Automatic Screenshot Deletion setting scans and deletes pending JPEG files in the screenshot directory root, and also clears memory-backed pending screenshots from `PendingScreenshotStore` (memory screenshots are always older than the retention threshold if any real time has passed, since they cannot survive an app restart). It never touches `preview/` or `temp/` subdirectories. The retention period is measured from the parsed screenshot capture timestamp (`capturedAt`), not filesystem modification time. The timer checks once per hour.
 
-When storage location is `Disk`, all pending screenshots are files in the screenshot directory and the store mirrors the filesystem. When storage location is `Memory`, pending screenshots exist only in the store and the filesystem directory is not involved.
+When storage location is `Disk`, all pending screenshots are files in the screenshot directory and the store mirrors the filesystem. Disk-backed pending screenshot IDs are the root screenshot filenames including extension, and `PendingScreenshotStore.removePendingScreenshot(id:)` resolves that ID through the current root screenshot listing before deleting the file. When storage location is `Memory`, pending screenshots exist only in the store and the filesystem directory is not involved.
 
 ## Recommended test command
 

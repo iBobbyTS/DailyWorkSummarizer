@@ -371,7 +371,7 @@ final class SettingsStore: ObservableObject {
         userDefaults.set(databaseEncryptionEnabled, forKey: Keys.databaseEncryptionEnabled)
 
         if savedRules.isEmpty || initialRules != categoryRules {
-            persistCategoryRules(context: "Failed to initialize category rules")
+            persistCategoryRules(categoryRules, context: "Failed to initialize category rules")
         }
     }
 
@@ -412,19 +412,21 @@ final class SettingsStore: ObservableObject {
 
     func addCategoryRule() {
         clearCategoryRulesValidationMessage()
+        var updatedRules = categoryRules
         let insertIndex = max(categoryRules.count - 1, 0)
-        categoryRules.insert(
+        updatedRules.insert(
             CategoryRule(colorHex: AppDefaults.nextCategoryColorHex(for: categoryRules)),
             at: insertIndex
         )
-        saveCategoryRules()
+        saveCategoryRules(updatedRules, context: "Failed to save category rules")
     }
 
     func removeCategoryRule(id: UUID) {
         guard !isPreservedCategoryRule(id: id) else { return }
         clearCategoryRulesValidationMessage()
-        categoryRules.removeAll { $0.id == id }
-        saveCategoryRules()
+        var updatedRules = categoryRules
+        updatedRules.removeAll { $0.id == id }
+        saveCategoryRules(updatedRules, context: "Failed to save category rules")
     }
 
     func updateCategoryRuleName(id: UUID, name: String) {
@@ -435,16 +437,18 @@ final class SettingsStore: ObservableObject {
             categoryRulesValidationMessage = L10n.string(.settingsAnalysisReservedPrefixError, language: appLanguage)
             return
         }
-        categoryRules[index].name = name
+        var updatedRules = categoryRules
+        updatedRules[index].name = name
         clearCategoryRulesValidationMessage()
-        saveCategoryRules()
+        saveCategoryRules(updatedRules, context: "Failed to save category rules")
     }
 
     func updateCategoryRuleDescription(id: UUID, description: String) {
         guard let index = categoryRules.firstIndex(where: { $0.id == id }) else { return }
-        categoryRules[index].description = description
+        var updatedRules = categoryRules
+        updatedRules[index].description = description
         clearCategoryRulesValidationMessage()
-        saveCategoryRules()
+        saveCategoryRules(updatedRules, context: "Failed to save category rules")
     }
 
     func updateCategoryRuleColor(id: UUID, colorHex: String) {
@@ -452,9 +456,10 @@ final class SettingsStore: ObservableObject {
               let normalizedColorHex = AppDefaults.normalizedCategoryColorHex(colorHex) else {
             return
         }
-        categoryRules[index].colorHex = normalizedColorHex
+        var updatedRules = categoryRules
+        updatedRules[index].colorHex = normalizedColorHex
         clearCategoryRulesValidationMessage()
-        saveCategoryRules()
+        saveCategoryRules(updatedRules, context: "Failed to save category rules")
     }
 
     func moveCategoryRuleUp(id: UUID) {
@@ -462,8 +467,9 @@ final class SettingsStore: ObservableObject {
               index > 0,
               !categoryRules[index].isPreservedOther else { return }
         clearCategoryRulesValidationMessage()
-        categoryRules.swapAt(index, index - 1)
-        saveCategoryRules()
+        var updatedRules = categoryRules
+        updatedRules.swapAt(index, index - 1)
+        saveCategoryRules(updatedRules, context: "Failed to save category rules")
     }
 
     func moveCategoryRuleDown(id: UUID) {
@@ -471,8 +477,9 @@ final class SettingsStore: ObservableObject {
               index < max(categoryRules.count - 2, 0),
               !categoryRules[index].isPreservedOther else { return }
         clearCategoryRulesValidationMessage()
-        categoryRules.swapAt(index, index + 1)
-        saveCategoryRules()
+        var updatedRules = categoryRules
+        updatedRules.swapAt(index, index + 1)
+        saveCategoryRules(updatedRules, context: "Failed to save category rules")
     }
 
     func copyScreenshotAnalysisModelToWorkContentSummary() {
@@ -575,10 +582,15 @@ final class SettingsStore: ObservableObject {
         return value
     }
 
-    private func saveCategoryRules() {
-        categoryRules = Self.normalizedCategoryRules(categoryRules, language: appLanguage)
-        persistCategoryRules(context: "Failed to save category rules")
-        notifySettingsChanged()
+    private func saveCategoryRules(_ rules: [CategoryRule], context: String, notify: Bool = true) {
+        let normalizedRules = Self.normalizedCategoryRules(rules, language: appLanguage)
+        guard persistCategoryRules(normalizedRules, context: context, showAlert: true) else {
+            return
+        }
+        categoryRules = normalizedRules
+        if notify {
+            notifySettingsChanged()
+        }
     }
 
     private func normalizeCategoryRulesForCurrentLanguage() {
@@ -586,16 +598,37 @@ final class SettingsStore: ObservableObject {
         guard normalizedRules != categoryRules else {
             return
         }
-        categoryRules = normalizedRules
-        persistCategoryRules(context: "Failed to normalize category rules")
+        saveCategoryRules(normalizedRules, context: "Failed to normalize category rules", notify: false)
     }
 
-    private func persistCategoryRules(context: String) {
+    @discardableResult
+    private func persistCategoryRules(
+        _ rules: [CategoryRule],
+        context: String,
+        showAlert: Bool = false
+    ) -> Bool {
         do {
-            try database.replaceCategoryRules(categoryRules)
+            try database.replaceCategoryRules(rules)
+            return true
         } catch {
             logStore?.addError(source: .settings, context: context, error: error)
+            if showAlert {
+                showCategoryRulesPersistenceAlert(error)
+            }
+            return false
         }
+    }
+
+    private func showCategoryRulesPersistenceAlert(_ error: Error) {
+        let errorMessage = CredentialSanitizer.sanitizeForError(error.localizedDescription)
+        persistenceAlert = SettingsPersistenceAlert(
+            title: L10n.string(.settingsCategoryRulesSaveFailedTitle, language: appLanguage),
+            message: L10n.string(
+                .settingsCategoryRulesSaveFailedMessage,
+                language: appLanguage,
+                arguments: [errorMessage]
+            )
+        )
     }
 
     private func handleKeychainWriteFailure(_ result: KeychainWriteResult, profileName: String) {

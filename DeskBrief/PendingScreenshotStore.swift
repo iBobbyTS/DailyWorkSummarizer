@@ -60,6 +60,14 @@ final class PendingScreenshotStore {
             memoryScreenshots.remove(at: index)
             return
         }
+
+        let diskRecord = try database
+            .listScreenshotFiles(defaultDurationMinutes: AppDefaults.screenshotIntervalMinutes)
+            .first { $0.id == id }
+        guard let fileURL = diskRecord?.url, FileManager.default.fileExists(atPath: fileURL.path) else {
+            return
+        }
+        try FileManager.default.removeItem(at: fileURL)
     }
 
     /// Remove all memory screenshots (called on app exit for cleanup)

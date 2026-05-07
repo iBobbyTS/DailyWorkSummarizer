@@ -47,6 +47,7 @@ final class ScreenshotService {
         self.logStore = logStore
         self.userDefaults = userDefaults
         self.captureRuntime = captureRuntime ?? ScreenshotCaptureRuntime.liveCaptureRuntime(settingsStore: settingsStore)
+        removeLeftoverTemporaryScreenshots()
     }
 
     deinit {
@@ -127,6 +128,27 @@ final class ScreenshotService {
         let fileURL = tempDirectory.appendingPathComponent(fileName(for: Date(), suffix: "-model-test"))
         try await capturePreferredSingleDisplayJPEG(to: fileURL)
         return fileURL
+    }
+
+    private func removeLeftoverTemporaryScreenshots() {
+        do {
+            let tempDirectory = try database.screenshotsDirectory().appendingPathComponent("temp", isDirectory: true)
+            guard FileManager.default.fileExists(atPath: tempDirectory.path) else {
+                return
+            }
+            let fileURLs = try FileManager.default.contentsOfDirectory(
+                at: tempDirectory,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+            for fileURL in fileURLs {
+                let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+                guard values.isRegularFile == true else { continue }
+                try FileManager.default.removeItem(at: fileURL)
+            }
+        } catch {
+            logStore?.addError(source: .screenshot, context: "Failed to clean up leftover model test screenshots", error: error)
+        }
     }
 
     private func scheduleTimer(captureImmediately: Bool) {

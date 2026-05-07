@@ -107,6 +107,8 @@ nonisolated enum L10n {
         case settingsModelCopyToScreenshotAnalysisConfirmMessage
         case settingsKeychainSaveFailedTitle
         case settingsKeychainSaveFailedMessage
+        case settingsCategoryRulesSaveFailedTitle
+        case settingsCategoryRulesSaveFailedMessage
         case commonConfirm
         case commonCancel
         case settingsModelTestResult
@@ -438,6 +440,8 @@ nonisolated enum L10n {
             .settingsModelCopyToScreenshotAnalysisConfirmMessage: "确认后会覆盖“截屏分析”里的模型配置。",
             .settingsKeychainSaveFailedTitle: "API Key 保存失败",
             .settingsKeychainSaveFailedMessage: "未能把“%@”的 API Key 写入 Keychain，设置已恢复为上一次保存的值。\n\n%@",
+            .settingsCategoryRulesSaveFailedTitle: "分类规则保存失败",
+            .settingsCategoryRulesSaveFailedMessage: "未能保存分类规则，设置已恢复为上一次保存的值。\n\n%@",
             .commonConfirm: "确认",
             .commonCancel: "取消",
             .settingsModelTestResult: "测试结果",
@@ -767,6 +771,8 @@ nonisolated enum L10n {
             .settingsModelCopyToScreenshotAnalysisConfirmMessage: "This will overwrite the model configuration in Screenshot Analysis.",
             .settingsKeychainSaveFailedTitle: "Failed to Save API Key",
             .settingsKeychainSaveFailedMessage: "DeskBrief could not write the API key for “%@” to Keychain, so the setting was restored to the last saved value.\n\n%@",
+            .settingsCategoryRulesSaveFailedTitle: "Failed to Save Categories",
+            .settingsCategoryRulesSaveFailedMessage: "DeskBrief could not save the analysis categories, so the setting was restored to the last saved value.\n\n%@",
             .commonConfirm: "Confirm",
             .commonCancel: "Cancel",
             .settingsModelTestResult: "Test Result",

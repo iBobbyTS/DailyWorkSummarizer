@@ -1,19 +1,33 @@
 import Foundation
 import Combine
 
+protocol AppLogPersisting: AnyObject {
+    func fetchAppLogs(limit: Int?) throws -> [AppLogEntry]
+    func insertAppLog(_ entry: AppLogEntry, maxEntries: Int) throws
+    func deleteAppLog(id: UUID) throws
+    func deleteAllAppLogs() throws
+}
+
+extension AppDatabase: AppLogPersisting {}
+
 @MainActor
 final class AppLogStore: ObservableObject {
     @Published private(set) var entries: [AppLogEntry] = []
+    @Published private(set) var persistenceErrorMessage: String?
 
-    private let database: AppDatabase
+    private let database: AppLogPersisting
     private let maxEntries: Int
 
     var count: Int {
         entries.count
     }
 
-    init(database: AppDatabase, maxEntries: Int = AppDefaults.maxLogEntries) {
-        self.database = database
+    convenience init(database: AppDatabase, maxEntries: Int = AppDefaults.maxLogEntries) {
+        self.init(persistence: database, maxEntries: maxEntries)
+    }
+
+    init(persistence: AppLogPersisting, maxEntries: Int = AppDefaults.maxLogEntries) {
+        self.database = persistence
         self.maxEntries = maxEntries
         reload()
     }
@@ -21,8 +35,9 @@ final class AppLogStore: ObservableObject {
     func reload() {
         do {
             entries = try database.fetchAppLogs(limit: maxEntries)
+            persistenceErrorMessage = nil
         } catch {
-            entries = []
+            persistenceErrorMessage = Self.describe(error)
         }
         notifyDidChange()
     }
@@ -47,11 +62,13 @@ final class AppLogStore: ObservableObject {
                 try database.insertAppLog(entry, maxEntries: maxEntries)
             }
             entries = try database.fetchAppLogs(limit: maxEntries)
+            persistenceErrorMessage = nil
         } catch {
             entries.insert(entry, at: 0)
             if entries.count > maxEntries {
                 entries = Array(entries.prefix(maxEntries))
             }
+            persistenceErrorMessage = Self.describe(error)
         }
 
         notifyDidChange()
@@ -70,12 +87,13 @@ final class AppLogStore: ObservableObject {
         do {
             try database.deleteAppLog(id: id)
         } catch {
-            entries.removeAll { $0.id == id }
+            persistenceErrorMessage = Self.describe(error)
             notifyDidChange()
             return
         }
 
         entries.removeAll { $0.id == id }
+        persistenceErrorMessage = nil
         notifyDidChange()
     }
 
@@ -83,12 +101,13 @@ final class AppLogStore: ObservableObject {
         do {
             try database.deleteAllAppLogs()
         } catch {
-            entries.removeAll()
+            persistenceErrorMessage = Self.describe(error)
             notifyDidChange()
             return
         }
 
         entries.removeAll()
+        persistenceErrorMessage = nil
         notifyDidChange()
     }
 

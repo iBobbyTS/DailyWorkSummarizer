@@ -197,6 +197,48 @@ extension DeskBriefTests {
         #expect(messages.contains { $0.contains("Failed to initialize category rules") })
     }
 
+    @MainActor
+    @Test func settingsStoreRollsBackCategoryRulesAndShowsAlertWhenPersistenceFails() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+        userDefaults.set(AppLanguage.english.rawValue, forKey: AppLanguage.userDefaultsKey)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let logStore = AppLogStore(database: database)
+        try database.replaceCategoryRules([
+            CategoryRule(name: "Focused Work", description: "Coding"),
+        ])
+        let store = SettingsStore(
+            database: database,
+            userDefaults: userDefaults,
+            keychain: keychain,
+            logStore: logStore
+        )
+        let originalRules = store.categoryRules
+        let originalRuleID = try #require(originalRules.first?.id)
+
+        try executeSQLite("DROP TABLE category_rules;", databaseURL: databaseURL)
+        store.updateCategoryRuleName(id: originalRuleID, name: "Unsaved Category")
+
+        let alert = try #require(store.persistenceAlert)
+        let messages = try database.fetchAppLogs().map(\.message)
+
+        #expect(store.categoryRules == originalRules)
+        #expect(store.snapshot.categoryRules == originalRules)
+        #expect(alert.title == "Failed to Save Categories")
+        #expect(alert.message.contains("restored to the last saved value"))
+        #expect(messages.contains { $0.contains("Failed to save category rules") })
+    }
+
     @Test func databaseStoresSuccessfulAnalysisResultOnlyFields() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: databaseURL) }
@@ -404,6 +446,97 @@ extension DeskBriefTests {
         store.removeAll()
         #expect(store.entries.isEmpty)
         #expect(try database.fetchAppLogs().isEmpty)
+    }
+
+    @Test func appLogStoreKeepsEntriesWhenSingleDeleteFails() async throws {
+        let first = AppLogEntry(
+            createdAt: Date(timeIntervalSince1970: 1),
+            level: .error,
+            source: .analysis,
+            message: "first"
+        )
+        let second = AppLogEntry(
+            createdAt: Date(timeIntervalSince1970: 2),
+            level: .log,
+            source: .analysis,
+            message: "second"
+        )
+        let persistence = FailingAppLogPersistence(entries: [second, first])
+        persistence.deleteOneError = NSError(domain: "DeskBriefTests", code: 1)
+        let store = AppLogStore(persistence: persistence)
+
+        store.remove(id: first.id)
+
+        #expect(store.entries.map(\.id) == [second.id, first.id])
+        #expect(store.persistenceErrorMessage?.isEmpty == false)
+    }
+
+    @Test func appLogStoreKeepsEntriesWhenDeleteAllFails() async throws {
+        let first = AppLogEntry(
+            createdAt: Date(timeIntervalSince1970: 1),
+            level: .error,
+            source: .analysis,
+            message: "first"
+        )
+        let second = AppLogEntry(
+            createdAt: Date(timeIntervalSince1970: 2),
+            level: .log,
+            source: .analysis,
+            message: "second"
+        )
+        let persistence = FailingAppLogPersistence(entries: [second, first])
+        persistence.deleteAllError = NSError(domain: "DeskBriefTests", code: 2)
+        let store = AppLogStore(persistence: persistence)
+
+        store.removeAll()
+
+        #expect(store.entries.map(\.id) == [second.id, first.id])
+        #expect(store.persistenceErrorMessage?.isEmpty == false)
+    }
+
+    @Test func appLogStoreReloadFailureKeepsExistingEntries() async throws {
+        let entry = AppLogEntry(
+            createdAt: Date(timeIntervalSince1970: 1),
+            level: .error,
+            source: .analysis,
+            message: "existing"
+        )
+        let persistence = FailingAppLogPersistence(entries: [entry])
+        let store = AppLogStore(persistence: persistence)
+        persistence.fetchError = NSError(domain: "DeskBriefTests", code: 3)
+
+        store.reload()
+
+        #expect(store.entries.map(\.id) == [entry.id])
+        #expect(store.persistenceErrorMessage?.isEmpty == false)
+    }
+
+    @Test func appLogStoreSuccessfulDeletionClearsPersistenceError() async throws {
+        let first = AppLogEntry(
+            createdAt: Date(timeIntervalSince1970: 1),
+            level: .error,
+            source: .analysis,
+            message: "first"
+        )
+        let second = AppLogEntry(
+            createdAt: Date(timeIntervalSince1970: 2),
+            level: .log,
+            source: .analysis,
+            message: "second"
+        )
+        let persistence = FailingAppLogPersistence(entries: [second, first])
+        persistence.deleteOneError = NSError(domain: "DeskBriefTests", code: 4)
+        let store = AppLogStore(persistence: persistence)
+
+        store.remove(id: first.id)
+        #expect(store.persistenceErrorMessage?.isEmpty == false)
+
+        persistence.deleteOneError = nil
+        store.remove(id: first.id)
+
+        #expect(store.entries.map(\.id) == [second.id])
+        #expect(persistence.entries.map(\.id) == [second.id])
+        #expect(store.persistenceErrorMessage == nil)
     }
 
     @MainActor
@@ -1392,5 +1525,53 @@ extension DeskBriefTests {
         #expect(gapDayReport.dailySummaryText == "补齐了断档日期日报")
         #expect(gapDayReport.categorySummaries["专注工作"] == "补齐了断档日期分类总结")
         #expect(laterDayReport == nil)
+    }
+}
+
+private final class FailingAppLogPersistence: AppLogPersisting {
+    var entries: [AppLogEntry]
+    var fetchError: Error?
+    var insertError: Error?
+    var deleteOneError: Error?
+    var deleteAllError: Error?
+
+    init(entries: [AppLogEntry] = []) {
+        self.entries = entries
+    }
+
+    func fetchAppLogs(limit: Int?) throws -> [AppLogEntry] {
+        if let fetchError {
+            throw fetchError
+        }
+        guard let limit, limit > 0 else {
+            return limit == nil ? entries : []
+        }
+        return Array(entries.prefix(limit))
+    }
+
+    func insertAppLog(_ entry: AppLogEntry, maxEntries: Int) throws {
+        if let insertError {
+            throw insertError
+        }
+        entries.insert(entry, at: 0)
+        if maxEntries > 0, entries.count > maxEntries {
+            entries = Array(entries.prefix(maxEntries))
+        } else if maxEntries <= 0 {
+            entries.removeAll()
+        }
+    }
+
+    func deleteAppLog(id: UUID) throws {
+        if let deleteOneError {
+            throw deleteOneError
+        }
+        entries.removeAll { $0.id == id }
+    }
+
+    func deleteAllAppLogs() throws {
+        if let deleteAllError {
+            throw deleteAllError
+        }
+        entries.removeAll()
     }
 }

@@ -2666,6 +2666,52 @@ extension DeskBriefTests {
     }
 
     @MainActor
+    @Test func pendingScreenshotStoreRemovePendingScreenshotDeletesDiskFileByID() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = database.pendingScreenshotStore
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        let diskURL = screenshotsDirectory.appendingPathComponent("20260426-1000-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: diskURL)
+
+        try store.removePendingScreenshot(id: diskURL.lastPathComponent)
+
+        #expect(!FileManager.default.fileExists(atPath: diskURL.path))
+        #expect(try store.listPendingScreenshots(defaultDurationMinutes: 5).isEmpty)
+    }
+
+    @MainActor
+    @Test func pendingScreenshotStoreRemovePendingScreenshotUnknownIDDoesNotDeleteDiskFiles() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+
+        defer {
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let store = database.pendingScreenshotStore
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        let diskURL = screenshotsDirectory.appendingPathComponent("20260426-1000-i5.jpg")
+        try writeTestScreenshotPlaceholder(to: diskURL)
+
+        try store.removePendingScreenshot(id: "missing.jpg")
+
+        #expect(FileManager.default.fileExists(atPath: diskURL.path))
+        #expect(try store.listPendingScreenshots(defaultDurationMinutes: 5).map(\.id) == [diskURL.lastPathComponent])
+    }
+
+    @MainActor
     @Test func pendingScreenshotStorePendingCountReflectsCombinedTotal() async throws {
         let databaseURL = makeTemporaryDatabaseURL()
         let supportURL = FileManager.default.temporaryDirectory

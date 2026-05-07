@@ -1707,4 +1707,59 @@ extension DeskBriefTests {
         #expect(userDefaults.double(forKey: "screenshot.lastMouseLocation.y") == 24)
         #expect(userDefaults.string(forKey: "screenshot.lastFrontmostAppIdentifier") == "com.example.Editor")
     }
+
+    @MainActor
+    @Test func screenshotServiceInitializationRemovesLeftoverModelTestScreenshots() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let supportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? FileManager.default.removeItem(at: supportURL)
+        }
+
+        let database = try AppDatabase(databaseURL: databaseURL, applicationSupportDirectory: supportURL)
+        let screenshotsDirectory = try database.screenshotsDirectory()
+        let previewDirectory = screenshotsDirectory.appendingPathComponent("preview", isDirectory: true)
+        let tempDirectory = screenshotsDirectory.appendingPathComponent("temp", isDirectory: true)
+        try FileManager.default.createDirectory(at: previewDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let rootURL = screenshotsDirectory.appendingPathComponent("20260426-1000-i5.jpg")
+        let previewURL = previewDirectory.appendingPathComponent("20260426-1000-preview.jpg")
+        let tempURL = tempDirectory.appendingPathComponent("20260426-1000-model-test.jpg")
+        let tempSubdirectory = tempDirectory.appendingPathComponent("nested", isDirectory: true)
+        for fileURL in [rootURL, previewURL, tempURL] {
+            try writeTestScreenshotPlaceholder(to: fileURL)
+        }
+        try FileManager.default.createDirectory(at: tempSubdirectory, withIntermediateDirectories: true)
+
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+        let runtime = ScreenshotCaptureRuntime(
+            hasScreenCaptureAccess: { true },
+            mouseLocation: { CGPoint(x: 0, y: 0) },
+            frontmostAppIdentifier: { "com.example.Editor" },
+            preferredCaptureTarget: { ScreenshotCaptureTarget(displayIndex: nil, frame: CGRect(x: 0, y: 0, width: 4, height: 4)) },
+            runScreenCapture: { _ in },
+            captureDisplayImage: { _ in try makeSolidTestCGImage(gray: 3) }
+        )
+
+        _ = ScreenshotService(
+            database: database,
+            settingsStore: store,
+            userDefaults: userDefaults,
+            captureRuntime: runtime
+        )
+
+        #expect(FileManager.default.fileExists(atPath: rootURL.path))
+        #expect(FileManager.default.fileExists(atPath: previewURL.path))
+        #expect(!FileManager.default.fileExists(atPath: tempURL.path))
+        #expect(FileManager.default.fileExists(atPath: tempSubdirectory.path))
+    }
 }
