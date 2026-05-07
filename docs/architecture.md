@@ -54,7 +54,7 @@ The app is centered around a small set of long-lived services created at launch 
 
 ### Database encryption management
 
-- The General settings tab exposes a Database Settings section with an encryption checkbox, a hidden new-key field, and an Open Database Location button.
+- The General settings tab exposes a Database Settings section with an encryption switch, a hidden new-key field, and an Open Database Location button below the settings surface.
 - Encryption is disabled by default so first launch does not request Keychain access for the database. Enabling encryption generates a 16-character random passphrase and stores it in Keychain account `database-passphrase.main`.
 - Turning encryption off decrypts the database to a temporary plaintext file through SQLCipher export, verifies the exported copy, replaces the database file and sidecars, and deletes the Keychain passphrase.
 - Turning encryption back on generates a new passphrase, shows it once for confirmation, exports the plaintext database into an encrypted copy, verifies it, replaces the database file and sidecars, and stores the passphrase in Keychain.

@@ -12,7 +12,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 
 ## Settings Layout
 
-- `SettingsView` uses tabs for product areas: screenshot analysis, work content summary, general, and report.
+- `SettingsView` uses tabs for product areas: screenshot analysis, work content summary, and general. Report settings live at the bottom of the work content summary tab.
 - Each tab uses a leading-aligned vertical layout with `Layout.sectionSpacing` between major sections.
 - Section titles use `title2` semibold and should introduce the controls immediately below them.
 - Group related settings inside one rounded settings surface with row dividers.
@@ -22,15 +22,15 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - Dividers that separate major sections should have equal visual spacing above and below. If a section owns the divider, the content before it should include bottom spacing matching the parent section spacing after it.
 - Do not add extra explanatory text inside settings unless the user needs a persistent warning, provider limitation, or validation message.
 - API key persistence failures should be blocking and explicit: keep the affected field rolled back to the last saved value, log the failure, and show the localized `SettingsPersistenceAlert` instead of relying on inline text that could be missed.
-- The General tab includes a Language picker and an automatic screenshot deletion retention picker (Off, 7 Days, 14 Days, 28 Days). The deletion picker sits below Language with a divider, and its tooltip explains that only root JPEG files are affected.
-- The General tab also includes a Database Settings section. The encryption control is a checkbox row with an info tooltip. When encryption is enabled, the Database Key row shows a hidden input, Confirm button, and tooltip aligned to the right-side control column. The current key is never displayed in the app; only unsaved new input appears in the field.
-- Closing Settings with an unsaved database-key input must present a confirmation dialog that keeps editing by default and offers a destructive "close without saving" path. Database encryption, decryption, and key changes use explicit confirmation dialogs rather than applying on checkbox or field edit alone.
-- The Open Database Location button sits in the Database Settings surface below the key row and opens Finder selecting the current `AppDatabase.databaseURL`.
+- The General tab includes a Language picker and a Database Settings section. The database encryption control uses the same switch style as other binary settings, with an info tooltip. When encryption is enabled, the Database Key row shows a hidden input, Confirm button, and tooltip aligned to the right-side control column. The current key is never displayed in the app; only unsaved new input appears in the field.
+- Closing Settings with an unsaved database-key input must present a confirmation dialog that keeps editing by default and offers a destructive "close without saving" path. Database encryption, decryption, and key changes use explicit confirmation dialogs rather than applying on toggle or field edit alone.
+- The Open Database Location button sits outside the Database Settings surface, matching utility actions such as Test Screenshot, and opens Finder selecting the current `AppDatabase.databaseURL`.
 
 ## Screenshot Analysis Settings
 
-- The capture section keeps the screenshot interval, screenshot storage location, and automatic-analysis controls in one settings surface.
-- A screenshot storage location picker sits directly below the screenshot interval row in the same capture settings surface. The picker offers two options: Disk (硬盘) and Memory (内存). Its tooltip explains that disk storage persists screenshots across app restarts and is the default, while memory storage keeps screenshots only during the current process lifetime and discards them when the app exits, which may be preferred for privacy-sensitive environments.
+- The capture section keeps the screenshot interval, screenshot storage location, automatic-analysis controls, and automatic screenshot deletion retention in one settings surface.
+- A screenshot storage location picker sits directly below the screenshot interval row in the same capture settings surface. The picker offers two options: Disk (硬盘) and Memory (内存), and its control/tooltip use the same right-side alignment column as other setting rows. Its tooltip explains that disk storage persists screenshots across app restarts and is the default, while memory storage keeps screenshots only during the current process lifetime and discards them when the app exits, which may be preferred for privacy-sensitive environments.
+- The automatic screenshot deletion retention picker (Off, 7 Days, 14 Days, 28 Days) sits as the last row in the screenshot capture settings surface, and its tooltip explains that only root JPEG files are affected.
 - Analysis startup mode is the primary control for automatic startup behavior and should leave enough picker width for the longest localized option.
 - Scheduled analysis time is only visible when the startup mode is scheduled analysis.
 - The charger requirement is visible only when analysis can auto-start on hardware with an internal battery, and it does not apply to the manual Analyze Now action. Desktop Macs hide the row.

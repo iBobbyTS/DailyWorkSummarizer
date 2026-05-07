@@ -118,9 +118,6 @@ struct SettingsView: View {
 
             generalTab
                 .tabItem { Text(text(.settingsTabGeneral)) }
-
-            reportTab
-                .tabItem { Text(text(.settingsTabReport)) }
         }
         .accessibilityIdentifier("settings.root")
         .padding(20)
@@ -253,6 +250,14 @@ struct SettingsView: View {
                     .font(.title2.weight(.semibold))
 
                 summarySection
+
+                Divider()
+                    .padding(.vertical, 4)
+
+                Text(text(.settingsReportTitle))
+                    .font(.title2.weight(.semibold))
+
+                reportSettingsSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Layout.tabHorizontalPadding)
@@ -265,6 +270,8 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 intervalRow
+
+                Divider()
 
                 storageLocationRow
 
@@ -282,7 +289,7 @@ struct SettingsView: View {
                     .pickerStyle(.menu)
                     .fixedSize()
                     .frame(width: Layout.analysisStartupModePickerWidth, alignment: .trailing)
-                InfoTooltipButton(text: text(.settingsAnalysisStartupModeTooltip))
+                    InfoTooltipButton(text: text(.settingsAnalysisStartupModeTooltip))
                 }
                 .padding(.horizontal, Layout.cardRowHorizontalPadding)
                 .padding(.vertical, Layout.cardRowVerticalPadding)
@@ -322,6 +329,24 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, Layout.cardRowHorizontalPadding)
                     .padding(.vertical, Layout.cardRowVerticalPadding)
+                }
+
+                Divider()
+
+                proportionalFieldRow(text(.settingsAutoDeletionRetention), tooltip: text(.settingsAutoDeletionRetentionTooltip)) { fieldWidth in
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        Picker("", selection: $settingsStore.screenshotAutoDeletionRetention) {
+                            ForEach(ScreenshotAutoDeletionRetention.allCases) { option in
+                                Text(option.title(in: language)).tag(option)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .fixedSize()
+                        .frame(width: Layout.reportPickerWidth, alignment: .trailing)
+                    }
+                    .frame(width: fieldWidth, alignment: .trailing)
                 }
             }
             .background(
@@ -927,21 +952,22 @@ struct SettingsView: View {
     }
 
     private var storageLocationRow: some View {
-        HStack(spacing: 12) {
-            Text(text(.settingsScreenshotStorageLocation))
-            Spacer()
-            Picker("", selection: $settingsStore.screenshotStorageLocation) {
-                ForEach(ScreenshotStorageLocation.allCases) { location in
-                    Text(location.localizedTitle(language: language))
-                        .tag(location)
+        proportionalFieldRow(text(.settingsScreenshotStorageLocation), tooltip: text(.settingsScreenshotStorageLocationTooltip)) { fieldWidth in
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                Picker("", selection: $settingsStore.screenshotStorageLocation) {
+                    ForEach(ScreenshotStorageLocation.allCases) { location in
+                        Text(location.localizedTitle(language: language))
+                            .tag(location)
+                    }
                 }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
+                .frame(width: Layout.reportPickerWidth, alignment: .trailing)
             }
-            .labelsHidden()
-            .frame(width: 120)
-            InfoTooltipButton(text: text(.settingsScreenshotStorageLocationTooltip))
+            .frame(width: fieldWidth, alignment: .trailing)
         }
-        .padding(.horizontal, Layout.cardRowHorizontalPadding)
-        .padding(.vertical, Layout.cardRowVerticalPadding)
     }
 
     private var generalTab: some View {
@@ -965,24 +991,6 @@ struct SettingsView: View {
                     }
                     .frame(width: fieldWidth, alignment: .trailing)
                 }
-
-                Divider()
-
-                proportionalFieldRow(text(.settingsAutoDeletionRetention), tooltip: text(.settingsAutoDeletionRetentionTooltip)) { fieldWidth in
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        Picker("", selection: $settingsStore.screenshotAutoDeletionRetention) {
-                            ForEach(ScreenshotAutoDeletionRetention.allCases) { option in
-                                Text(option.title(in: language)).tag(option)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        .fixedSize()
-                        .frame(width: Layout.reportPickerWidth, alignment: .trailing)
-                    }
-                    .frame(width: fieldWidth, alignment: .trailing)
-                }
             }
             .background(
                 RoundedRectangle(cornerRadius: 20)
@@ -993,6 +1001,13 @@ struct SettingsView: View {
                 .font(.title2.weight(.semibold))
 
             databaseSettingsSection
+
+            Button {
+                openDatabaseLocation()
+            } label: {
+                Label(text(.settingsDatabaseOpenLocation), systemImage: "folder")
+            }
+            .buttonStyle(.bordered)
 
             Spacer()
         }
@@ -1015,7 +1030,7 @@ struct SettingsView: View {
                         )
                     )
                     .labelsHidden()
-                    .toggleStyle(.checkbox)
+                    .toggleStyle(.switch)
                     .accessibilityLabel(text(.settingsDatabaseEncryption))
                 }
                 .frame(width: fieldWidth, alignment: .trailing)
@@ -1037,22 +1052,6 @@ struct SettingsView: View {
                     .frame(width: fieldWidth, alignment: .trailing)
                 }
             }
-
-            Divider()
-
-            HStack {
-                Button {
-                    openDatabaseLocation()
-                } label: {
-                    Label(text(.settingsDatabaseOpenLocation), systemImage: "folder")
-                }
-                .buttonStyle(.bordered)
-                Spacer()
-            }
-            .padding(.horizontal, Layout.cardRowHorizontalPadding)
-            .padding(.vertical, Layout.cardRowVerticalPadding)
-
-            Divider()
         }
         .background(
             RoundedRectangle(cornerRadius: 20)
@@ -1060,39 +1059,28 @@ struct SettingsView: View {
         )
     }
 
-    private var reportTab: some View {
-        VStack(alignment: .leading, spacing: Layout.sectionSpacing) {
-            Text(text(.settingsReportTitle))
-                .font(.title2.weight(.semibold))
-
-            VStack(alignment: .leading, spacing: 0) {
-                proportionalFieldRow(text(.settingsReportWeekStart), tooltip: text(.settingsReportWeekStartTooltip)) { fieldWidth in
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        Picker("", selection: $settingsStore.reportWeekStart) {
-                            ForEach(ReportWeekStart.allCases) { option in
-                                Text(option.title(in: language)).tag(option)
-                            }
+    private var reportSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            proportionalFieldRow(text(.settingsReportWeekStart), tooltip: text(.settingsReportWeekStartTooltip)) { fieldWidth in
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    Picker("", selection: $settingsStore.reportWeekStart) {
+                        ForEach(ReportWeekStart.allCases) { option in
+                            Text(option.title(in: language)).tag(option)
                         }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        .fixedSize()
-                        .frame(width: Layout.reportPickerWidth, alignment: .trailing)
                     }
-                    .frame(width: fieldWidth, alignment: .trailing)
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                    .frame(width: Layout.reportPickerWidth, alignment: .trailing)
                 }
+                .frame(width: fieldWidth, alignment: .trailing)
             }
-            .background(
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(Color.gray.opacity(0.08))
-            )
-
-            Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(.horizontal, Layout.tabHorizontalPadding)
-        .padding(.vertical, Layout.tabVerticalPadding)
-        .accessibilityIdentifier("settings.tab.report")
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.gray.opacity(0.08))
+        )
     }
 
     private func proportionalFieldRow<Content: View>(
