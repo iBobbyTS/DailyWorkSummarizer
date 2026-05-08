@@ -12,7 +12,7 @@ SCHEME="${SCHEME:-DeskBrief}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 DESTINATION="${DESTINATION:-generic/platform=macOS}"
 DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-/tmp/DeskBriefArchiveDerivedData}"
-CODE_SIGNING_ALLOWED="${CODE_SIGNING_ALLOWED:-NO}"
+CODE_SIGNING_ALLOWED="${CODE_SIGNING_ALLOWED:-YES}"
 
 cd "${ROOT_DIR}"
 mkdir -p "${BUILD_DIR}"
@@ -34,6 +34,13 @@ if [[ ! -d "${ARCHIVED_APP_PATH}" ]]; then
 fi
 
 ditto "${ARCHIVED_APP_PATH}" "${APP_PATH}"
+
+if ! codesign -d --entitlements :- "${APP_PATH}" 2>/dev/null \
+  | grep -q "<key>com.apple.security.app-sandbox</key>"; then
+  echo "error: archived app is missing the app sandbox entitlement" >&2
+  echo "hint: keep CODE_SIGNING_ALLOWED=YES or archive from Xcode with signing enabled." >&2
+  exit 1
+fi
 
 echo "Archive: ${ARCHIVE_PATH}"
 echo "App: ${APP_PATH}"
