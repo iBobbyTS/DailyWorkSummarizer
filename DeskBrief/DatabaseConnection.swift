@@ -34,6 +34,10 @@ nonisolated final class DatabaseConnection: @unchecked Sendable {
         try dbQueue.writeWithoutTransaction(block)
     }
 
+    func migrate(_ migrator: DatabaseMigrator) throws {
+        try migrator.migrate(dbQueue)
+    }
+
     func rekey(to passphrase: DatabasePassphrase) throws {
         try dbQueue.barrierWriteWithoutTransaction { db in
             try db.changePassphrase(passphrase.value)

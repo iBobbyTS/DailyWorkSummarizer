@@ -676,4 +676,64 @@ extension DeskBriefTests {
 
         #expect(userDefaults.string(forKey: newKey) == AnalysisStartupMode.realtime.rawValue)
     }
+
+    @Test func databaseSchemaMigrationSetsVersionAndCreatesCurrentIndexes() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        _ = try AppDatabase(databaseURL: databaseURL)
+
+        #expect(try fetchInt("PRAGMA user_version;", databaseURL: databaseURL) == DatabaseSchema.currentSchemaVersion)
+        #expect(try columnNames(in: "analysis_results", databaseURL: databaseURL) == [
+            "id",
+            "captured_at",
+            "category_name",
+            "summary_text",
+            "duration_minutes_snapshot",
+        ])
+        let indexes = try indexNames(databaseURL: databaseURL)
+        #expect(indexes.contains("idx_analysis_results_captured_at_unique"))
+        #expect(indexes.contains("idx_daily_work_block_summaries_interval"))
+        #expect(indexes.contains("idx_app_logs_created_at"))
+    }
+
+    @Test func databaseSchemaMigrationDoesNotRepeatOrDestroyExistingDataOnReopen() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        defer { removeTemporaryDatabaseFiles(at: databaseURL) }
+
+        do {
+            let firstDatabase = try AppDatabase(databaseURL: databaseURL)
+            try firstDatabase.insertAppLog(AppLogEntry(level: .log, source: .app, message: "keep me"), maxEntries: 100)
+        }
+
+        let reopenedDatabase = try AppDatabase(databaseURL: databaseURL)
+        let logs = try reopenedDatabase.fetchAppLogs(limit: nil)
+
+        #expect(try fetchInt("PRAGMA user_version;", databaseURL: databaseURL) == DatabaseSchema.currentSchemaVersion)
+        #expect(logs.map(\.message) == ["keep me"])
+    }
+
+    @MainActor
+    @Test func settingsStoreIgnoresLegacyUnprefixedAnalysisStartupModeKey() async throws {
+        let databaseURL = makeTemporaryDatabaseURL()
+        let suiteName = "DeskBriefTests.\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        let keychain = KeychainStore(service: suiteName)
+
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+            keychain.set("", for: AppDefaults.apiKeyAccount)
+            keychain.set("", for: AppDefaults.workContentSummaryAPIKeyAccount)
+            removeTemporaryDatabaseFiles(at: databaseURL)
+        }
+
+        userDefaults.set(AnalysisStartupMode.realtime.rawValue, forKey: "settings.analysisStartupMode")
+
+        let database = try AppDatabase(databaseURL: databaseURL)
+        let store = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain)
+
+        #expect(store.analysisStartupMode == AppDefaults.analysisStartupMode)
+        #expect(userDefaults.string(forKey: "com.deskbrief.settings.analysisStartupMode") == AppDefaults.analysisStartupMode.rawValue)
+        #expect(userDefaults.string(forKey: "settings.analysisStartupMode") == AnalysisStartupMode.realtime.rawValue)
+    }
 }
