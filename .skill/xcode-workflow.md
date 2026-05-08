@@ -59,9 +59,14 @@ xcodebuild build \
   CODE_SIGNING_ALLOWED=NO
 ```
 
+```sh
+scripts/archive-release.sh
+```
+
 实践要点：
 
 - 默认 DerivedData 路径在当前沙箱里容易触发日志目录权限错误，因此统一把 `-derivedDataPath` 指到 `/tmp`。
+- 需要生成 Release archive 和可直接检查的 `.app` 时，优先用 `scripts/archive-release.sh`。它会生成 `build/DeskBrief.xcarchive`，并从归档中复制出 `build/DeskBrief.app`；默认使用 `/tmp/DeskBriefArchiveDerivedData` 且 `CODE_SIGNING_ALLOWED=NO`，可通过同名环境变量覆盖。
 - 在受限沙箱里跑 `xcodebuild test` 可能需要 macOS test runner 权限。常见失败是 `Connection init failed at lookup with error 159 - Sandbox restriction` 或 `attempt to post distributed notification ... thwarted by sandboxing`；如果当前运行环境明确给了 runner 权限，就不要再请求提权。
 - `CoreSimulatorService connection became invalid`、`attempt to post distributed notification ... thwarted by sandboxing` 这类输出在 macOS CLI 环境里常见；只有在最终出现真正的 `SwiftCompile` / `Test Failure` 时才按失败处理。
 - UI 测试默认不是首选排障入口。先跑 `DeskBriefTests`，只有明确要验证窗口流程或系统权限交互时再考虑 `DeskBriefUITests`。
