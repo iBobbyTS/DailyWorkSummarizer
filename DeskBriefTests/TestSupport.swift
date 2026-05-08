@@ -337,6 +337,26 @@ func fetchInt(_ sql: String, databaseURL: URL) throws -> Int {
     return Int(sqlite3_column_int64(statement, 0))
 }
 
+func indexNames(databaseURL: URL) throws -> [String] {
+    let handle = try openSQLite(at: databaseURL)
+    defer { sqlite3_close(handle) }
+
+    var statement: OpaquePointer?
+    let sql = "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name;"
+    guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
+        throw DatabaseError.prepareStatement(handle.map { String(cString: sqlite3_errmsg($0)) } ?? "sqlite prepare failed")
+    }
+    defer { sqlite3_finalize(statement) }
+
+    var names: [String] = []
+    while sqlite3_step(statement) == SQLITE_ROW {
+        if let text = sqlite3_column_text(statement, 0) {
+            names.append(String(cString: text))
+        }
+    }
+    return names
+}
+
 func executeSQLite(_ sql: String, databaseURL: URL) throws {
     let handle = try openSQLite(at: databaseURL)
     defer { sqlite3_close(handle) }
