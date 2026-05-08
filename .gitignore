@@ -3,3 +3,5 @@
 .kilo
 TODO.md
 build/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
