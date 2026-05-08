@@ -9,9 +9,12 @@
 
 关键落盘位置：
 
-- Application Support 目录：`~/Library/Application Support/DeskBrief/`
-- 数据库：`~/Library/Application Support/DeskBrief/desk-brief.sqlite`
-- Sandboxed App 数据库：`~/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite`
+- Release / 生产 bundle id：`com.iBobby.DeskBrief`
+- Debug / 开发 bundle id：`com.iBobby.DeskBrief.dev`
+- 非 sandbox Release Application Support 目录：`~/Library/Application Support/DeskBrief/`
+- 非 sandbox Release 数据库：`~/Library/Application Support/DeskBrief/desk-brief.sqlite`
+- Sandboxed Release 数据库：`~/Library/Containers/com.iBobby.DeskBrief/Data/Library/Application Support/DeskBrief/desk-brief.sqlite`
+- Sandboxed Debug 数据库：`~/Library/Containers/com.iBobby.DeskBrief.dev/Data/Library/Application Support/DeskBrief/desk-brief.sqlite`
 - 正式截屏目录：`~/Library/Application Support/DeskBrief/screenshots/`
 - 预览截屏目录：`~/Library/Application Support/DeskBrief/screenshots/preview/`
 - 模型测试临时截屏目录：`~/Library/Application Support/DeskBrief/screenshots/temp/`
@@ -35,7 +38,7 @@
   保存定时、语言、provider、base URL、model name、imageAnalysisMethod 等普通设置。
 - `Keychain`
   保存数据库密钥和两套 API key：
-  - 数据库：service `com.iBobby.DeskBrief`，account `database-passphrase.main`
+  - 数据库：Release service `com.iBobby.DeskBrief` / Debug service `com.iBobby.DeskBrief.dev`，account `database-passphrase.main`
   - 截屏分析：`model-api-key.screenshot-analysis`
   - 工作内容总结：`model-api-key.work-content-summary`
   - Keychain item 必须能按 UTF-8 解码；读到无法解码的 Data 时按凭据损坏处理，不要当作缺失密钥或空 API key。

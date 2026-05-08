@@ -2,7 +2,14 @@
 
 ## Local storage layout
 
-The app stores runtime data under Application Support:
+The app separates the development and release app identities by bundle identifier:
+
+- Debug app builds use `com.iBobby.DeskBrief.dev`.
+- Release app builds use `com.iBobby.DeskBrief`.
+
+UserDefaults domains, Keychain services, and sandbox containers are scoped by that bundle identifier. Use Debug builds for local development data and Release builds for production or upgrade-path validation.
+
+The release app stores runtime data under Application Support:
 
 - Database
   `~/Library/Application Support/DeskBrief/desk-brief.sqlite`
@@ -13,6 +20,17 @@ The app stores runtime data under Application Support:
   `~/Library/Application Support/DeskBrief/screenshots/preview/`
 - Model-test temporary screenshots
   `~/Library/Application Support/DeskBrief/screenshots/temp/`
+
+Sandboxed Debug builds use the development container instead:
+
+- Database
+  `~/Library/Containers/com.iBobby.DeskBrief.dev/Data/Library/Application Support/DeskBrief/desk-brief.sqlite`
+- Screenshot directory
+  `~/Library/Containers/com.iBobby.DeskBrief.dev/Data/Library/Application Support/DeskBrief/screenshots/`
+- Development UserDefaults domain
+  `com.iBobby.DeskBrief.dev`
+- Development Keychain service
+  `com.iBobby.DeskBrief.dev`
 
 ## Database tables
 
