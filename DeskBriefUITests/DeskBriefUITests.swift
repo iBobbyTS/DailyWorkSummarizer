@@ -108,6 +108,19 @@ final class DeskBriefUITests: XCTestCase {
     }
 
     @MainActor
+    func testNotificationActionOpensReportsAndLogs() throws {
+        let app = launchIsolatedApp(
+            opening: "--deskbrief-open-notification-action=openReportsAndLogs",
+            additionalArguments: ["--deskbrief-seed-ui-test-data"]
+        )
+
+        XCTAssertTrue(accessibilityElement("reports.root", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(accessibilityElement("logs.root", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(hasAnyElement(["Report type", "报告类型"], in: app))
+        XCTAssertTrue(app.staticTexts["ui test error message"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testDatabaseEncryptionEnableConfirmation() throws {
         let app = launchIsolatedApp(opening: "--deskbrief-open-settings-general")
 

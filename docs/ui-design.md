@@ -65,6 +65,7 @@ DeskBrief is a compact macOS menu bar utility. Its UI should feel like a focused
 - Scheduled and realtime automatic analysis should notify only when it generated at least one daily report or when the run failed or partially failed. Successful screenshot-only automatic runs stay silent.
 - Realtime mode may also send a backlog warning if the pending screenshot count grows by at least five between five-minute checks. The warning should stay concise and should not change the run state.
 - Partial failures and failed runs should direct the user to the log window instead of embedding detailed diagnostics in the notification body.
+- Clicking analysis-completion notifications should open the most useful existing windows: successful runs open Reports, partial failures open Reports and Logs, and complete failures open Logs.
 
 ## Reports And Logs
 

@@ -21,6 +21,7 @@ private struct AppLaunchConfiguration {
     let openReportsWindow: Bool
     let openLogsWindow: Bool
     let openAnalysisRunsWindow: Bool
+    let notificationAction: AppNotificationAction?
     let seedUITestData: Bool
     let supportDirectory: URL?
     let userDefaultsSuiteName: String?
@@ -48,11 +49,20 @@ private struct AppLaunchConfiguration {
             openReportsWindow: arguments.contains("--deskbrief-open-reports"),
             openLogsWindow: arguments.contains("--deskbrief-open-logs"),
             openAnalysisRunsWindow: arguments.contains("--deskbrief-open-analysis-runs"),
+            notificationAction: AppLaunchConfiguration.notificationAction(from: processInfo.arguments),
             seedUITestData: arguments.contains("--deskbrief-seed-ui-test-data"),
             supportDirectory: supportDirectory,
             userDefaultsSuiteName: environment["DESKBRIEF_UI_TEST_DEFAULTS_SUITE"],
             keychainService: environment["DESKBRIEF_UI_TEST_KEYCHAIN_SERVICE"]
         )
+    }
+
+    private static func notificationAction(from arguments: [String]) -> AppNotificationAction? {
+        let prefix = "--deskbrief-open-notification-action="
+        guard let argument = arguments.first(where: { $0.hasPrefix(prefix) }) else {
+            return nil
+        }
+        return AppNotificationAction(rawValue: String(argument.dropFirst(prefix.count)))
     }
 }
 
@@ -107,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var dailyReportSummaryService: DailyReportSummaryService?
     private var reportsViewModel: ReportsViewModel?
     private var logStore: AppLogStore?
+    private var notificationService: SystemAppNotificationService?
     private var automaticScreenshotCleanupTimer: AutomaticScreenshotCleanupTimer?
     private let statusSummaryItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private let statusAverageDurationItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
@@ -220,11 +231,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let userDefaults = launchConfiguration.userDefaultsSuiteName.flatMap(UserDefaults.init(suiteName:)) ?? .standard
         let settingsStore = SettingsStore(database: database, userDefaults: userDefaults, keychain: keychain, logStore: logStore)
         let notificationService = SystemAppNotificationService(logStore: logStore)
+        notificationService.onAction = { [weak self] action in
+            self?.handleNotificationAction(action)
+        }
         let credentialProvider: CredentialProviding = KeychainCredentialProvider(keychain: keychain)
 
         self.database = database
         self.settingsStore = settingsStore
         self.logStore = logStore
+        self.notificationService = notificationService
         self.screenshotService = ScreenshotService(database: database, settingsStore: settingsStore, logStore: logStore)
         let dailyReportSummaryService = DailyReportSummaryService(
             database: database,
@@ -476,6 +491,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
         if launchConfiguration.openAnalysisRunsWindow {
             openAnalysisRuns()
+        }
+        if let notificationAction = launchConfiguration.notificationAction {
+            handleNotificationAction(notificationAction)
         }
     }
 
@@ -747,6 +765,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         window.center()
         reportsWindow = window
         activateAndShow(window)
+    }
+
+    private func handleNotificationAction(_ action: AppNotificationAction) {
+        switch action {
+        case .openReports:
+            openReports()
+        case .openLogs:
+            openLogs()
+        case .openReportsAndLogs:
+            openReports()
+            openLogs()
+        }
     }
 
     @objc private func quit() {

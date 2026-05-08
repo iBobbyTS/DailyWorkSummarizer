@@ -4,6 +4,32 @@ import UserNotifications
 nonisolated struct AppNotificationMessage: Equatable {
     let title: String
     let body: String
+    let action: AppNotificationAction?
+
+    init(title: String, body: String, action: AppNotificationAction? = nil) {
+        self.title = title
+        self.body = body
+        self.action = action
+    }
+}
+
+nonisolated enum AppNotificationAction: String, Equatable, Sendable {
+    case openReports
+    case openLogs
+    case openReportsAndLogs
+
+    static let userInfoKey = "DeskBrief.notificationAction"
+
+    init?(userInfo: [AnyHashable: Any]) {
+        guard let rawValue = userInfo[Self.userInfoKey] as? String else {
+            return nil
+        }
+        self.init(rawValue: rawValue)
+    }
+
+    var userInfo: [AnyHashable: Any] {
+        [Self.userInfoKey: rawValue]
+    }
 }
 
 @MainActor
@@ -21,6 +47,7 @@ final class SystemAppNotificationService: NSObject, AppNotificationSending, UNUs
     private let center: UNUserNotificationCenter
     private weak var logStore: AppLogStore?
     private var didRequestAuthorization = false
+    var onAction: ((AppNotificationAction) -> Void)?
 
     init(
         center: UNUserNotificationCenter = .current(),
@@ -46,6 +73,9 @@ final class SystemAppNotificationService: NSObject, AppNotificationSending, UNUs
         content.title = message.title
         content.body = message.body
         content.sound = .default
+        if let action = message.action {
+            content.userInfo = action.userInfo
+        }
 
         let request = UNNotificationRequest(
             identifier: "DeskBrief.\(UUID().uuidString)",
@@ -88,6 +118,22 @@ final class SystemAppNotificationService: NSObject, AppNotificationSending, UNUs
         willPresent _: UNNotification
     ) async -> UNNotificationPresentationOptions {
         [.banner, .list, .sound]
+    }
+
+    nonisolated func userNotificationCenter(
+        _: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+              let action = AppNotificationAction(
+                userInfo: response.notification.request.content.userInfo
+              ) else {
+            return
+        }
+
+        await MainActor.run { [weak self] in
+            self?.onAction?(action)
+        }
     }
 }
 
@@ -231,6 +277,11 @@ nonisolated enum AppNotificationMessageBuilder {
                     .notificationAnalysisFailedBody,
                     language: language,
                     arguments: [L10n.notificationScreenshotCount(failureCount, language: language)]
+                ),
+                action: analysisCompletionAction(
+                    successCount: successCount,
+                    failureCount: failureCount,
+                    summaryFailed: summaryFailed
                 )
             )
         }
@@ -272,8 +323,27 @@ nonisolated enum AppNotificationMessageBuilder {
 
         return AppNotificationMessage(
             title: L10n.string(.notificationAnalysisCompleteTitle, language: language),
-            body: L10n.string(bodyKey, language: language, arguments: arguments)
+            body: L10n.string(bodyKey, language: language, arguments: arguments),
+            action: analysisCompletionAction(
+                successCount: successCount,
+                failureCount: failureCount,
+                summaryFailed: summaryFailed
+            )
         )
+    }
+
+    private static func analysisCompletionAction(
+        successCount: Int,
+        failureCount: Int,
+        summaryFailed: Bool
+    ) -> AppNotificationAction? {
+        if successCount > 0 {
+            return failureCount > 0 || summaryFailed ? .openReportsAndLogs : .openReports
+        }
+        if failureCount > 0 {
+            return .openLogs
+        }
+        return nil
     }
 
     static func backfillCompletion(

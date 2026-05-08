@@ -1252,6 +1252,7 @@ extension DeskBriefTests {
         #expect(oneReport.body.contains("已分析 3 张截屏"))
         #expect(oneReport.body.contains("日报"))
         #expect(oneReport.body.contains("2026年4月27日"))
+        #expect(oneReport.action == .openReports)
 
         let multipleReports = try #require(AppNotificationMessageBuilder.analysisCompletion(
             context: manualContext,
@@ -1259,6 +1260,7 @@ extension DeskBriefTests {
             language: .simplifiedChinese
         ))
         #expect(multipleReports.body == "已分析 3 张截屏，并生成 2 个日报。")
+        #expect(multipleReports.action == .openReports)
 
         let partial = try #require(AppNotificationMessageBuilder.analysisCompletion(
             context: AnalysisCompletionNotificationContext(
@@ -1270,6 +1272,20 @@ extension DeskBriefTests {
             language: .simplifiedChinese
         ))
         #expect(partial.body == "已分析 2 张截屏，1 张截屏失败。请进入日志查看详情。")
+        #expect(partial.action == .openReportsAndLogs)
+
+        let summaryFailed = try #require(AppNotificationMessageBuilder.analysisCompletion(
+            context: AnalysisCompletionNotificationContext(
+                trigger: .manual,
+                successfulScreenshotCount: 2,
+                failedScreenshotCount: 0
+            ),
+            dailyReportDayStarts: [day],
+            summaryFailed: true,
+            language: .simplifiedChinese
+        ))
+        #expect(summaryFailed.body == "已分析 2 张截屏，并生成 2026年4月27日·星期一 的日报，但部分日报生成失败。请进入日志查看详情。")
+        #expect(summaryFailed.action == .openReportsAndLogs)
 
         let failed = try #require(AppNotificationMessageBuilder.analysisCompletion(
             context: AnalysisCompletionNotificationContext(
@@ -1282,6 +1298,7 @@ extension DeskBriefTests {
         ))
         #expect(failed.title == "分析失败")
         #expect(failed.body == "本次分析运行失败，4 张截屏失败。请进入日志查看详情。")
+        #expect(failed.action == .openLogs)
 
         let backfill = AppNotificationMessageBuilder.backfillCompletion(
             workBlockSummariesCreatedCount: 5,
@@ -1291,6 +1308,7 @@ extension DeskBriefTests {
             language: .simplifiedChinese
         )
         #expect(backfill.body == "已补充 5 个工作块总结，2 个日报。")
+        #expect(backfill.action == nil)
 
         let backlog = AppNotificationMessageBuilder.realtimeAnalysisBacklogWarning(
             warning: RealtimeAnalysisBacklogWarning(
@@ -1301,6 +1319,7 @@ extension DeskBriefTests {
         )
         #expect(backlog.title == "实时分析可能在积压")
         #expect(backlog.body == "当前有 9 张截屏待分析，比上次检查多 5 张截屏。")
+        #expect(backlog.action == nil)
     }
 
     @Test func notificationMessageBuilderSkipsQuietAutomaticSuccessAndEmptyCancellation() async throws {
@@ -1323,6 +1342,14 @@ extension DeskBriefTests {
             dailyReportDayStarts: [],
             language: .simplifiedChinese
         ) == nil)
+    }
+
+    @Test func notificationActionParsesUserInfo() {
+        #expect(AppNotificationAction(userInfo: AppNotificationAction.openReports.userInfo) == .openReports)
+        #expect(AppNotificationAction(userInfo: AppNotificationAction.openLogs.userInfo) == .openLogs)
+        #expect(AppNotificationAction(userInfo: AppNotificationAction.openReportsAndLogs.userInfo) == .openReportsAndLogs)
+        #expect(AppNotificationAction(userInfo: [:]) == nil)
+        #expect(AppNotificationAction(userInfo: [AppNotificationAction.userInfoKey: "unknown"]) == nil)
     }
 
     @Test func realtimeAnalysisBacklogMonitorWarnsOnEachFiveScreenshotIncrease() {

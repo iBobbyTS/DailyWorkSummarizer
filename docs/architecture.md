@@ -25,7 +25,7 @@ The app is centered around a small set of long-lived services created at launch 
 - `DailyReportSummaryService`
   Daily-summary generation, contiguous daily work-block summary generation, runtime state, cancellation, and backfill for missing work summaries.
 - `SystemAppNotificationService`
-  Lazy-authorized macOS local notifications for background run completion and failure messages.
+  Lazy-authorized macOS local notifications for background run completion and failure messages, including click actions for analysis-completion notifications.
 - `LLMService`
   Shared provider adapter for OpenAI, Anthropic, LM Studio, and Apple Intelligence.
 - `LMStudioModelLifecycle`
@@ -103,6 +103,7 @@ The app is centered around a small set of long-lived services created at launch 
 - Failed per-screenshot attempts update run-level counts and also write actionable runtime errors to `app_logs`.
 - After a run completes, the service updates run status and submits one unified summary request to the coordinator. That request has separate scopes for daily work-block summaries and daily report generation, but both pieces run inside the same work-content summary run. The summary run starts only after the analysis runtime state is idle. If LM Studio is involved, the analysis-to-summary handoff still decides whether to reuse, unload, switch, or temporarily load a summary model based on the two model profiles and their lifecycle toggles.
 - Manual analysis sends a completion notification after the run result is known. If daily reports are candidates, the notification is deferred until the unified summary run finishes so the message can include generated daily reports or summary failures. Scheduled and realtime runs stay quiet when they only succeed at screenshot analysis, but they notify when daily reports are generated or when the run fails.
+- Clicking an analysis-completion notification routes through `AppDelegate`: all-success opens Reports, partial screenshot or summary failure opens Reports and Logs, and complete screenshot failure opens Logs. User cancellation only affects the route through failures that had already been counted before cancellation.
 - While realtime startup mode is active, `AnalysisService` also samples the pending screenshot count every five minutes. If the count has grown by at least five since the previous sample, it sends a local warning notification that realtime analysis may be backlogged. This monitor only observes the screenshot folder and does not create, cancel, or reprioritize runs.
 
 ### 4. Daily summary flow
