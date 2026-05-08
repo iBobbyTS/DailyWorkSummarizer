@@ -33,6 +33,21 @@ final class DeskBriefUITests: XCTestCase {
     }
 
     @MainActor
+    func testModelCopyButtonShowsConfirmation() throws {
+        let app = launchIsolatedApp(opening: "--deskbrief-open-settings")
+
+        XCTAssertTrue(accessibilityElement("settings.root", in: app).waitForExistence(timeout: 5))
+
+        button(matchingLabels: ["Copy to Work Content Summary", "复制到“工作内容总结”"], in: app).click()
+
+        XCTAssertTrue(hasAnyElement(["Confirm model config copy", "确认复制模型配置"], in: app))
+        XCTAssertTrue(hasAnyElement([
+            "This will overwrite the model configuration in Work Content Summary.",
+            "确认后会覆盖“工作内容总结”里的模型配置。"
+        ], in: app))
+    }
+
+    @MainActor
     func testReportsWindowSmoke() throws {
         let app = launchIsolatedApp(opening: "--deskbrief-open-reports")
 

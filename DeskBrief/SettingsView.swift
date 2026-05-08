@@ -133,6 +133,17 @@ struct SettingsView: View {
         )
     }
 
+    private var isModelCopyConfirmationPresented: Binding<Bool> {
+        Binding<Bool>(
+            get: { pendingModelCopyDestination != nil },
+            set: { isPresented in
+                if !isPresented {
+                    pendingModelCopyDestination = nil
+                }
+            }
+        )
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
             screenshotAnalysisTab
@@ -150,15 +161,22 @@ struct SettingsView: View {
         .accessibilityIdentifier("settings.root")
         .padding(20)
         .frame(minWidth: 700, minHeight: 560)
-        .alert(item: $pendingModelCopyDestination) { destination in
-            Alert(
-                title: Text(text(.settingsModelCopyConfirmTitle)),
-                message: Text(copyConfirmationMessage(for: destination)),
-                primaryButton: .destructive(Text(text(.commonConfirm))) {
+        .confirmationDialog(
+            text(.settingsModelCopyConfirmTitle),
+            isPresented: isModelCopyConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            if let destination = pendingModelCopyDestination {
+                Button(text(.commonConfirm), role: .destructive) {
                     copyModelConfiguration(to: destination)
-                },
-                secondaryButton: .cancel(Text(text(.commonCancel)))
-            )
+                    pendingModelCopyDestination = nil
+                }
+            }
+            Button(text(.commonCancel), role: .cancel) {
+                pendingModelCopyDestination = nil
+            }
+        } message: {
+            Text(pendingModelCopyDestination.map(copyConfirmationMessage(for:)) ?? "")
         }
         .alert(item: $settingsStore.persistenceAlert) { alert in
             Alert(
