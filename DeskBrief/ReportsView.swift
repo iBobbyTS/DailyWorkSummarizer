@@ -5,6 +5,8 @@ import SwiftUI
 struct ReportsView: View {
     private enum Layout {
         static let chartTypePickerWidth: CGFloat = 260
+        static let heatmapHoverCardWidth: CGFloat = 280
+        static let heatmapHoverCardSpacing: CGFloat = 12
     }
 
     @ObservedObject var viewModel: ReportsViewModel
@@ -113,77 +115,69 @@ struct ReportsView: View {
     }
 
     private var leftPanel: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 16) {
-                Picker(text(.reportType), selection: selectedKindBinding) {
-                    ForEach(ReportKind.allCases) { kind in
-                        Text(kind.title(in: language)).tag(kind)
-                    }
+        VStack(alignment: .leading, spacing: 16) {
+            Picker(text(.reportType), selection: selectedKindBinding) {
+                ForEach(ReportKind.allCases) { kind in
+                    Text(kind.title(in: language)).tag(kind)
                 }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("reports.kindPicker")
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("reports.kindPicker")
 
-                HStack {
-                    Button(text(.reportPreviousPage)) {
-                        viewModel.showPreviousPage()
-                    }
-                    .disabled(viewModel.selectedPage == 0)
-
-                    Spacer()
-
-                    Text("\(viewModel.selectedPage + 1) / \(viewModel.totalPages)")
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Button(text(.reportNextPage)) {
-                        viewModel.showNextPage()
-                    }
-                    .disabled(viewModel.selectedPage + 1 >= viewModel.totalPages)
+            HStack {
+                Button(text(.reportPreviousPage)) {
+                    viewModel.showPreviousPage()
                 }
+                .disabled(viewModel.selectedPage == 0)
 
-                ScrollView {
-                    LazyVStack(spacing: 10) {
-                        ForEach(viewModel.pageItems) { range in
-                            Button {
-                                viewModel.selectRange(id: range.id)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(range.label)
-                                        .font(.headline)
-                                        .foregroundStyle(.primary)
-                                    HStack(spacing: 8) {
-                                        Text(text(.reportTotalDuration, arguments: [
-                                            range.totalHours.durationText(for: viewModel.selectedKind, language: language)
+                Spacer()
+
+                Text("\(viewModel.selectedPage + 1) / \(viewModel.totalPages)")
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Button(text(.reportNextPage)) {
+                    viewModel.showNextPage()
+                }
+                .disabled(viewModel.selectedPage + 1 >= viewModel.totalPages)
+            }
+
+            ScrollView {
+                LazyVStack(spacing: 10) {
+                    ForEach(viewModel.pageItems) { range in
+                        Button {
+                            viewModel.selectRange(id: range.id)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(range.label)
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                HStack(spacing: 8) {
+                                    Text(text(.reportTotalDuration, arguments: [
+                                        range.totalHours.durationText(for: viewModel.selectedKind, language: language)
+                                    ]))
+                                        .foregroundStyle(.secondary)
+                                    if viewModel.selectedKind != .day {
+                                        Text(text(.reportAverageDuration, arguments: [
+                                            range.averageHoursPerDay.durationText(for: viewModel.selectedKind, language: language)
                                         ]))
                                             .foregroundStyle(.secondary)
-                                        if viewModel.selectedKind != .day {
-                                            Text(text(.reportAverageDuration, arguments: [
-                                                range.averageHoursPerDay.durationText(for: viewModel.selectedKind, language: language)
-                                            ]))
-                                                .foregroundStyle(.secondary)
-                                        }
                                     }
                                 }
-                                .padding(12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .fill(viewModel.selectedRangeID == range.id ? Color.accentColor.opacity(0.14) : Color.gray.opacity(0.08))
-                                )
                             }
-                            .buttonStyle(.plain)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(viewModel.selectedRangeID == range.id ? Color.accentColor.opacity(0.14) : Color.gray.opacity(0.08))
+                            )
                         }
+                        .buttonStyle(.plain)
                     }
                 }
-                .frame(maxHeight: .infinity, alignment: .top)
             }
-
-            if let hoveredHeatmapSummary {
-                heatmapHoverCard(summary: hoveredHeatmapSummary)
-                    .padding(.top, 88)
-                    .padding(.trailing, 8)
-            }
+            .frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .padding(20)
@@ -204,13 +198,7 @@ struct ReportsView: View {
 
         return VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .center, spacing: 12) {
-                if let selectedRange = viewModel.selectedRange {
-                    Text(selectedRange.label)
-                        .font(.title2.weight(.semibold))
-                } else {
-                    Text(text(.reportViewTitle))
-                        .font(.title2.weight(.semibold))
-                }
+                reportHeaderTitle
 
                 Spacer(minLength: 0)
 
@@ -221,6 +209,7 @@ struct ReportsView: View {
                     .disabled(viewModel.isGeneratingDailyReport)
                 }
             }
+            .zIndex(1)
 
             if viewModel.selectedKind == .day,
                let selectedDailyReport = viewModel.selectedDailyReport {
@@ -340,6 +329,26 @@ struct ReportsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(24)
+    }
+
+    @ViewBuilder
+    private var reportHeaderTitle: some View {
+        if let selectedRange = viewModel.selectedRange {
+            Text(selectedRange.label)
+                .font(.title2.weight(.semibold))
+                .overlay(alignment: .topTrailing) {
+                    if let hoveredHeatmapSummary {
+                        heatmapHoverCard(summary: hoveredHeatmapSummary)
+                            .offset(
+                                x: Layout.heatmapHoverCardWidth + Layout.heatmapHoverCardSpacing,
+                                y: 0
+                            )
+                    }
+                }
+        } else {
+            Text(text(.reportViewTitle))
+                .font(.title2.weight(.semibold))
+        }
     }
 
     private func chartView(
@@ -518,7 +527,7 @@ struct ReportsView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
-        .frame(width: 280, alignment: .leading)
+        .frame(width: Layout.heatmapHoverCardWidth, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(Color(nsColor: .windowBackgroundColor).opacity(0.96))
