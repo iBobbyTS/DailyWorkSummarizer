@@ -144,7 +144,7 @@ The app is centered around a small set of long-lived services created at launch 
   - daily summary records for the selected day
 - Daily heatmaps prefer `daily_work_block_summaries` where records overlap the visible range. Uncovered time ranges fall back to `analysis_results` for visual blocks only; hover text is shown only for records stored in `daily_work_block_summaries`. Overlaps are subtracted so a stored work-block summary owns its full interval.
 - Weekly heatmaps normalize brightness for selected non-away categories as one combined pool, while away time is normalized separately. The preserved Other category and Away are ordered last in legends and heatmap rows; bar charts omit Away bars but keep Away in the legend.
-- Daily heatmap hover details are shown in the left report-selection area so hover text does not move the heatmap layout. The visible rectangle is clipped to the selected day, but the hover title uses the full stored work-block time span.
+- Daily heatmap hover details are anchored next to the selected date in the right report header so hover text does not move the heatmap layout or cover the left report selector. The visible rectangle is clipped to the selected day, but the hover title uses the full stored work-block time span.
 - Chart legends, bars, and heatmap blocks use the fixed color stored on each category rule, with a preset fallback for historical categories that are no longer configured.
 - `ReportsView.swift` stays focused on panel composition and high-level chart selection. `ReportLegendViews.swift` owns legend hover geometry and wrapping layout, while `ReportHeatmapViews.swift` owns day, week, month, and year heatmap rendering.
 
